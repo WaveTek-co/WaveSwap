@@ -1,44 +1,46 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { ExclamationTriangleIcon, ShieldCheckIcon } from '@heroicons/react/24/outline'
 import { usePrivacyMode } from '../contexts/PrivacyContext'
 
 export default function PrivacyReminder() {
   const { privacyMode, togglePrivacyMode } = usePrivacyMode()
   const [showReminder, setShowReminder] = useState(false)
-  const [hasBeenDismissed, setHasBeenDismissed] = useState(false)
+  const previousPrivacyModeRef = useRef(true) // Track previous state with ref
 
   useEffect(() => {
-    // Check if user has dismissed the reminder in this session
-    const dismissed = sessionStorage.getItem('privacy-reminder-dismissed')
-    setHasBeenDismissed(!!dismissed)
+    // Show reminder whenever privacy mode changes from true to false
+    const previousPrivacyMode = previousPrivacyModeRef.current
 
-    // Show reminder if privacy mode is off and hasn't been dismissed
-    if (!privacyMode && !dismissed) {
+    if (previousPrivacyMode === true && privacyMode === false) {
       const timer = setTimeout(() => {
         setShowReminder(true)
-      }, 3000) // Show after 3 seconds
+      }, 1500) // Show after 1.5 seconds for better UX
       return () => clearTimeout(timer)
     }
 
+    // Hide reminder when privacy mode is turned back on
+    if (privacyMode === true) {
+      setShowReminder(false)
+    }
+
+    // Update ref for next comparison
+    previousPrivacyModeRef.current = privacyMode
     return undefined
-  }, [privacyMode, hasBeenDismissed])
+  }, [privacyMode])
 
   const handleEnablePrivacy = () => {
     togglePrivacyMode()
     setShowReminder(false)
-    sessionStorage.removeItem('privacy-reminder-dismissed')
   }
 
   const handleDismiss = () => {
     setShowReminder(false)
-    setHasBeenDismissed(true)
-    sessionStorage.setItem('privacy-reminder-dismissed', 'true')
   }
 
-  // Don't show anything if privacy mode is on or reminder was dismissed
-  if (privacyMode || hasBeenDismissed || !showReminder) {
+  // Don't show anything if privacy mode is on or reminder is not showing
+  if (privacyMode || !showReminder) {
     return null
   }
 
