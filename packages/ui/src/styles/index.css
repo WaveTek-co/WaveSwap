@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  /* Custom scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+
+  /* Glass effect */
+  .glass {
+    @apply bg-white/10 backdrop-blur-md border border-white/20;
+  }
+
+  .glass-dark {
+    @apply bg-gray-900/50 backdrop-blur-md border border-gray-700/50;
+  }
+
+  /* Button variants */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-700 text-white hover:bg-gray-600 focus:ring-gray-500;
+  }
+
+  .btn-privacy {
+    @apply btn bg-gradient-to-r from-teal-600 to-blue-600 hover:from-teal-700 hover:to-blue-700 text-white shadow-lg;
+  }
+
+  .btn-outline {
+    @apply btn border border-gray-300 bg-white hover:bg-gray-50 focus:ring-gray-500;
+  }
+
+  .btn-ghost {
+    @apply btn hover:bg-gray-100;
+  }
+
+  .btn-sm {
+    @apply h-9 px-3 rounded-md text-xs;
+  }
+
+  .btn-md {
+    @apply h-10 px-4 py-2;
+  }
+
+  .btn-lg {
+    @apply h-11 px-8 rounded-md text-base;
+  }
+
+  /* Input styles */
+  .input {
+    @apply flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Card styles */
+  .card {
+    @apply rounded-lg border bg-white text-gray-900 shadow-sm;
+  }
+
+  .card-header {
+    @apply flex flex-col space-y-1.5 p-6;
+  }
+
+  .card-title {
+    @apply text-2xl font-semibold leading-none tracking-tight;
+  }
+
+  .card-description {
+    @apply text-sm text-gray-600;
+  }
+
+  .card-content {
+    @apply p-6 pt-0;
+  }
+
+  .card-footer {
+    @apply flex items-center p-6 pt-0;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .badge-default {
+    @apply badge border-transparent bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  .badge-secondary {
+    @apply badge border-transparent bg-gray-100 text-gray-900 hover:bg-gray-200;
+  }
+
+  .badge-success {
+    @apply badge border-transparent bg-green-100 text-green-900 hover:bg-green-200;
+  }
+
+  .badge-warning {
+    @apply badge border-transparent bg-yellow-100 text-yellow-900 hover:bg-yellow-200;
+  }
+
+  .badge-error {
+    @apply badge border-transparent bg-red-100 text-red-900 hover:bg-red-200;
+  }
+
+  .badge-outline {
+    @apply badge text-gray-900 border border-gray-300;
+  }
+
+  .badge-privacy {
+    @apply badge border-teal-200 bg-teal-100 text-teal-900 hover:bg-teal-200;
+  }
+
+  /* Status indicators */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-success {
+    @apply status-dot bg-green-500;
+  }
+
+  .status-warning {
+    @apply status-dot bg-yellow-500;
+  }
+
+  .status-error {
+    @apply status-dot bg-red-500;
+  }
+
+  .status-processing {
+    @apply status-dot bg-blue-500 animate-pulse;
+  }
+
+  /* Loading spinner */
+  .spinner {
+    @apply animate-spin rounded-full border-2 border-gray-300 border-t-blue-600;
+  }
+
+  .spinner-sm {
+    @apply spinner h-4 w-4;
+  }
+
+  .spinner-md {
+    @apply spinner h-6 w-6;
+  }
+
+  .spinner-lg {
+    @apply spinner h-8 w-8;
+  }
+
+  /* Text gradients */
+  .text-gradient-primary {
+    @apply bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent;
+  }
+
+  .text-gradient-privacy {
+    @apply bg-gradient-to-r from-teal-400 to-blue-400 bg-clip-text text-transparent;
+  }
+}

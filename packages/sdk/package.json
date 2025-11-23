@@ -1,0 +1,94 @@
+{
+  "name": "@waveswap/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for WaveSwap privacy-preserving DEX aggregator",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs",
+      "types": "./dist/react/index.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types/index.js",
+      "require": "./dist/types/index.cjs",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun run build:core && bun run build:types",
+    "build:core": "bun build src/index.ts --outdir=dist --target=browser --format=esm --external:react --external:react-dom",
+    "build:react": "bun build src/react/index.ts --outdir=dist/react --target=browser --format=esm --external:react --external:react-dom",
+    "build:types": "bun run build:types:core",
+    "build:types:core": "tsc --declaration --emitDeclarationOnly --outDir dist",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "generate-idl": "bun run scripts/generate-idl.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@solana/wallet-adapter-base": "^0.9.23",
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/spl-token": "^0.4.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "eslint": "^9.0.0",
+    "vitest": "^2.0.0",
+    "@vitest/ui": "^2.0.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "solana",
+    "blockchain",
+    "defi",
+    "dex",
+    "privacy",
+    "cryptography",
+    "typescript",
+    "sdk",
+    "waveswap"
+  ],
+  "author": "WaveSwap Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/waveswap/waveswap.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/waveswap/waveswap/issues"
+  },
+  "homepage": "https://waveswap.io"
+}
