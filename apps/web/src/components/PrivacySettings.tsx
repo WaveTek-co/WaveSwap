@@ -22,10 +22,10 @@ const privacyProviders = [
   {
     id: 'encifher',
     name: 'Encifher (Coming Soon)',
-    description: 'Advanced privacy with encrypted transactions and zero-knowledge proofs',
+    description: 'Advanced privacy with encrypted transactions and enhanced confidentiality',
     features: [
       'Enhanced encryption',
-      'Zero-knowledge proofs',
+      'Advanced encryption protocols',
       'Private transaction pools',
       'Meta-transaction support'
     ],

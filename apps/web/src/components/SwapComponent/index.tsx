@@ -611,7 +611,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       <div className="mt-4 text-center">
         <p className="text-xs text-gray-500 max-w-md mx-auto">
           {privacyMode
-            ? "Private swaps use zero-knowledge proofs to hide transaction details. Fees may be higher than public swaps."
+            ? "Private swaps use enhanced encryption to protect transaction privacy. Fees may be higher than public swaps."
             : "Public swaps are executed on-chain transparently. All transaction details are publicly visible."
           }
         </p>
