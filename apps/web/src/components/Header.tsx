@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { LinkIcon, ShieldCheckIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react'
+import { PrivacyTag } from './PrivacyReminder'
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -39,6 +40,7 @@ export function Header() {
             </div>
           </div>
           <div className="ml-10 flex items-center space-x-4">
+            <PrivacyTag />
             <div className="hidden lg:block">
               <WalletMultiButton className="!bg-primary-600 hover:!bg-primary-700 !transition-colors !duration-200 !font-medium !py-2 !px-4 !rounded-lg" />
             </div>
@@ -132,6 +134,9 @@ export function Header() {
                       <span>Docs</span>
                       <LinkIcon className="h-4 w-4" />
                     </a>
+                  </div>
+                  <div className="py-3 px-6">
+                    <PrivacyTag />
                   </div>
                   <div className="py-6">
                     <div className="wallet-adapter-button-trigger">
