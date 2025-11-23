@@ -43,5 +43,6 @@ bun-workspace.toml
 *.pid.lock
 
 # Package directories that aren't the web app
-apps/backend
-packages
+apps/backend/*
+packages/*
+apps/docs/*
