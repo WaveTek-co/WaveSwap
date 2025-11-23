@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { ExclamationTriangleIcon, ShieldCheckIcon } from '@heroicons/react/24/outline'
-import { usePrivacySettings } from '../hooks/usePrivacySettings'
+import { usePrivacyMode } from '../contexts/PrivacyContext'
 
 export default function PrivacyReminder() {
-  const { privacyMode, togglePrivacyMode } = usePrivacySettings()
+  const { privacyMode, togglePrivacyMode } = usePrivacyMode()
   const [showReminder, setShowReminder] = useState(false)
   const [hasBeenDismissed, setHasBeenDismissed] = useState(false)
 
@@ -79,7 +79,7 @@ export default function PrivacyReminder() {
 
 // Also create a compact tag version for header
 export function PrivacyTag() {
-  const { privacyMode } = usePrivacySettings()
+  const { privacyMode } = usePrivacyMode()
 
   if (privacyMode) {
     return null

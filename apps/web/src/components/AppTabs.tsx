@@ -64,9 +64,11 @@ function TabContent({ tabId, privacyMode }: TabContentProps) {
   }
 }
 
+import { usePrivacyMode } from '@/contexts/PrivacyContext'
+
 export function AppTabs() {
   const [activeTab, setActiveTab] = useState('swap')
-  const [privacyMode, setPrivacyMode] = useState(true) // ON by default
+  const { privacyMode, setPrivacyMode } = usePrivacyMode()
 
   // Debug privacy mode
   console.log('AppTabs: privacyMode =', privacyMode)

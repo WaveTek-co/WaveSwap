@@ -5,6 +5,7 @@ import { CustomWalletProvider } from '@/components/providers/WalletProvider'
 import { WaveSwapProvider } from '@/components/providers/WaveSwapProvider'
 import { NoSSRProvider } from '@/components/providers/NoSSRProvider'
 import PrivacyReminder from '@/components/PrivacyReminder'
+import { PrivacyProvider } from '@/contexts/PrivacyContext'
 
 // Professional font stack for UI
 const inter = Inter({
@@ -80,16 +81,18 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${spaceGrotesk.variable} ${inter.variable} ${outfit.variable} ${geistMono.variable}`}>
       <body className="font-inter antialiased">
-        <NoSSRProvider>
-          <CustomWalletProvider>
-            <WaveSwapProvider>
-              <div className="min-h-screen bg-background text-foreground">
-                {children}
-                <PrivacyReminder />
-              </div>
-            </WaveSwapProvider>
-          </CustomWalletProvider>
-        </NoSSRProvider>
+        <PrivacyProvider>
+          <NoSSRProvider>
+            <CustomWalletProvider>
+              <WaveSwapProvider>
+                <div className="min-h-screen bg-background text-foreground">
+                  {children}
+                  <PrivacyReminder />
+                </div>
+              </WaveSwapProvider>
+            </CustomWalletProvider>
+          </NoSSRProvider>
+        </PrivacyProvider>
       </body>
     </html>
   )

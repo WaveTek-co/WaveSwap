@@ -106,6 +106,7 @@ module.exports = {
         mono: ['var(--font-geist-mono)', 'system-ui', 'monospace'],
         display: ['var(--font-space-grotesk)', 'system-ui', 'sans-serif'],
         outfit: ['var(--font-outfit)', 'system-ui', 'sans-serif'],
+        quantico: ['Quantico', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'primary': '0 4px 20px rgba(255, 255, 255, 0.1)',
