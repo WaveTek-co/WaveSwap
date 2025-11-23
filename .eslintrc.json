@@ -5,6 +5,10 @@
     "es2024": true,
     "browser": true
   },
+  "parserOptions": {
+    "ecmaVersion": 2024,
+    "sourceType": "module"
+  },
   "extends": [
     "eslint:recommended"
   ],
