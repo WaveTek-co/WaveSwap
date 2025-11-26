@@ -6,34 +6,23 @@ WaveTek is a cutting-edge, privacy-preserving decentralized exchange (DEX) aggre
 
 ### Platform Overview
 
-```
-                    ┌─────────────────────┐
-                    │   WaveTek Platform  │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │    Privacy Mode     │
-                    └─┬─────────┬─────────┘
-           ┌─────────▼┐     ┌─▼─────────┐
-           │  ENABLED │     │ DISABLED  │
-           └─────┬─────┘     └─────┬─────┘
-   ┌─────────────▼───────────▼─────────────┐
-   │     Private Swaps (Encifher SDK)      │
-   │     Public Swaps  (Jupiter API)       │
-   └───────────────────────────────────────┘
-                    │
-        ┌───────────┼────────────┐
-        │           │            │
-   ┌────▼───┐  ┌───▼───┐   ┌────▼────┐
-   │ Wave   │  │ Wave  │   │ Wave    │
-   │ Swap   │  │ Portal│   │ Stake   │
-   └────────┘  └───────┘   └─────────┘
-        │           │            │
-   ┌────▼───┐  ┌───▼───┐   ┌────▼────┐
-   │Private │  │Cross- │   │Privacy- │
-   │Swaps   │  │Chain  │   │Enabled  │
-   │        │  │Bridge │   │Staking  │
-   └────────┘  └───────┘   └─────────┘
+```mermaid
+graph TB
+    A[User] --> B[WaveTek Platform]
+    B --> C{Privacy Mode}
+    C -->|Enabled| D[Private Swaps<br/>Encifher SDK]
+    C -->|Disabled| E[Public Swaps<br/>Jupiter API]
+    D --> F[Confidential<br/>Transactions]
+    E --> G[Standard<br/>Transactions]
+    B --> H[WavePortal Bridge]
+    B --> I[WaveStake]
+    H --> J[Cross-Chain<br/>Transfers]
+    I --> K[Privacy-Enabled<br/>Staking]
+
+    style D fill:#264af5,color:#fff
+    style F fill:#10b981,color:#fff
+    style J fill:#10b981,color:#fff
+    style K fill:#10b981,color:#fff
 ```
 
 ## System Architecture
@@ -73,57 +62,56 @@ WaveTek is a cutting-edge, privacy-preserving decentralized exchange (DEX) aggre
 
 ### 1. New User Onboarding Journey
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  Landing Page   │───▶│ Privacy Mode     │───▶│ Wallet Connection│
-│                 │    │ Selection        │    │                 │
-└─────────────────┘    └────────┬─────────┘    └─────────┬───────┘
-                                │                       │
-                                │                       │
-                       ┌────────▼────────┐    ┌────────▼────────┐
-                       │ Privacy Mode:   │    │ Wallet Types:   │
-                       │ Default: ON     │    │ • Solana        │
-                       │ Educational     │    │ • NEAR          │
-                       │ tooltips        │    │ • StarkNet      │
-                       └─────────────────┘    └─────────────────┘
-                                │                       │
-                                └───────────┬───────────┘
-                                            │
-                                ┌───────────▼───────────┐
-                                │ Initial Setup Complete│
-                                │ • Privacy preferences │
-                                │ • Network settings    │
-                                │ • Security options    │
-                                └───────────┬───────────┘
-                                            │
-                                ┌───────────▼───────────┐
-                                │   Dashboard Access    │
-                                └───────────────────────┘
+```mermaid
+flowchart TD
+    A[Landing Page] --> B[Privacy Mode Selection]
+    B --> C[Wallet Connection]
+    C --> D{Wallet Type}
+    D -->|Solana| E[Phantom/Solflare]
+    D -->|NEAR| F[NEAR Wallet]
+    D -->|StarkNet| G[StarkNet Wallet]
+    E --> H[Initial Setup Complete]
+    F --> H
+    G --> H
+    H --> I[Dashboard Access]
+
+    style A fill:#f8fafc
+    style H fill:#10b981,color:#fff
+    style I fill:#264af5,color:#fff
 ```
 
 ### 2. WaveSwap - Privacy-First Token Swapping
 
 #### Swap Process Flow
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Token Selection │───▶│   Amount Input  │───▶│ Balance Check   │
-└─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
-          │                      │                      │
-          │                      │                      │
-          ▼                      ▼                      ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Privacy Mode? │◀───│  Quote Request  │◀───│  Quote Provider │
-│                 │    │                 │    │                 │
-│ Yes ──► Encifher│    │  Privacy Route  │    │  Jupiter API    │
-│ No  ──► Jupiter │    │  Public Route   │    │  Encifher SDK   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-          │                      │                      │
-          ▼                      ▼                      ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Transaction     │───▶│ Execution       │───▶│ Confirmation    │
-│ Signing         │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+```mermaid
+flowchart TD
+    A[Token Selection] --> B[Amount Input]
+    B --> C[Balance Validation]
+    C --> D{Privacy Mode?}
+
+    D -->|Yes| E[Encifher SDK Quote]
+    D -->|No| F[Jupiter API Quote]
+
+    E --> G[Private Route Calculation]
+    F --> H[Public Route Calculation]
+
+    G --> I[Encrypted Transaction]
+    H --> J[Standard Transaction]
+
+    I --> K[MEV Protected Execution]
+    J --> L[Standard DEX Execution]
+
+    K --> M[Transaction Confirmation]
+    L --> M
+
+    M --> N[History Update]
+
+    style E fill:#264af5,color:#fff
+    style I fill:#264af5,color:#fff
+    style K fill:#10b981,color:#fff
+    style F fill:#f59e0b,color:#fff
+    style J fill:#f59e0b,color:#fff
 ```
 
 #### Privacy vs Public Swap Flow
@@ -148,76 +136,138 @@ WaveTek is a cutting-edge, privacy-preserving decentralized exchange (DEX) aggre
 
 #### Bridge Architecture
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Source Chains   │───▶│  WavePortal     │───▶│ Dest. Chains    │
-│                 │    │  Bridge         │    │                 │
-│ • Solana        │    │                 │    │ • Zcash         │
-│ • Zcash         │    │ • Route Opt.    │    │ • NEAR          │
-│ • NEAR          │    │ • Liquidity Agg.│    │ • StarkNet      │
-│ • StarkNet      │    │ • Security Layer│    │                 │
-└─────────────────┘    └─────────┬───────┘    └─────────────────┘
-                                │
-                      ┌─────────▼─────────┐
-                      │  Bridge Providers │
-                      │                   │
-                      │ • Near Intents    │
-                      │ • StarkGate       │
-                      │ • Custom Bridge   │
-                      └───────────────────┘
+```mermaid
+graph LR
+    subgraph "Supported Chains"
+        A[Solana]
+        B[Zcash]
+        C[NEAR]
+        D[StarkNet]
+    end
+
+    subgraph "WavePortal Bridge"
+        E[Route Optimizer]
+        F[Liquidity Aggregator]
+        G[Security Layer]
+    end
+
+    subgraph "Bridge Providers"
+        H[Near Intents]
+        I[StarkGate]
+        J[Custom Bridge]
+    end
+
+    A --> E
+    B --> E
+    C --> E
+    D --> E
+
+    E --> F
+    F --> G
+
+    G --> H
+    G --> I
+    G --> J
+
+    style E fill:#264af5,color:#fff
+    style F fill:#264af5,color:#fff
+    style G fill:#10b981,color:#fff
 ```
 
 #### Bridge Process Flow
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Select Source   │───▶│ Select Destination│───▶│ Choose Token     │
-│ Chain           │    │ Chain           │    │                 │
-└─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
-          │                      │                      │
-          ▼                      ▼                      ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Enter Amount    │───▶│ Get Bridge Quote │───▶│ Provider Select │
-└─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
-          │                      │                      │
-          ▼                      ▼                      ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Deposit Tx      │───▶│ Cross-Chain     │───▶│ Completion      │
-│                 │    │ Validation      │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+```mermaid
+flowchart TD
+    A[Select Source Chain] --> B[Select Destination Chain]
+    B --> C[Choose Token]
+    C --> D[Enter Amount]
+    D --> E[Get Bridge Quote]
+    E --> F{Provider Selection}
+
+    F -->|Near Intents| G[Near Protocol Bridge]
+    F -->|StarkGate| H[StarkNet Bridge]
+    F -->|Custom| I[WaveTek Bridge]
+
+    G --> J[Deposit Transaction]
+    H --> J
+    I --> J
+
+    J --> K[Cross-Chain Validation]
+    K --> L[Processing]
+    L --> M[Completion]
+    M --> N[Destination Chain Receipt]
+
+    style E fill:#264af5,color:#fff
+    style J fill:#10b981,color:#fff
+    style M fill:#10b981,color:#fff
 ```
 
 ### 4. WaveStake - Privacy-Enabled Staking
 
 #### Staking Architecture
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Private         │───▶│  Security Layer  │───▶│ User Interface  │
-│ Staking Features│    │                 │    │                 │
-│                 │    │ • Smart Contract │    │ • Stake Dashboard│
-│ • Private Pools │    │ • Multi-sig     │    │ • Reward Tracking│
-│ • Conf. Rewards │    │ • Risk Mgmt     │    │ • History       │
-│ • Flex. Locks   │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+```mermaid
+graph TB
+    subgraph "WaveStake Features"
+        A[Private Staking Pools]
+        B[Confidential Rewards]
+        C[Flexible Lock Periods]
+        D[Privacy Controls]
+    end
+
+    subgraph "Security Layer"
+        E[Smart Contract Audits]
+        F[Multi-sig Validation]
+        G[Risk Management]
+    end
+
+    subgraph "User Interface"
+        H[Stake Dashboard]
+        I[Reward Tracking]
+        J[History & Analytics]
+    end
+
+    A --> E
+    B --> F
+    C --> G
+    D --> H
+
+    H --> I
+    I --> J
+
+    style A fill:#264af5,color:#fff
+    style B fill:#264af5,color:#fff
+    style E fill:#10b981,color:#fff
+    style F fill:#10b981,color:#fff
 ```
 
 ## Privacy & Security Architecture
 
 ### Privacy Technologies
 
-```
-┌─────────────────┐    ┌─────────────────┐
-│ Privacy Tech    │    │ Implementation  │
-│                 │    │                 │
-│ • Zero-Knowledge│───▶│ • Encifher SDK  │
-│   Proofs        │    │ • Conf. Tokens  │
-│ • Encrypted     │    │ • Private Bal.  │
-│   Transactions  │    │ • Anonymous Exe │
-│ • Stealth       │    │                 │
-│   Addresses     │    │                 │
-│ • MEV Protection│    │                 │
-└─────────────────┘    └─────────────────┘
+```mermaid
+graph LR
+    subgraph "Privacy Technologies"
+        A[Zero-Knowledge Proofs]
+        B[Encrypted Transactions]
+        C[Stealth Addresses]
+        D[MEV Protection]
+    end
+
+    subgraph "Implementation"
+        E[Encifher SDK Integration]
+        F[Confidential Tokens]
+        G[Private Balance Tracking]
+        H[Anonymous Execution]
+    end
+
+    A --> E
+    B --> F
+    C --> G
+    D --> H
+
+    style E fill:#264af5,color:#fff
+    style F fill:#264af5,color:#fff
 ```
 
 ### Security Measures
@@ -258,61 +308,57 @@ WaveTek is a cutting-edge, privacy-preserving decentralized exchange (DEX) aggre
 
 ### Data Flow Architecture
 
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Frontend  │───▶│ Backend API │───▶│ External    │
-│             │    │             │    │ APIs        │
-└─────────────┘    └─────────────┘    └─────────────┘
-       │                   │                   │
-       │                   │                   │
-       ▼                   ▼                   ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ User Input  │    │ Processing  │    │ Jupiter/    │
-│             │    │ & Validation │    │ Encifher    │
-└─────────────┘    └─────────────┘    └─────────────┘
-                                           │
-                                           ▼
-                                ┌─────────────────┐
-                                │ Response        │
-                                │ Processing      │
-                                └─────────┬───────┘
-                                          │
-                                          ▼
-                                ┌─────────────────┐
-                                │ Database Cache  │
-                                │ & Storage       │
-                                └─────────────────┘
+```mermaid
+sequenceDiagram
+    participant UI as Frontend
+    participant API as Backend API
+    participant DB as Database
+    participant BC as Blockchain
+    participant EXT as External APIs
+
+    UI->>API: Request Quote
+    API->>EXT: Jupiter/Encifher API
+    EXT->>API: Quote Response
+    API->>DB: Cache Quote
+    API->>UI: Return Quote
+
+    UI->>API: Execute Transaction
+    API->>BC: Submit Transaction
+    BC->>API: Transaction Hash
+    API->>DB: Store Transaction
+    API->>UI: Return Status
+
+    UI->>API: Query Status
+    API->>DB: Check Local Status
+    API->>BC: Verify On-Chain
+    BC->>API: Confirmation
+    API->>UI: Updated Status
 ```
 
 ## Design System & UI/UX
 
 ### Theme Architecture
 
-```
-┌─────────────────┐
-│ Theme Context   │
-└─────────┬───────┘
-          │
-    ┌─────▼─────┐
-    │Theme Select│
-    └─────┬─────┘
-          │
-┌─────────▼─────────┐
-│    Themes         │
-│                  │
-│ • Light Theme    │
-│ • Dark Theme     │
-│ • Orca Theme     │
-└─────────┬─────────┘
-          │
-          ▼
-┌─────────────────┐
-│ Color Systems   │
-│ • Primary: #264af5│
-│ • Secondary:    │
-│ • Backgrounds   │
-│ • Text Colors   │
-└─────────────────┘
+```mermaid
+graph TD
+    A[Theme Context] --> B{Theme Selection}
+    B -->|Light| C[Light Theme]
+    B -->|Dark| D[Dark Theme]
+    B -->|Orca| E[Orca Theme]
+
+    C --> F[Light Colors]
+    D --> G[Dark Colors]
+    E --> H[B&W/Grey Scale]
+
+    F --> I[Glass Effects]
+    G --> I
+    H --> I
+
+    I --> J[Responsive Design]
+    J --> K[Accessibility Features]
+
+    style A fill:#264af5,color:#fff
+    style I fill:#10b981,color:#fff
 ```
 
 ### Color Palette
