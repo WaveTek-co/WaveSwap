@@ -77,7 +77,7 @@ export function AppTabs() {
     {
       id: 'bridge',
       label: 'WavePortal',
-      icon: <img src="/portal.svg" alt="WavePortal" className="h-4 w-4" />
+      icon: <img src="/portal.svg" alt="WavePortal" className="h-6 w-6" />
     },
     {
       id: 'stake',
