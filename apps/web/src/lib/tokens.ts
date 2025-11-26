@@ -6,6 +6,7 @@
 import { Connection, PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, getAccount } from '@solana/spl-token'
 import { Token } from '@/types/token'
+import { getTokenIcon } from './tokenIconService'
 
 const JUPITER_TOKEN_API = 'https://lite-api.jup.ag/tokens/v2'
 const JUPITER_TOKEN_LIST_API = 'https://token.jup.ag/all'
@@ -28,22 +29,34 @@ export interface JupiterToken {
 // Simple cache for token icons to avoid repeated API calls
 const tokenIconCache = new Map<string, string>()
 
-// Pre-populate cache with common token icons to avoid API calls
-const commonTokenIcons: Record<string, string> = {
-  'So11111111111111111111111111111111111111112': 'https://img-cdn.jup.ag/tokens/SOL.svg',
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'https://img-cdn.jup.ag/tokens/USDC.svg',
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'https://img-cdn.jup.ag/tokens/USDT.svg',
-  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': 'https://img-cdn.jup.ag/tokens/mSOL.svg',
-  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': 'https://img-cdn.jup.ag/tokens/RAY.svg',
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 'https://img-cdn.jup.ag/tokens/BONK.svg',
-  'WormsgfugeESKtdMuFBCKUGGDYLSUcfvhoMsV9fqN3G': 'https://img-cdn.jup.ag/tokens/W.svg',
-  'jutoGL3C1tJKHbC9VwFhkLq2uf1q4AXaMGuqJrEy5XA': 'https://img-cdn.jup.ag/tokens/JUP.svg'
+// Pre-populate cache with common token icons using the professional service
+const initializeTokenIcons = async () => {
+  const commonTokenAddresses = [
+    'So11111111111111111111111111111111111111112', // SOL
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+    'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', // mSOL
+    '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // RAY
+    'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
+    'WormsgfugeESKtdMuFBCKUGGDYLSUcfvhoMsV9fqN3G', // W
+    'jutoGL3C1tJKHbC9VwFhkLq2uf1q4AXaMGuqJrEy5XA'  // JUP
+  ]
+
+  const tokenSymbols = ['SOL', 'USDC', 'USDT', 'mSOL', 'RAY', 'BONK', 'W', 'JUP']
+
+  // Initialize cache asynchronously
+  commonTokenAddresses.forEach(async (address, index) => {
+    try {
+      const iconUrl = await getTokenIcon(tokenSymbols[index], address)
+      tokenIconCache.set(address, iconUrl)
+    } catch (error) {
+      console.warn(`Failed to initialize icon for ${address}:`, error)
+    }
+  })
 }
 
-// Initialize cache with common token icons
-Object.entries(commonTokenIcons).forEach(([address, icon]) => {
-  tokenIconCache.set(address, icon)
-})
+// Start initialization
+initializeTokenIcons()
 
 export async function enrichTokenIcons(tokens: Token[]): Promise<Token[]> {
   
@@ -112,7 +125,7 @@ export async function getUserTokens(
           decimals: tokenInfo.decimals,
           name: tokenInfo.name,
           symbol: tokenInfo.symbol,
-          logoURI: tokenInfo.logoURI || `https://img-cdn.jup.ag/tokens/${tokenInfo.symbol}.svg`,
+          logoURI: tokenInfo.logoURI || await getTokenIcon(tokenInfo.symbol, mint),
           tags: tokenInfo.tags || [],
           isConfidentialSupported: ['SOL', 'USDC', 'USDT', 'mSOL', 'BONK', 'RAY', 'WIF', 'JUP', 'W'].includes(tokenInfo.symbol),
           isNative: false,
@@ -183,7 +196,7 @@ async function fetchTokenInfo(mint: string): Promise<JupiterToken | null> {
         name: token.name,
         symbol: token.symbol,
         decimals: token.decimals,
-        logoURI: token.logoURI || token.image || `https://img-cdn.jup.ag/tokens/${token.symbol}.svg`,
+        logoURI: token.logoURI || token.image || await getTokenIcon(token.symbol, token.address || token.mint),
         tags: token.tags,
         freeze_authority: token.freeze_authority,
         mint_authority: token.mint_authority,
@@ -210,35 +223,43 @@ async function fetchTokenInfo(mint: string): Promise<JupiterToken | null> {
 /**
  * Fallback token info for common tokens when API fails
  */
-function getFallbackTokenInfo(mint: string): JupiterToken | null {
-  const fallbackTokens: Record<string, JupiterToken> = {
+async function getFallbackTokenInfo(mint: string): Promise<JupiterToken | null> {
+  // Define token metadata
+  const tokenMetadata: Record<string, { name: string; symbol: string; decimals: number; tags: string[] }> = {
     'So11111111111111111111111111111111111111112': {
-      address: 'So11111111111111111111111111111111111111112',
       name: 'Solana',
       symbol: 'SOL',
       decimals: 9,
-      logoURI: 'https://img-cdn.jup.ag/tokens/SOL.svg',
       tags: ['native'],
     },
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': {
-      address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
       name: 'USD Coin',
       symbol: 'USDC',
       decimals: 6,
-      logoURI: 'https://img-cdn.jup.ag/tokens/USDC.svg',
       tags: ['stablecoin'],
     },
     'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': {
-      address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
       name: 'Tether USD',
       symbol: 'USDT',
       decimals: 6,
-      logoURI: 'https://img-cdn.jup.ag/tokens/USDT.svg',
       tags: ['stablecoin'],
     }
   }
 
-  return fallbackTokens[mint] || null
+  const metadata = tokenMetadata[mint]
+  if (!metadata) {
+    return null
+  }
+
+  // Generate fallback token dynamically
+  return {
+    address: mint,
+    name: metadata.name,
+    symbol: metadata.symbol,
+    decimals: metadata.decimals,
+    logoURI: await getTokenIcon(metadata.symbol, mint),
+    tags: metadata.tags,
+  }
 }
 
 /**
@@ -271,15 +292,14 @@ export async function getAllTradableTokens(): Promise<Token[]> {
   }
 }
 
-// Precomputed default tokens for instant loading - no function calls needed
-export const DEFAULT_TOKENS: Token[] = [
+// Default tokens with lazy loading of icons
+const DEFAULT_TOKENS_METADATA = [
   {
     address: 'So11111111111111111111111111111111111111112',
     chainId: 101,
     decimals: 9,
     name: 'Solana',
     symbol: 'SOL',
-    logoURI: 'https://img-cdn.jup.ag/tokens/SOL.svg',
     tags: ['native'],
     isConfidentialSupported: true,
     isNative: true,
@@ -291,7 +311,6 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 6,
     name: 'USD Coin',
     symbol: 'USDC',
-    logoURI: 'https://img-cdn.jup.ag/tokens/USDC.svg',
     tags: ['stablecoin'],
     isConfidentialSupported: true,
     isNative: false,
@@ -303,7 +322,6 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 6,
     name: 'Tether USD',
     symbol: 'USDT',
-    logoURI: 'https://img-cdn.jup.ag/tokens/USDT.svg',
     tags: ['stablecoin'],
     isConfidentialSupported: true,
     isNative: false,
@@ -315,7 +333,6 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 9,
     name: 'Marinade Staked SOL',
     symbol: 'mSOL',
-    logoURI: 'https://img-cdn.jup.ag/tokens/mSOL.svg',
     tags: ['defi', 'staking'],
     isConfidentialSupported: true,
     isNative: false,
@@ -327,7 +344,6 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 6,
     name: 'Raydium',
     symbol: 'RAY',
-    logoURI: 'https://img-cdn.jup.ag/tokens/RAY.svg',
     tags: ['defi', 'dex'],
     isConfidentialSupported: false,
     isNative: false,
@@ -339,7 +355,6 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 5,
     name: 'Bonk',
     symbol: 'BONK',
-    logoURI: 'https://img-cdn.jup.ag/tokens/BONK.svg',
     tags: ['meme'],
     isConfidentialSupported: false,
     isNative: false,
@@ -351,7 +366,6 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 6,
     name: 'Wormhole',
     symbol: 'W',
-    logoURI: 'https://img-cdn.jup.ag/tokens/W.svg',
     tags: ['bridge'],
     isConfidentialSupported: false,
     isNative: false,
@@ -363,13 +377,35 @@ export const DEFAULT_TOKENS: Token[] = [
     decimals: 6,
     name: 'Jupiter',
     symbol: 'JUP',
-    logoURI: 'https://img-cdn.jup.ag/tokens/JUP.svg',
     tags: ['defi', 'airdrop'],
     isConfidentialSupported: false,
     isNative: false,
     addressable: true,
   },
 ]
+
+// Default tokens with static fallback icons (will be enhanced with dynamic icons)
+export const DEFAULT_TOKENS: Token[] = DEFAULT_TOKENS_METADATA.map(token => ({
+  ...token,
+  logoURI: `https://ui-avatars.com/api/?name=${token.symbol}&background=random&color=fff&size=128&format=svg` // Fallback until icon loads
+}))
+
+// Function to get default tokens with proper icons
+export async function getDefaultTokensWithIcons(): Promise<Token[]> {
+  const tokens = [...DEFAULT_TOKENS_METADATA]
+
+  // Load icons for all tokens in parallel
+  await Promise.all(tokens.map(async (token) => {
+    try {
+      token.logoURI = await getTokenIcon(token.symbol, token.address)
+    } catch (error) {
+      console.warn(`Failed to load icon for ${token.symbol}:`, error)
+      token.logoURI = `https://ui-avatars.com/api/?name=${token.symbol}&background=random&color=fff&size=128&format=svg`
+    }
+  }))
+
+  return tokens as Token[]
+}
 
 // Create lookup maps for instant access
 export const TOKEN_ADDRESS_MAP = new Map(DEFAULT_TOKENS.map(token => [token.address, token]))

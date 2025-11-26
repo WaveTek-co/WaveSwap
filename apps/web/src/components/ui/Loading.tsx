@@ -137,13 +137,13 @@ export function PageLoading() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center space-y-6">
         <div className="relative w-24 h-24 mx-auto">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl animate-pulse" />
+          <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary-hover rounded-2xl animate-pulse" />
           <div className="absolute inset-1 bg-background rounded-xl flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         </div>
         <div className="space-y-2">
-          <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-primary via-blue-400 to-cyan-400 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-primary via-primary-hover to-secondary bg-clip-text text-transparent">
             WaveSwap
           </h1>
           <p className="text-sm text-muted-foreground">

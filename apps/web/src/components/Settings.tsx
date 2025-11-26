@@ -228,9 +228,9 @@ export function Settings() {
             {/* Theme Selection */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-3">
-                <SunIcon className="h-4 w-4" style={{ color: themeConfig.colors.warning }} />
+                <SunIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
                 <h3 className="text-xs font-medium uppercase tracking-wider" style={{
-                  color: themeConfig.colors.warning,
+                  color: themeConfig.colors.primary,
                   fontFamily: 'var(--font-helvetica)',
                   letterSpacing: '0.05em'
                 }}>Theme</h3>

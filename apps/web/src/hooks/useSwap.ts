@@ -87,19 +87,40 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       const tokens = await getAvailableTokens(privacyMode)
       setAvailableTokens(tokens)
 
-      // Set initial tokens if not already set
-      if (!inputToken && tokens.length > 0) {
-        setInputToken(tokens[0] || null)
-      }
-      if (!outputToken && tokens.length > 1) {
-        setOutputToken(tokens[1] || null)
-      } else if (!outputToken && tokens.length > 0) {
-        setOutputToken(tokens[0] || null)
-      }
+      // Force SOL as Send and WAVE as Receive - create fallback tokens if not found
+      const solToken = tokens.find(t => t.address === 'So11111111111111111111111111111111111111112') || {
+        address: 'So11111111111111111111111111111111111111112',
+        chainId: 101,
+        decimals: 9,
+        name: 'Solana',
+        symbol: 'SOL',
+        logoURI: 'https://img-cdn.jup.ag/tokens/SOL.svg',
+        tags: ['native', 'solana'],
+        isConfidentialSupported: true,
+        isNative: true,
+        addressable: true
+      } as Token
+
+      const waveToken = tokens.find(t => t.address === '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump') || {
+        address: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+        chainId: 101,
+        decimals: 9,
+        name: 'Wave',
+        symbol: 'WAVE',
+        logoURI: 'https://img-cdn.jup.ag/tokens/WAVE.svg',
+        tags: ['defi', 'dex'],
+        isConfidentialSupported: false,
+        isNative: false,
+        addressable: true
+      } as Token
+
+      // Always set SOL as Send and WAVE as Receive
+      setInputToken(solToken)
+      setOutputToken(waveToken)
     }
 
     initializeTokens()
-  }, []) // Only run once on mount
+  }, [privacyMode]) // Re-run when privacy mode changes
 
   // Initialize swap service when wallet is connected
   useEffect(() => {
@@ -188,17 +209,20 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       const filtered = await getAvailableTokens(privacyMode)
       setAvailableTokens(filtered)
 
-      // Update selected tokens if they're not supported in current mode
+      // Only update tokens if current ones are not supported in current mode
+      // Preserve user selection when possible
       if (inputToken && !filtered.find((t: Token) => t.address === inputToken.address)) {
-        setInputToken(filtered[0] || null)
+        const solToken = filtered.find(t => t.address === 'So11111111111111111111111111111111111111112')
+        setInputToken(solToken || filtered[0] || null)
       }
       if (outputToken && !filtered.find((t: Token) => t.address === outputToken.address)) {
-        setOutputToken(filtered[1] || filtered[0] || null)
+        const waveToken = filtered.find(t => t.address === '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump')
+        setOutputToken(waveToken || filtered[1] || filtered[0] || null)
       }
     }
 
     loadFilteredTokens()
-  }, [privacyMode, inputToken, outputToken])
+  }, [privacyMode])
 
   // Load user's tokens when wallet connects or privacy mode changes
   useEffect(() => {

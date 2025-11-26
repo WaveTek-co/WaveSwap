@@ -1,4 +1,5 @@
 // CoinGecko API integration for token icons and metadata
+import { getTokenIcon } from './tokenIconService'
 export interface CoinGeckoToken {
   id: string
   name: string
@@ -129,7 +130,7 @@ class CoinGeckoService {
 
       return {
         ...token,
-        logoURI: coinData?.image || token.logoURI,
+        logoURI: coinData?.image || token.logoURI || await getTokenIcon(token.symbol, token.address),
         price: coinData?.current_price,
         priceChange24h: coinData?.price_change_percentage_24h
       }

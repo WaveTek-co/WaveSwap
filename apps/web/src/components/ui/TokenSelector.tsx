@@ -67,7 +67,7 @@ export function TokenSelector({
             }}
           />
         ) : (
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary-hover flex items-center justify-center">
             <span className="text-white font-bold text-sm">
               {selectedToken.symbol.slice(0, 2)}
             </span>
@@ -176,7 +176,7 @@ export function TokenSelector({
                             }}
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-hover flex items-center justify-center group-hover:scale-105 transition-transform">
                             <span className="text-white font-bold">
                               {token.symbol.slice(0, 2)}
                             </span>

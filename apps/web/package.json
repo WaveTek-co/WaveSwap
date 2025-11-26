@@ -12,7 +12,12 @@
     "clean": "rm -rf .next",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:seed": "bun run prisma db seed"
   },
   "dependencies": {
     "@defuse-protocol/crosschain-assetid": "^1.0.3",
@@ -25,6 +30,7 @@
     "@near-wallet-selector/core": "9.1.0",
     "@near-wallet-selector/modal-ui": "^10.1.1",
     "@near-wallet-selector/near-wallet": "^8.9.3",
+    "@prisma/client": "^5.20.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/spl-token-registry": "^0.2.4574",
     "@solana/wallet-adapter-base": "^0.9.23",
@@ -40,6 +46,7 @@
     "near-api-js": "^6.5.1",
     "next": "^15.0.0",
     "next-fonts": "^1.5.1",
+    "prisma": "^5.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.4.0",
@@ -62,6 +69,9 @@
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0",
     "vitest": "^2.0.0"
+  },
+  "prisma": {
+    "seed": "bun run prisma/seed.ts"
   },
   "browserslist": {
     "production": [

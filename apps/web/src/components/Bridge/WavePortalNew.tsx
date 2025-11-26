@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { ArrowsUpDownIcon } from '@heroicons/react/24/outline'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { TokenSelectorNew } from '../SwapComponent/TokenSelectorNew'
+import { TokenSelector } from '../SwapComponent/TokenSelector'
 import { useThemeConfig, createGlassStyles, createInputStyles } from '@/lib/theme'
 import { useNearWallet } from '@/providers/NearWalletProvider'
 import { useStarknetWallet } from '@/providers/StarknetWalletProvider'
@@ -11,6 +11,7 @@ import { StarknetWalletModal } from '@/providers/StarknetWalletProvider'
 import { Token } from '@/types/token'
 import { enhancedBridgeService } from '@/lib/services/enhancedBridgeService'
 import { ComingSoon } from '@/components/ui/ComingSoon'
+import { getTokenIcon } from '@/lib/tokenIconService'
 
 interface WavePortalProps {
   privacyMode: boolean
@@ -32,7 +33,7 @@ const SUPPORTED_CHAINS = [
     id: 'solana',
     name: 'Solana',
     fullName: 'Solana Network',
-    icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+    icon: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // Will be loaded dynamically
     color: '#14F195',
     description: 'High-performance blockchain',
     chainId: 101
@@ -79,7 +80,7 @@ const CHAIN_TOKENS = {
       decimals: 9,
       name: 'Solana',
       symbol: 'SOL',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+      logoURI: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // Will be loaded dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: true,
@@ -91,7 +92,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USD Coin',
       symbol: 'USDC',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+      logoURI: 'https://ui-avatars.com/api/?name=USDC&background=2775CA&color=fff', // Will be loaded dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -103,7 +104,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USDT',
       symbol: 'USDT',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+      logoURI: 'https://ui-avatars.com/api/?name=USDT&background=26A17B&color=fff', // Will be loaded dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -115,7 +116,7 @@ const CHAIN_TOKENS = {
       decimals: 9,
       name: 'Wrapped SOL',
       symbol: 'wSOL',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+      logoURI: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // Will be loaded dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -165,7 +166,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USD Coin',
       symbol: 'USDC',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+      logoURI: 'https://ui-avatars.com/api/?name=USDC&background=2775CA&color=fff', // Will be loaded dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -201,7 +202,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USDT',
       symbol: 'USDT',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+      logoURI: 'https://ui-avatars.com/api/?name=USDT&background=26A17B&color=fff', // Will be loaded dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -793,7 +794,7 @@ const handleBridge = async () => {
           </div>
 
           <div className="space-y-4">
-            <TokenSelectorNew
+            <TokenSelector
               selectedToken={fromToken || null}
               onTokenChange={setFromToken}
               tokens={getAvailableFromTokens()}
@@ -864,7 +865,7 @@ const handleBridge = async () => {
             </span>
           </div>
 
-          <TokenSelectorNew
+          <TokenSelector
             selectedToken={toToken || null}
             onTokenChange={setToToken}
             tokens={getAvailableToTokens()}

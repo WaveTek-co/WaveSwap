@@ -184,7 +184,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
     },
   }, 
   
-  // ß
+  // async (request)
 
   async (request: FastifyRequest, reply: FastifyReply) => {
     try {

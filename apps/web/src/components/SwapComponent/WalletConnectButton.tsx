@@ -16,7 +16,7 @@ export function WalletConnectButton() {
 
   if (!mounted) {
     return (
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white font-medium py-3 px-6 rounded-xl shadow-lg transition-all duration-200 border-0 flex items-center justify-center min-w-[140px] h-[48px] opacity-80">
+      <div className="bg-gradient-to-r from-primary to-primary-hover text-primary-foreground font-medium py-3 px-6 rounded-xl shadow-lg transition-all duration-200 border-0 flex items-center justify-center min-w-[140px] h-[48px] opacity-80">
         <div className="animate-pulse bg-white/20 rounded h-4 w-16"></div>
       </div>
     )

@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { ArrowsUpDownIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
-import { TokenSelectorNew as TokenSelector } from './TokenSelectorNew'
+import { TokenSelector } from './TokenSelector'
 import { AmountInput } from './AmountInput'
 import { SwapButton } from './SwapButton'
 import { useSwap } from '@/hooks/useSwap'
@@ -14,12 +14,7 @@ interface SwapComponentProps {
   privacyMode: boolean
 }
 
-// Recommended tokens to show initially
-const RECOMMENDED_TOKENS = [
-  'So11111111111111111111111111111111111111112', // SOL
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-]
+// The token selection is now handled by Jupiter Token Service
 
 export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const { publicKey } = useWallet()
@@ -52,24 +47,40 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     setInputAmount(amount)
   }
 
-  // Optimized token list for selector (user tokens + recommended tokens only)
+  // Enhanced token list for selector (user tokens + popular tokens + limited other tokens)
   const optimizedTokens = useMemo(() => {
     if (!availableTokens || availableTokens.length === 0) return []
 
-    // 1. User tokens with balance
-    const userTokens = availableTokens.filter(token => {
+    // Helper function to check if token has balance
+    const hasTokenBalance = (tokenAddress: string): boolean => {
       if (!balances) return false
-      const balance = balances.get(token.address)
-      return balance && parseFloat(balance) > 0
+      const balance = balances.get(tokenAddress)
+      return balance !== undefined && parseFloat(balance) > 0
+    }
+
+    // 1. User tokens with balance (highest priority)
+    const userTokens = availableTokens.filter(token => hasTokenBalance(token.address))
+
+    // 2. Popular tokens (excluding those already in user tokens)
+    const popularTokens = availableTokens.filter(token => {
+      const hasBalance = hasTokenBalance(token.address)
+      return !hasBalance && (
+        token.tags?.includes('popular') ||
+        ['WAVE', 'SOL', 'USDC', 'USDT', 'ZEC', 'PUMP', 'WEALTH', 'FTP', 'AURA', 'MEW', 'STORE'].includes(token.symbol || '')
+      )
     })
 
-    // 2. Recommended tokens (if not already in user tokens)
-    const recommendedTokens = availableTokens.filter(token =>
-      RECOMMENDED_TOKENS.includes(token.address) &&
-      !userTokens.find(ut => ut.address === token.address)
-    )
+    // 3. Limited other tokens for discovery (max 20, excluding user and popular tokens)
+    const otherTokens = availableTokens
+      .filter(token => {
+        const hasBalance = hasTokenBalance(token.address)
+        const isPopular = token.tags?.includes('popular') ||
+                        ['WAVE', 'SOL', 'USDC', 'USDT', 'ZEC', 'PUMP', 'WEALTH', 'FTP', 'AURA', 'MEW', 'STORE'].includes(token.symbol || '')
+        return !hasBalance && !isPopular
+      })
+      .slice(0, 20)
 
-    return [...userTokens, ...recommendedTokens]
+    return [...userTokens, ...popularTokens, ...otherTokens]
   }, [availableTokens, balances])
 
   // Ensure we always have valid tokens with safe fallbacks

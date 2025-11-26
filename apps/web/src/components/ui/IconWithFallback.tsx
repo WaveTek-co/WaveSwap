@@ -121,7 +121,7 @@ export function TokenIcon({ token, size = 24, className = '', symbol }: TokenIco
     if (token?.chain) {
       switch (token.chain) {
         case 'solana':
-          return 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png'
+          return 'https://img-cdn.jup.ag/tokens/SOL.svg'
         case 'near':
           return 'https://near.org/wp-content/uploads/2021/03/near_icon.svg'
         case 'zec':
@@ -135,12 +135,12 @@ export function TokenIcon({ token, size = 24, className = '', symbol }: TokenIco
     if (symbol || token?.symbol) {
       const tokenSymbol = symbol || token?.symbol
       const colors = [
-        'from-blue-500 to-primary-600',
-        'from-green-500 to-emerald-600',
-        'from-orange-500 to-yellow-600',
-        'from-indigo-500 to-primary-600',
-        'from-red-500 to-pink-600',
-        'from-cyan-500 to-blue-600'
+        'from-primary to-primary-hover',
+        'from-secondary to-primary',
+        'from-accent to-secondary',
+        'from-primary to-accent',
+        'from-secondary to-accent',
+        'from-accent to-primary'
       ]
       const colorIndex = (tokenSymbol?.charCodeAt(0) || 0) % colors.length
 
@@ -156,12 +156,12 @@ export function TokenIcon({ token, size = 24, className = '', symbol }: TokenIco
   // If we don't have a logo URI, show a colored background with symbol
   if (!token?.logoURI && tokenSymbol) {
     const colors = [
-      'from-blue-500 to-primary-600',
-      'from-green-500 to-emerald-600',
-      'from-orange-500 to-yellow-600',
-      'from-indigo-500 to-primary-600',
-      'from-red-500 to-pink-600',
-      'from-cyan-500 to-blue-600'
+      'from-primary to-primary-hover',
+      'from-secondary to-primary',
+      'from-accent to-secondary',
+      'from-primary to-accent',
+      'from-secondary to-accent',
+      'from-accent to-primary'
     ]
     const colorIndex = tokenSymbol.charCodeAt(0) % colors.length
 

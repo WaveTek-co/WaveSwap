@@ -188,10 +188,10 @@ const orcaTheme: ThemeConfig = {
     textMuted: '#b0b0b0',
     textInverse: '#000000',
 
-    // Brand colors - WaveSwap Theme
-    primary: '#264af5',
-    primaryHover: '#1c3fd1',
-    secondary: '#808080',
+    // Brand colors - Orca Black/White Theme
+    primary: '#808080',
+    primaryHover: '#666666',
+    secondary: '#999999',
     accent: '#a0a0a0',
 
     // Status colors - grey scale with standard red/yellow
@@ -203,17 +203,17 @@ const orcaTheme: ThemeConfig = {
     // Border and outline - grey scale
     border: '#333333',
     borderLight: '#404040',
-    outline: '#264af5',
-    outlineFocus: '#1c3fd1',
+    outline: '#808080',
+    outlineFocus: '#666666',
 
     // Shadow colors - pure black and grey
     shadow: 'rgba(0, 0, 0, 0.7)',
     shadowLight: 'rgba(0, 0, 0, 0.4)',
     shadowHeavy: 'rgba(0, 0, 0, 0.9)',
 
-    // Special colors - WaveSwap Theme gradient
-    gradientStart: '#264af5',
-    gradientEnd: '#a0a0a0',
+    // Special colors - Orca Black/White Theme gradient
+    gradientStart: '#808080',
+    gradientEnd: '#404040',
     overlay: 'rgba(0, 0, 0, 0.8)'
   },
   glassStyles: {

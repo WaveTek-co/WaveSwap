@@ -29,11 +29,12 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
   const isSOL = mint === 'So11111111111111111111111111111111111111112'
 
   // Create sources array in order of preference
+  // Prioritize Jupiter API icons (IPFS) first, then fallback to reliable sources
   const sources: string[] = [
-    logoURI,
-    `https://img-cdn.jup.ag/tokens/${mint}.png`,
-    `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${mint}/logo.png`,
-    `https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/assets/mainnet/${mint}/logo.png`,
+    logoURI, // Provided logoURI from Jupiter API (IPFS URLs) - primary source
+    `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${mint}/logo.png`, // Solana official token-list
+    `https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/assets/mainnet/${mint}/logo.png`, // JSDelivr mirror
+    `https://img-cdn.jup.ag/tokens/${mint}.svg`, // Jupiter CDN - backup
     // Add local SOL icon as last resort for SOL
     isSOL ? '/icons/sol-circular.svg' : undefined
   ].filter((source): source is string => Boolean(source))
@@ -116,7 +117,7 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
         <span
           className="font-bold"
           style={{
-            color: theme.name === 'light' ? '#0ea5e9' : '#21bcff',
+            color: theme.colors.textSecondary,
             fontFamily: 'var(--font-helvetica)',
             fontSize: `${size * 0.4}px`,
             textTransform: 'uppercase',
@@ -138,11 +139,11 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
         width: size,
         height: size,
         background: theme.name === 'light'
-          ? 'rgba(255, 255, 255, 0.9)'
-          : 'rgba(255, 255, 255, 0.1)',
+          ? theme.colors.background
+          : theme.colors.surface,
         border: theme.name === 'light'
-          ? '2px solid rgba(33, 188, 255, 0.25)'
-          : '2px solid rgba(33, 188, 255, 0.3)',
+          ? `2px solid ${theme.colors.borderLight}`
+          : `2px solid ${theme.colors.borderLight}`,
         backdropFilter: 'blur(12px) saturate(1.8)',
         WebkitBackdropFilter: 'blur(12px) saturate(1.8)',
         boxShadow: theme.name === 'light'

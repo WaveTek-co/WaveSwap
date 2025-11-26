@@ -19,10 +19,12 @@ graph TB
     H --> J[Cross-Chain<br/>Transfers]
     I --> K[Privacy-Enabled<br/>Staking]
 
-    style D fill:#264af5,color:#fff
-    style F fill:#10b981,color:#fff
-    style J fill:#10b981,color:#fff
-    style K fill:#10b981,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class D,F orcaPrimary
+    class J,K orcaSuccess
 ```
 
 ## System Architecture
@@ -75,9 +77,13 @@ flowchart TD
     G --> H
     H --> I[Dashboard Access]
 
-    style A fill:#f8fafc
-    style H fill:#10b981,color:#fff
-    style I fill:#264af5,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class H orcaSuccess
+    class I orcaPrimary
+    class A orcaSecondary
 ```
 
 ### 2. WaveSwap - Privacy-First Token Swapping
@@ -107,11 +113,14 @@ flowchart TD
 
     M --> N[History Update]
 
-    style E fill:#264af5,color:#fff
-    style I fill:#264af5,color:#fff
-    style K fill:#10b981,color:#fff
-    style F fill:#f59e0b,color:#fff
-    style J fill:#f59e0b,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaWarning fill:#d3d3d3,color:#000000,stroke:#808080,stroke-width:2px
+
+    class E,G,I,K orcaPrimary
+    class F,H,J,L orcaWarning
+    class M,N orcaSuccess
 ```
 
 #### Privacy vs Public Swap Flow
@@ -169,9 +178,13 @@ graph LR
     G --> I
     G --> J
 
-    style E fill:#264af5,color:#fff
-    style F fill:#264af5,color:#fff
-    style G fill:#10b981,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class E,F orcaPrimary
+    class G,H,I,J orcaSuccess
+    class A,B,C,D orcaSecondary
 ```
 
 #### Bridge Process Flow
@@ -197,9 +210,13 @@ flowchart TD
     L --> M[Completion]
     M --> N[Destination Chain Receipt]
 
-    style E fill:#264af5,color:#fff
-    style J fill:#10b981,color:#fff
-    style M fill:#10b981,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class E,M,J,N orcaPrimary
+    class F,G,H,I,K,L orcaSuccess
+    class A,B,C,D orcaSecondary
 ```
 
 ### 4. WaveStake - Privacy-Enabled Staking
@@ -235,10 +252,13 @@ graph TB
     H --> I
     I --> J
 
-    style A fill:#264af5,color:#fff
-    style B fill:#264af5,color:#fff
-    style E fill:#10b981,color:#fff
-    style F fill:#10b981,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class A,B orcaPrimary
+    class E,F orcaSuccess
+    class C,D,G,H,I,J orcaSecondary
 ```
 
 ## Privacy & Security Architecture
@@ -266,8 +286,13 @@ graph LR
     C --> G
     D --> H
 
-    style E fill:#264af5,color:#fff
-    style F fill:#264af5,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class E,F orcaPrimary
+    class G,H orcaSuccess
+    class A,B,C,D orcaSecondary
 ```
 
 ### Security Measures
@@ -357,8 +382,13 @@ graph TD
     I --> J[Responsive Design]
     J --> K[Accessibility Features]
 
-    style A fill:#264af5,color:#fff
-    style I fill:#10b981,color:#fff
+    classDef orcaPrimary fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px
+    classDef orcaSecondary fill:#ffffff,color:#000000,stroke:#000000,stroke-width:2px
+    classDef orcaSuccess fill:#808080,color:#ffffff,stroke:#ffffff,stroke-width:2px
+
+    class A,E orcaPrimary
+    class I,K,J,H orcaSuccess
+    class C,D,F,G orcaSecondary
 ```
 
 ### Color Palette

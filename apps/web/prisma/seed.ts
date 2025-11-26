@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client'
-import { logger } from '@/lib/logger'
 
 const prisma = new PrismaClient()
 
@@ -13,11 +12,11 @@ const defaultTokens = [
     isVerified: true,
   },
   {
-    mint: 'EPjFWdd5Au17hunJyHyer4hoi6UcsbkxNmnpDnJ55ip2',
+    mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
     symbol: 'USDC',
     name: 'USD Coin',
     decimals: 6,
-    logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5Au17hunJyHyer4hoi6UcsbkxNmnpDnJ55ip2/logo.png',
+    logoUri: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
     isVerified: true,
   },
   {
@@ -60,52 +59,66 @@ const defaultRoutes = [
 ]
 
 async function main() {
-  logger.info('Starting database seeding...')
+  console.log('🌱 Starting database seeding...')
 
   try {
-    // Clear existing data
-    await prisma.swapStage.deleteMany()
-    await prisma.swap.deleteMany()
-    await prisma.session.deleteMany()
-    await prisma.quoteCache.deleteMany()
-    await prisma.rateLimit.deleteMany()
-    await prisma.route.deleteMany()
-    await prisma.tokenMetadata.deleteMany()
-
-    logger.info('Cleared existing data')
-
     // Seed token metadata
+    console.log('📊 Seeding token metadata...')
     for (const token of defaultTokens) {
       await prisma.tokenMetadata.upsert({
         where: { mint: token.mint },
-        update: token,
-        create: token,
+        update: {
+          symbol: token.symbol,
+          name: token.name,
+          decimals: token.decimals,
+          logoUri: token.logoUri,
+          isVerified: token.isVerified,
+          updatedAt: new Date()
+        },
+        create: {
+          mint: token.mint,
+          symbol: token.symbol,
+          name: token.name,
+          decimals: token.decimals,
+          logoUri: token.logoUri,
+          isVerified: token.isVerified
+        }
       })
+      console.log(`✅ ${token.symbol} - ${token.name}`)
     }
-    logger.info(`Seeded ${defaultTokens.length} tokens`)
 
     // Seed routes
+    console.log('🛣️ Seeding routes...')
     for (const route of defaultRoutes) {
       await prisma.route.upsert({
         where: { name: route.name },
-        update: route,
-        create: route,
+        update: {
+          description: route.description,
+          isActive: route.isActive,
+          priority: route.priority,
+          updatedAt: new Date()
+        },
+        create: {
+          name: route.name,
+          description: route.description,
+          isActive: route.isActive,
+          priority: route.priority
+        }
       })
+      console.log(`✅ ${route.name}`)
     }
-    logger.info(`Seeded ${defaultRoutes.length} routes`)
 
-    logger.info('Database seeding completed successfully')
+    console.log('🎉 Database seeding completed successfully!')
   } catch (error) {
-    logger.error('Database seeding failed', error)
+    console.error('❌ Error during database seeding:', error)
     throw error
+  } finally {
+    await prisma.$disconnect()
   }
 }
 
 main()
-  .catch((e) => {
-    console.error(e)
+  .catch((error) => {
+    console.error(error)
     process.exit(1)
-  })
-  .finally(async () => {
-    await prisma.$disconnect()
   })

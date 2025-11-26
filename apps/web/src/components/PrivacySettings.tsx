@@ -358,7 +358,7 @@ export function PrivacySettings({
                     <div className={`px-2 py-1 rounded-lg text-xs font-medium ${
                       provider.privacyLevel === 'maximum'
                         ? 'bg-emerald-500/20 text-emerald-400'
-                        : 'bg-blue-500/20 text-blue-400'
+                        : 'bg-primary/20 text-primary'
                     }`}>
                       {provider.privacyLevel === 'maximum' ? 'Maximum Privacy' : 'Standard Privacy'}
                     </div>

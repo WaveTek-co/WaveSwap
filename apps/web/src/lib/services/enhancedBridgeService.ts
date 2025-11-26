@@ -2,6 +2,9 @@
 // Combines Near Intents, Starkgate, and cross-chain asset identification
 
 import { IntentsSDK, createIntentSignerNearKeyPair } from '@defuse-protocol/intents-sdk'
+import { Connection, PublicKey, Transaction } from '@solana/web3.js'
+import { nearIntentBridge, type BridgeQuote } from '../nearIntentBridge'
+import { getTokenIcon } from '../tokenIconService'
 
 // Define AssetId type locally since it's not exported from the package
 type AssetId = string
@@ -10,8 +13,6 @@ type AssetId = string
 function parseAssetId(assetId: string): AssetId {
   return assetId
 }
-import { Connection, PublicKey, Transaction } from '@solana/web3.js'
-import { nearIntentBridge, type BridgeQuote } from '../nearIntentBridge'
 
 // Enhanced token types
 export interface CrossChainToken {
@@ -216,7 +217,7 @@ export class EnhancedBridgeService {
    */
   private async getDefuseAssets(): Promise<any[]> {
     // This would integrate with Defuse API to get supported assets
-    // For now, return commonly supported assets
+    // For now, return commonly supported assets with dynamic icon loading
     return [
       {
         symbol: 'USDC',
@@ -224,7 +225,7 @@ export class EnhancedBridgeService {
         address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
         decimals: 6,
         chain: 'solana',
-        logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png'
+        logoURI: await getTokenIcon('USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
       },
       {
         symbol: 'USDT',
@@ -232,7 +233,7 @@ export class EnhancedBridgeService {
         address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
         decimals: 6,
         chain: 'solana',
-        logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png'
+        logoURI: await getTokenIcon('USDT', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB')
       }
     ]
   }

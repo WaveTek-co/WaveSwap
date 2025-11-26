@@ -84,7 +84,7 @@ export function TokenSelector({
             placeholder="Search token..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full p-3 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            className="w-full p-3 rounded-lg text-white focus:outline-none focus:border-primary"
             style={{ backgroundColor: 'var(--wave-glass-bg)', borderColor: 'var(--wave-glass-border)', color: 'var(--wave-text-primary)' }}
           />
         </div>
@@ -94,7 +94,7 @@ export function TokenSelector({
           <select
             value={selectedChain}
             onChange={(e) => setSelectedChain(e.target.value)}
-            className="w-full p-3 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            className="w-full p-3 rounded-lg text-white focus:outline-none focus:border-primary"
             style={{ backgroundColor: 'var(--wave-glass-bg)', borderColor: 'var(--wave-glass-border)', color: 'var(--wave-text-primary)' }}
           >
             <option value="all">All Chains</option>

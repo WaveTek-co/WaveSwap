@@ -1,4 +1,6 @@
 // Near Intent Bridge API Integration
+import { getTokenIcon } from './tokenIconService'
+
 export interface BridgeToken {
   symbol: string
   name: string
@@ -222,7 +224,7 @@ export const SUPPORTED_CHAINS = [
   {
     id: 'solana',
     name: 'Solana',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+    logoURI: getTokenIcon('SOL', 'So11111111111111111111111111111111111111112'),
     color: 'from-blue-500 to-blue-600',
     gradient: 'bg-gradient-to-r from-blue-500 to-blue-600',
     icon: '◎',
@@ -258,7 +260,7 @@ export const SUPPORTED_CHAINS = [
 ] as const
 
 // Common token mappings - will be enhanced with CoinGecko data
-export const COMMON_TOKENS = {
+export const COMMON_TOKENS_STATIC = {
   solana: [
     {
       symbol: 'SOL',
@@ -266,7 +268,7 @@ export const COMMON_TOKENS = {
       address: 'So11111111111111111111111111111111111111112',
       decimals: 9,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'USDC',
@@ -274,7 +276,7 @@ export const COMMON_TOKENS = {
       address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
       decimals: 6,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'USDT',
@@ -282,7 +284,7 @@ export const COMMON_TOKENS = {
       address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
       decimals: 6,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'RAY',
@@ -290,7 +292,7 @@ export const COMMON_TOKENS = {
       address: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
       decimals: 6,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'SRM',
@@ -298,7 +300,7 @@ export const COMMON_TOKENS = {
       address: 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt',
       decimals: 6,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'BONK',
@@ -306,7 +308,7 @@ export const COMMON_TOKENS = {
       address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
       decimals: 5,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'WIF',
@@ -314,7 +316,7 @@ export const COMMON_TOKENS = {
       address: 'EKpQGSJtjMFqKv9K6aFdJrkNVC9YwEjHRgCTKJWv3Kbz',
       decimals: 6,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EKpQGSJtjMFqKv9K6aFdJrkNVC9YwEjHRgCTKJWv3Kbz/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'JUP',
@@ -322,7 +324,7 @@ export const COMMON_TOKENS = {
       address: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
       decimals: 6,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'WAVE',
@@ -330,7 +332,7 @@ export const COMMON_TOKENS = {
       address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
       decimals: 9,
       chain: 'solana',
-      logoURI: 'https://img-cdn.jup.ag/tokens/9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM.png',
+      logoURI: '', // Will be filled dynamically
     },
     {
       symbol: 'WEALTH',
@@ -338,7 +340,7 @@ export const COMMON_TOKENS = {
       address: 'WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt',
       decimals: 9,
       chain: 'solana',
-      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt/logo.png',
+      logoURI: '', // Will be filled dynamically
     },
   ],
   near: [
@@ -504,5 +506,29 @@ export const CHAIN_WALLETS = {
     disconnectedText: 'Connect StarkNet Wallet'
   }
 } as const
+
+/**
+ * Get common tokens with dynamic icon loading
+ */
+export async function getCommonTokens(): Promise<typeof COMMON_TOKENS_STATIC> {
+  const tokensWithIcons = JSON.parse(JSON.stringify(COMMON_TOKENS_STATIC))
+
+  // Fill in logoURIs dynamically using the token icon service
+  for (const chain of Object.keys(tokensWithIcons) as Array<keyof typeof COMMON_TOKENS_STATIC>) {
+    for (const token of tokensWithIcons[chain]) {
+      if (chain === 'solana') {
+        token.logoURI = await getTokenIcon(token.symbol, token.address)
+      } else {
+        // For non-Solana chains, use external icon URLs
+        token.logoURI = await getTokenIcon(token.symbol)
+      }
+    }
+  }
+
+  return tokensWithIcons
+}
+
+// Legacy export for backward compatibility
+export const COMMON_TOKENS = COMMON_TOKENS_STATIC
 
 export type ChainId = 'solana' | 'near' | 'zec' | 'starknet'

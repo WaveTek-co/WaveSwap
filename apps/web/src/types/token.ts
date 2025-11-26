@@ -4,6 +4,8 @@
  * This file defines all token-related interfaces and provides common token configurations.
  */
 
+import { JupiterTokenService, POPULAR_TOKEN_ADDRESSES, OTHER_TOKEN_ADDRESSES } from '@/lib/jupiterTokens'
+
 export interface Token {
   address: string
   chainId: number
@@ -164,7 +166,7 @@ export const COMMON_TOKENS: Token[] = [
     decimals: 6,
     name: 'Tether USD',
     symbol: 'USDT',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/USDT.svg',
     tags: ['stablecoin', 'usdt'],
     isConfidentialSupported: true,
     isNative: false,
@@ -176,7 +178,7 @@ export const COMMON_TOKENS: Token[] = [
     decimals: 9,
     name: 'Marinade Staked SOL',
     symbol: 'mSOL',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/mSOL.svg',
     tags: ['defi', 'staking', 'msol'],
     isConfidentialSupported: true,
     isNative: false,
@@ -188,7 +190,7 @@ export const COMMON_TOKENS: Token[] = [
     decimals: 6,
     name: 'Raydium',
     symbol: 'RAY',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/RAY.svg',
     tags: ['defi', 'dex', 'raydium'],
     isConfidentialSupported: false,
     isNative: false,
@@ -200,7 +202,7 @@ export const COMMON_TOKENS: Token[] = [
     decimals: 5,
     name: 'Bonk',
     symbol: 'BONK',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/BONK.svg',
     tags: ['meme', 'bonk'],
     isConfidentialSupported: false,
     isNative: false,
@@ -212,7 +214,7 @@ export const COMMON_TOKENS: Token[] = [
     decimals: 6,
     name: 'Wormhole',
     symbol: 'W',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/WormsgfugeESKtdMuFBCKUGGDYLSUcfvhoMsV9fqN3G/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/W.svg',
     tags: ['bridge', 'wormhole'],
     isConfidentialSupported: false,
     isNative: false,
@@ -224,8 +226,104 @@ export const COMMON_TOKENS: Token[] = [
     decimals: 6,
     name: 'Jupiter',
     symbol: 'JUP',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/jutoGL3C1tJKHbC9VwFhkLq2uf1q4AXaMGuqJrEy5XA/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/JUP.svg',
     tags: ['defi', 'airdrop', 'jupiter'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+    chainId: 101,
+    decimals: 9,
+    name: 'Wave',
+    symbol: 'WAVE',
+    logoURI: 'https://img-cdn.jup.ag/tokens/WAVE.svg',
+    tags: ['defi', 'dex'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS',
+    chainId: 101,
+    decimals: 8,
+    name: 'Zcash',
+    symbol: 'ZEC',
+    logoURI: 'https://img-cdn.jup.ag/tokens/ZEC.svg',
+    tags: ['bridge', 'privacy'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn',
+    chainId: 101,
+    decimals: 6,
+    name: 'Pump',
+    symbol: 'PUMP',
+    logoURI: 'https://img-cdn.jup.ag/tokens/PUMP.svg',
+    tags: ['meme'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump',
+    chainId: 101,
+    decimals: 6,
+    name: 'Wealth',
+    symbol: 'WEALTH',
+    logoURI: 'https://img-cdn.jup.ag/tokens/WEALTH.svg',
+    tags: ['defi'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'J2eaKn35rp82T6RFEsNK9CLRHEKV9BLXjedFM3q6pump',
+    chainId: 101,
+    decimals: 6,
+    name: 'FTP',
+    symbol: 'FTP',
+    logoURI: 'https://img-cdn.jup.ag/tokens/FTP.svg',
+    tags: ['defi'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2',
+    chainId: 101,
+    decimals: 6,
+    name: 'Aura',
+    symbol: 'AURA',
+    logoURI: 'https://img-cdn.jup.ag/tokens/AURA.svg',
+    tags: ['defi'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5',
+    chainId: 101,
+    decimals: 9,
+    name: 'MEW',
+    symbol: 'MEW',
+    logoURI: 'https://img-cdn.jup.ag/tokens/MEW.svg',
+    tags: ['meme'],
+    isConfidentialSupported: false,
+    isNative: false,
+    addressable: true
+  },
+  {
+    address: 'FLJYGHpCCcfYUdzhcfHSeSd2peb5SMajNWaCsRnhpump',
+    chainId: 101,
+    decimals: 6,
+    name: 'Store',
+    symbol: 'STORE',
+    logoURI: 'https://img-cdn.jup.ag/tokens/STORE.svg',
+    tags: ['defi'],
     isConfidentialSupported: false,
     isNative: false,
     addressable: true
@@ -266,7 +364,7 @@ export const CONFIDENTIAL_TOKENS: Token[] = [
     decimals: 5,
     name: 'Confidential BONK',
     symbol: 'cBONK',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/BONK.svg',
     tags: ['confidential', 'wrapped', 'meme'],
     isConfidentialSupported: true,
     isNative: false,
@@ -275,19 +373,133 @@ export const CONFIDENTIAL_TOKENS: Token[] = [
 ]
 
 /**
- * Get available tokens based on privacy mode
+ * Get available tokens based on privacy mode using Jupiter Token API v2
  */
 export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]> {
-  let tokens: Token[]
-  if (privacyMode) {
-    // In privacy mode, show regular tokens that support confidential operations
-    tokens = COMMON_TOKENS.filter(t => t.isConfidentialSupported)
-  } else {
-    tokens = COMMON_TOKENS
-  }
+  try {
+    // Get all available tokens from Jupiter API v2
+    const [popularTokens, otherTokens] = await Promise.all([
+      JupiterTokenService.getPopularTokens(),
+      JupiterTokenService.getOtherTokens()
+    ])
 
-  // Return tokens without any API enrichment for now
-  return tokens
+    // Convert JupiterToken to Token format
+    const convertJupiterToToken = (jupiterToken: any): Token => ({
+      address: jupiterToken.id, // Use id from Jupiter API
+      chainId: 101, // Solana mainnet
+      decimals: jupiterToken.decimals || 9,
+      name: jupiterToken.name || 'Unknown',
+      symbol: jupiterToken.symbol || 'UNKNOWN',
+      logoURI: jupiterToken.icon || `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${jupiterToken.id}/logo.png`, // Use Jupiter API icon with GitHub fallback
+      tags: jupiterToken.tags || [],
+      isConfidentialSupported: false, // Will be determined by privacy mode
+      isNative: jupiterToken.id === 'So11111111111111111111111111111111111111112',
+      addressable: true,
+      // Add privacy support if token is in COMMON_TOKENS
+      encifherSupported: COMMON_TOKENS.find(ct => ct.address === jupiterToken.id)?.encifherSupported || false,
+      privacyProviders: COMMON_TOKENS.find(ct => ct.address === jupiterToken.id)?.privacyProviders || [],
+      minPrivateAmount: COMMON_TOKENS.find(ct => ct.address === jupiterToken.id)?.minPrivateAmount
+    })
+
+    const allJupiterTokens = [...popularTokens, ...otherTokens].map(convertJupiterToToken)
+
+    // Create a map of existing Jupiter tokens for quick lookup
+    const jupiterTokenMap = new Map(allJupiterTokens.map(t => [t.address, t]))
+
+    // Ensure all tokens from TODO.md are included with fallback data
+    const TODO_TOKENS = [
+      // Popular tokens
+      { address: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump', symbol: 'WAVE', name: 'Wave' },
+      { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Solana' },
+      { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', name: 'USD Coin' },
+      { address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', name: 'Tether USD' },
+      { address: 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS', symbol: 'ZEC', name: 'Zcash' },
+      { address: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump' },
+      // Other tokens
+      { address: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump', symbol: 'WEALTH', name: 'Wealth' },
+      { address: 'J2eaKn35rp82T6RFEsNK9CLRHEKV9BLXjedFM3q6pump', symbol: 'FTP', name: 'FTP' },
+      { address: 'DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2', symbol: 'AURA', name: 'Aura' },
+      { address: 'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5', symbol: 'MEW', name: 'MEW' },
+      { address: 'FLJYGHpCCcfYUdzhcfHSeSd2peb5SMajNWaCsRnhpump', symbol: 'STORE', name: 'Store' }
+    ]
+
+    // Add missing TODO tokens with fallback data
+    const missingTodoTokens = TODO_TOKENS.filter(todoToken => !jupiterTokenMap.has(todoToken.address))
+      .map(todoToken => {
+        const commonToken = COMMON_TOKENS.find(ct => ct.address === todoToken.address)
+        return {
+          address: todoToken.address,
+          chainId: 101,
+          decimals: commonToken?.decimals || 9,
+          name: commonToken?.name || todoToken.name,
+          symbol: commonToken?.symbol || todoToken.symbol,
+          logoURI: commonToken?.logoURI || `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${todoToken.address}/logo.png`,
+          tags: commonToken?.tags || [],
+          isConfidentialSupported: commonToken?.isConfidentialSupported || false,
+          isNative: todoToken.address === 'So11111111111111111111111111111111111111112',
+          addressable: true,
+          encifherSupported: commonToken?.encifherSupported || false,
+          privacyProviders: commonToken?.privacyProviders || [],
+          minPrivateAmount: commonToken?.minPrivateAmount
+        } as Token
+      })
+
+    // Add common tokens for compatibility (for tokens not found in Jupiter API)
+    const jupiterTokenAddresses = new Set(allJupiterTokens.map(t => t.address))
+    const missingCommonTokens = COMMON_TOKENS.filter(ct => !jupiterTokenAddresses.has(ct.address) && !missingTodoTokens.some(mt => mt.address === ct.address))
+    const commonTokensAsToken = missingCommonTokens.map(token => ({...token}))
+
+    // Merge all tokens
+    let allTokens = [...allJupiterTokens, ...missingTodoTokens, ...commonTokensAsToken]
+
+    // Filter for privacy mode if needed
+    if (privacyMode) {
+      allTokens = allTokens.filter(token => {
+        return token.isConfidentialSupported || COMMON_TOKENS.find(ct => ct.address === token.address)?.isConfidentialSupported
+      })
+    }
+
+    // Sort: Popular tokens maintain their exact order, others come after
+    allTokens.sort((a, b) => {
+      const aPopularIndex = POPULAR_TOKEN_ADDRESSES.indexOf(a.address)
+      const bPopularIndex = POPULAR_TOKEN_ADDRESSES.indexOf(b.address)
+      const aOtherIndex = OTHER_TOKEN_ADDRESSES.indexOf(a.address)
+      const bOtherIndex = OTHER_TOKEN_ADDRESSES.indexOf(b.address)
+
+      // Both in popular tokens - maintain order
+      if (aPopularIndex !== -1 && bPopularIndex !== -1) {
+        return aPopularIndex - bPopularIndex
+      }
+
+      // One in popular tokens, popular comes first
+      if (aPopularIndex !== -1 && bPopularIndex === -1) return -1
+      if (aPopularIndex === -1 && bPopularIndex !== -1) return 1
+
+      // Both in other tokens - maintain order
+      if (aOtherIndex !== -1 && bOtherIndex !== -1) {
+        return aOtherIndex - bOtherIndex
+      }
+
+      // One in other tokens
+      if (aOtherIndex !== -1 && bOtherIndex === -1) return -1
+      if (aOtherIndex === -1 && bOtherIndex !== -1) return 1
+
+      // Neither in predefined lists - alphabetical
+      return a.symbol.localeCompare(b.symbol)
+    })
+
+    return allTokens
+
+  } catch (error) {
+    console.error('Error fetching available tokens from Jupiter API:', error)
+
+    // Fallback to COMMON_TOKENS if Jupiter API fails
+    let tokens = COMMON_TOKENS
+    if (privacyMode) {
+      tokens = COMMON_TOKENS.filter(t => t.isConfidentialSupported)
+    }
+    return tokens
+  }
 }
 
 

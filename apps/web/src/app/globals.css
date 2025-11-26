@@ -171,8 +171,8 @@
     --theme-text-secondary: #cbd5e1;
     --theme-text-muted: #94a3b8;
     --theme-text-inverse: #1e293b;
-    --theme-primary: #3b82f6;
-    --theme-primary-hover: #60a5fa;
+    --theme-primary: #264af5;
+    --theme-primary-hover: #1c3fd1;
     --theme-secondary: #10b981;
     --theme-accent: #a855f7;
     --theme-success: #10b981;
@@ -181,12 +181,12 @@
     --theme-info: #06b6d4;
     --theme-border: #334155;
     --theme-border-light: #475569;
-    --theme-outline: #3b82f6;
-    --theme-outline-focus: #60a5fa;
+    --theme-outline: #264af5;
+    --theme-outline-focus: #1c3fd1;
     --theme-shadow: rgba(0, 0, 0, 0.5);
     --theme-shadow-light: rgba(0, 0, 0, 0.25);
     --theme-shadow-heavy: rgba(0, 0, 0, 0.75);
-    --theme-gradient-start: #3b82f6;
+    --theme-gradient-start: #264af5;
     --theme-gradient-end: #a855f7;
     --theme-overlay: rgba(0, 0, 0, 0.8);
     --theme-glass-blur: blur(24px) saturate(1.8);
@@ -819,12 +819,12 @@
     --theme-info: #06b6d4;
     --theme-border: #e2e8f0;
     --theme-border-light: #f1f5f9;
-    --theme-outline: #3b82f6;
-    --theme-outline-focus: #2563eb;
+    --theme-outline: #264af5;
+    --theme-outline-focus: #1c3fd1;
     --theme-shadow: rgba(0, 0, 0, 0.1);
     --theme-shadow-light: rgba(0, 0, 0, 0.05);
     --theme-shadow-heavy: rgba(0, 0, 0, 0.25);
-    --theme-gradient-start: #3b82f6;
+    --theme-gradient-start: #264af5;
     --theme-gradient-end: #8b5cf6;
     --theme-overlay: rgba(0, 0, 0, 0.5);
     --theme-glass-blur: blur(20px) saturate(1.8);
@@ -1031,10 +1031,10 @@
     --wave-text-secondary: #e5e5e5;
     --wave-text-muted: #9ca3af;
 
-    /* Override all colors to grayscale */
-    --wave-azul: #606060;
-    --wave-deep-blue: #404040;
-    --wave-silver: #c0c0c0;
+    /* Override all colors to grayscale only */
+    --wave-azul: #808080;  /* Use grey for accent */
+    --wave-deep-blue: #404040;  /* Dark grey for primary elements */
+    --wave-silver: #a0a0a0;  /* Light grey for secondary elements */
 
     /* Comprehensive Orca Theme Variables */
     --theme-background: #000000;

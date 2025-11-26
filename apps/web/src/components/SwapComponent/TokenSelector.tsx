@@ -1,38 +1,130 @@
 'use client'
 
-import { useState, Fragment, useMemo, useEffect } from 'react'
-import { Listbox, Transition } from '@headlessui/react'
-import { ChevronDownIcon, CheckIcon, MagnifyingGlassIcon, ShieldCheckIcon } from '@heroicons/react/24/outline'
+import { useState, Fragment, useMemo, useEffect, useCallback } from 'react'
+import { Dialog, Transition } from '@headlessui/react'
+import {
+  ChevronDownIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
+  StarIcon,
+  CheckCircleIcon
+} from '@heroicons/react/24/outline'
 import { Token } from '@/types/token'
 import { TokenIcon } from '@/components/TokenIcon'
+import { useThemeConfig, createGlassStyles } from '@/lib/theme'
+import { JupiterTokenService, JupiterToken } from '@/lib/jupiterTokens'
 
 interface TokenSelectorProps {
   selectedToken: Token | null
   onTokenChange: (token: Token) => void
   tokens: Token[]
   disabled?: boolean
-  privacyMode?: boolean
-  showConfidentialIndicator?: boolean
   balances?: Map<string, string>
 }
 
-const JUPITER_SEARCH_API = '/api/v1/jupiter/tokens/v2/search'
-const JUPITER_CDN = 'https://img-cdn.jup.ag/tokens'
+// Exact token addresses from TODO.md - hardcoded to ensure they work
+const POPULAR_TOKENS = [
+  { address: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump', symbol: 'WAVE', name: 'Wave', decimals: 9 },
+  { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Solana', decimals: 9 },
+  { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+  { address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+  { address: 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS', symbol: 'ZEC', name: 'Zcash', decimals: 8 },
+  { address: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump', decimals: 6 }
+]
+
+const OTHER_TOKENS = [
+  { address: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump', symbol: 'WEALTH', name: 'Wealth', decimals: 6 },
+  { address: 'J2eaKn35rp82T6RFEsNK9CLRHEKV9BLXjedFM3q6pump', symbol: 'FTP', name: 'FTP', decimals: 6 },
+  { address: 'DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2', symbol: 'AURA', name: 'Aura', decimals: 6 },
+  { address: 'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5', symbol: 'MEW', name: 'MEW', decimals: 9 },
+  { address: 'FLJYGHpCCcfYUdzhcfHSeSd2peb5SMajNWaCsRnhpump', symbol: 'STORE', name: 'Store', decimals: 6 }
+]
 
 export function TokenSelector({
   selectedToken,
   onTokenChange,
   tokens,
   disabled = false,
-  privacyMode = false,
-  showConfidentialIndicator = false,
   balances
 }: TokenSelectorProps) {
+  const theme = useThemeConfig()
+  const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Token[]>([])
+  const [searchResults, setSearchResults] = useState<JupiterToken[]>([])
   const [isSearching, setIsSearching] = useState(false)
 
-  // Search tokens from Jupiter API
+  // Convert JupiterToken to Token format
+  const jupiterToToken = useCallback((jupiterToken: JupiterToken): Token => ({
+    address: jupiterToken.id,
+    chainId: 101,
+    decimals: jupiterToken.decimals,
+    name: jupiterToken.name,
+    symbol: jupiterToken.symbol,
+    logoURI: jupiterToken.icon || `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${jupiterToken.id}/logo.png`,
+    tags: jupiterToken.tags,
+    isConfidentialSupported: false,
+    isNative: jupiterToken.id === 'So11111111111111111111111111111111111111112',
+    addressable: true
+  }), [])
+
+  // Create hardcoded token list - ensure it always works
+  const { popularTokens, otherTokens, userTokens } = useMemo(() => {
+    // User tokens (with balance)
+    const user: Token[] = []
+    tokens.forEach(token => {
+      if (balances?.get(token.address) && parseFloat(balances.get(token.address)!) > 0) {
+        user.push(token)
+      }
+    })
+
+    // Create hardcoded popular tokens with proper data
+    const popular = POPULAR_TOKENS.map(tokenData => {
+      const existingToken = tokens.find(t => t.address === tokenData.address)
+      if (existingToken) return existingToken
+
+      // Create fallback token with Jupiter CDN icon
+      return {
+        address: tokenData.address,
+        chainId: 101,
+        decimals: tokenData.decimals,
+        name: tokenData.name,
+        symbol: tokenData.symbol,
+        logoURI: `https://img-cdn.jup.ag/tokens/${tokenData.symbol}.svg`,
+        tags: [],
+        isConfidentialSupported: false,
+        isNative: tokenData.address === 'So11111111111111111111111111111111111111112',
+        addressable: true
+      } as Token
+    })
+
+    // Create hardcoded other tokens with proper data
+    const other = OTHER_TOKENS.map(tokenData => {
+      const existingToken = tokens.find(t => t.address === tokenData.address)
+      if (existingToken) return existingToken
+
+      // Create fallback token with Jupiter CDN icon
+      return {
+        address: tokenData.address,
+        chainId: 101,
+        decimals: tokenData.decimals,
+        name: tokenData.name,
+        symbol: tokenData.symbol,
+        logoURI: `https://img-cdn.jup.ag/tokens/${tokenData.symbol}.svg`,
+        tags: [],
+        isConfidentialSupported: false,
+        isNative: false,
+        addressable: true
+      } as Token
+    })
+
+    return {
+      popularTokens: popular,
+      otherTokens: other,
+      userTokens: user
+    }
+  }, [tokens, balances])
+
+  // Search tokens using Jupiter API with debouncing
   useEffect(() => {
     if (!searchQuery || searchQuery.length < 2) {
       setSearchResults([])
@@ -42,487 +134,566 @@ export function TokenSelector({
 
     const searchTimer = setTimeout(async () => {
       setIsSearching(true)
+
       try {
-        const response = await fetch(`${JUPITER_SEARCH_API}?query=${encodeURIComponent(searchQuery)}`)
-        if (response.ok) {
-          const data = await response.json()
-          console.log('Jupiter search results:', data)
-          
-          if (Array.isArray(data) && data.length > 0) {
-            const jupiterTokens: Token[] = data.slice(0, 30).map((t: any) => ({
-              address: t.address || t.mint,
-              chainId: 101,
-              decimals: t.decimals,
-              name: t.name,
-              symbol: t.symbol,
-              // Use Jupiter CDN with fallbacks
-              logoURI: t.logoURI || t.image || `${JUPITER_CDN}/${t.symbol}.svg`,
-              tags: t.tags || [],
-              isConfidentialSupported: ['SOL', 'USDC', 'USDT', 'mSOL', 'RAY', 'BONK', 'WIF'].includes(t.symbol),
-              isNative: (t.address || t.mint) === 'So11111111111111111111111111111111111111112',
-              addressable: true,
-            }))
-            console.log('Parsed Jupiter tokens:', jupiterTokens.map(t => ({ symbol: t.symbol, logo: t.logoURI })))
-            setSearchResults(jupiterTokens)
-          } else {
-            setSearchResults([])
-          }
-        }
+        const results = await JupiterTokenService.searchTokens(searchQuery)
+        setSearchResults(results)
       } catch (error) {
-        console.error('Token search error:', error)
+        console.error('Error searching tokens:', error)
         setSearchResults([])
       } finally {
         setIsSearching(false)
       }
-    }, 300)
+    }, 500)
 
     return () => clearTimeout(searchTimer)
   }, [searchQuery])
 
-  const { tokensWithBalance, tokensWithoutBalance } = useMemo(() => {
-    let tokensToFilter = tokens
-
-    if (searchResults.length > 0) {
-      tokensToFilter = searchResults
-    } else if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      tokensToFilter = tokens.filter(
-        token =>
-          token.symbol.toLowerCase().includes(query) ||
-          token.name.toLowerCase().includes(query) ||
-          token.address.toLowerCase().includes(query)
-      )
-    }
-
-    // Split into tokens with/without balance
-    const withBalance = balances ? tokensToFilter.filter(t => {
-      const bal = balances.get(t.address)
-      return bal && parseFloat(bal) > 0
-    }) : []
-
-    const withoutBalance = balances ? tokensToFilter.filter(t => {
-      const bal = balances.get(t.address)
-      return !bal || parseFloat(bal) === 0
-    }) : tokensToFilter
-
-    return {
-      tokensWithBalance: withBalance,
-      tokensWithoutBalance: withoutBalance
-    }
-  }, [tokens, searchQuery, searchResults, balances])
-
   const getTokenBalance = (token: Token): string => {
     if (!balances) return '0'
-    const balance = balances.get(token.address)
-    return balance || '0'
+    return balances.get(token.address) || '0'
   }
 
   const formatBalance = (balance: string, decimals: number): string => {
-    const amount = parseFloat(balance) / Math.pow(10, decimals)
-    if (amount === 0) return '0'
-    if (amount < 0.001) return '<0.001'
-    if (amount < 1) return amount.toFixed(4)
-    if (amount < 1000) return amount.toFixed(2)
-    return amount.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    try {
+      const num = parseFloat(balance) / Math.pow(10, decimals)
+      if (num === 0) return '0'
+      if (num < 0.001) return '<0.001'
+      if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`
+      if (num >= 1000) return `${(num / 1000).toFixed(2)}K`
+      return num.toFixed(Math.max(0, 6 - Math.floor(num).toString().length))
+    } catch {
+      return '0'
+    }
   }
 
-  const hasBalance = (token: Token): boolean => {
-    if (!balances) return false
-    const balance = balances.get(token.address)
-    return balance ? parseFloat(balance) > 0 : false
+  const handleTokenSelect = (token: Token) => {
+    onTokenChange(token)
+    setIsOpen(false)
+    setSearchQuery('')
   }
+
+  const currentToken = selectedToken || tokens[0]
 
   return (
-    <Listbox
-      value={selectedToken || tokens[0]}
-      onChange={onTokenChange}
-      disabled={disabled}
-    >
-      <div className="relative">
-        <Listbox.Button
-          className="glass-card flex items-center gap-3 px-4 py-3 transition-all disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px] h-14"
-          style={{
-            background: 'rgba(20, 20, 35, 0.8)',
-            border: '1px solid rgba(33, 188, 255, 0.2)',
-            backdropFilter: 'blur(20px)',
-          }}
-          disabled={disabled}
-        >
-          <div className="flex items-center gap-3 flex-1">
-            {(() => {
-              const displayToken = selectedToken || tokens[0]
-              if (!displayToken) return null
-              return (
-                <>
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden border-2"
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(20, 20, 35, 0.9), rgba(30, 30, 50, 0.9))',
-                      borderColor: 'rgba(33, 188, 255, 0.3)',
-                    }}
-                  >
-                    <TokenIcon
-                      symbol={displayToken.symbol}
-                      mint={displayToken.address}
-                      logoURI={displayToken.logoURI}
-                      size={40}
-                    />
-                  </div>
-                  <div className="flex flex-col items-start">
-                    <span
-                      className="text-base font-bold leading-tight"
-                      style={{
-                        color: 'var(--wave-text)',
-                        fontFamily: 'var(--font-helvetica)',
-                        fontWeight: 700,
-                        letterSpacing: '0.02em'
-                      }}
-                    >
-                      {displayToken.symbol}
-                    </span>
-                    {balances && (
-                      <span
-                        className="text-xs opacity-70"
-                        style={{
-                          color: 'var(--wave-text)',
-                          fontFamily: 'var(--font-helvetica)'
-                        }}
-                      >
-                        Balance: {(() => {
-                          const balance = balances.get(displayToken.address)
-                          const amount = balance ? parseFloat(balance) / Math.pow(10, displayToken.decimals) : 0
-                          if (amount === 0) return '0'
-                          if (amount < 0.001) return '<0.001'
-                          if (amount < 1) return amount.toFixed(4)
-                          if (amount < 1000) return amount.toFixed(2)
-                          return amount.toLocaleString(undefined, { maximumFractionDigits: 2 })
-                        })()}
-                      </span>
-                    )}
-                  </div>
-                </>
+    <>
+      {/* Token Selector Button */}
+      <button
+        onClick={() => setIsOpen(true)}
+        disabled={disabled}
+        className="group relative flex items-center justify-between gap-3 px-6 py-4 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed min-w-[220px] h-16 rounded-xl overflow-hidden"
+        style={{
+          ...createGlassStyles(theme),
+          background: theme.name === 'light'
+            ? `
+              linear-gradient(135deg,
+                rgba(255, 255, 255, 0.95) 0%,
+                rgba(248, 250, 252, 0.9) 25%,
+                rgba(255, 255, 255, 0.95) 50%,
+                rgba(241, 245, 249, 0.9) 75%,
+                rgba(255, 255, 255, 0.95) 100%
               )
-            })()}
-          </div>
-          <ChevronDownIcon
-            className="h-5 w-5 flex-shrink-0 transition-transform duration-200 ui-open:rotate-180"
-            style={{ color: 'rgba(33, 188, 255, 0.8)' }}
-          />
-        </Listbox.Button>
-
-        <Transition
-          as={Fragment}
-          leave="transition ease-in duration-150"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-          enter="transition ease-out duration-150"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          afterLeave={() => setSearchQuery('')}
-        >
-          <Listbox.Options
-            className="absolute right-0 top-full z-50 mt-2 w-80 max-h-[420px] overflow-y-auto"
-            style={{
-              background: 'rgba(15, 15, 25, 0.98)',
-              backdropFilter: 'blur(40px) saturate(180%)',
-              border: '1px solid rgba(33, 188, 255, 0.2)',
-              borderRadius: '1rem',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(33, 188, 255, 0.3)',
-              maxHeight: '420px'
-            }}
-          >
-            {/* Search Input */}
-            <div className="p-4 sticky top-0 z-10" style={{ 
-              background: 'rgba(15, 15, 25, 0.95)',
-              borderBottom: '1px solid rgba(33, 188, 255, 0.15)' 
-            }}>
+            `
+            : `
+              linear-gradient(135deg,
+                ${theme.colors.surface}f2 0%,
+                ${theme.colors.surfaceHover}e8 25%,
+                ${theme.colors.surface}f2 50%,
+                ${theme.colors.surfaceHover}e8 75%,
+                ${theme.colors.surface}f2 100%
+              )
+            `,
+          borderWidth: '2px',
+          borderStyle: 'solid',
+          borderColor: theme.name === 'light' ? 'rgba(33, 188, 255, 0.2)' : theme.colors.border,
+          backdropFilter: theme.name === 'light'
+            ? 'blur(20px) saturate(1.5) contrast(1.02)'
+            : 'blur(24px) saturate(1.9) contrast(1.05)',
+          WebkitBackdropFilter: theme.name === 'light'
+            ? 'blur(20px) saturate(1.5) contrast(1.02)'
+            : 'blur(24px) saturate(1.9) contrast(1.05)',
+          boxShadow: theme.name === 'light'
+            ? '0 8px 32px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(33, 188, 255, 0.08)'
+            : '0 12px 40px ${theme.colors.shadowHeavy}, 0 6px 20px ${theme.colors.primary}30'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)'
+          e.currentTarget.style.borderColor = theme.colors.primary
+          e.currentTarget.style.boxShadow = theme.name === 'light'
+            ? '0 12px 48px rgba(0, 0, 0, 0.08), 0 6px 24px rgba(33, 188, 255, 0.15)'
+            : '0 16px 50px ${theme.colors.shadowHeavy}, 0 8px 25px ${theme.colors.primary}40'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0px) scale(1)'
+          e.currentTarget.style.borderColor = theme.name === 'light' ? 'rgba(33, 188, 255, 0.2)' : theme.colors.border
+          e.currentTarget.style.boxShadow = theme.name === 'light'
+            ? '0 12px 40px rgba(0, 0, 0, 0.08), 0 6px 20px rgba(33, 188, 255, 0.12)'
+            : '0 12px 40px ${theme.colors.shadowHeavy}, 0 6px 20px ${theme.colors.primary}30'
+        }}
+      >
+        <div className="flex items-center gap-3 flex-1 relative z-10">
+          {currentToken && (
+            <>
               <div className="relative">
-                <MagnifyingGlassIcon 
-                  className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5"
-                  style={{ color: 'var(--wave-azul)' }}
+                <TokenIcon
+                  symbol={currentToken.symbol}
+                  mint={currentToken.address}
+                  logoURI={currentToken.logoURI}
+                  size={32}
                 />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-lg text-sm"
+                <div
+                  className="absolute inset-0 rounded-full blur-sm pointer-events-none"
                   style={{
-                    background: 'rgba(25, 25, 40, 0.6)',
-                    border: '1px solid rgba(33, 188, 255, 0.2)',
-                    color: 'var(--wave-text)',
-                    fontFamily: 'Rajdhani, sans-serif',
-                    fontSize: '0.875rem',
-                    fontWeight: 500,
-                    outline: 'none',
-                    transition: 'all 0.2s ease'
+                    opacity: theme.name === 'light' ? 0.15 : 0.3,
+                    background: theme.name === 'light'
+                      ? 'radial-gradient(circle, rgba(33, 188, 255, 0.2) 0%, transparent 60%)'
+                      : 'radial-gradient(circle, rgba(33, 188, 255, 0.4) 0%, transparent 70%)'
                   }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.5)';
-                    e.currentTarget.style.boxShadow = '0 0 15px rgba(33, 188, 255, 0.2)';
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.2)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
                 />
               </div>
-            </div>
+              <div className="flex flex-col items-start">
+                <span
+                  className="font-bold tracking-wide"
+                  style={{
+                    fontFamily: 'var(--font-helvetica)',
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    letterSpacing: '0.01em',
+                    color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.95)',
+                    textShadow: theme.name === 'light'
+                      ? '0 1px 2px rgba(0, 0, 0, 0.1)'
+                      : '0 0 10px rgba(33, 188, 255, 0.3)'
+                  }}
+                >
+                  {currentToken.symbol}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        <ChevronDownIcon
+          className={`h-5 w-5 flex-shrink-0 transition-all duration-300`}
+          style={{
+            color: theme.colors.textSecondary,
+            transform: isOpen ? 'rotate(180deg) translateY(1px)' : 'rotate(0deg)',
+            filter: theme.name === 'light'
+              ? `drop-shadow(0 0 6px ${theme.colors.primary}33)`
+              : `drop-shadow(0 0 8px ${theme.colors.primary}66)`
+          }}
+        />
+      </button>
 
-            {/* Token List */}
-            <div className="py-2">
-              {isSearching && (
-                <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--wave-azul)' }}>
-                  <div className="animate-pulse">Searching tokens...</div>
-                </div>
-              )}
-              
-              {!isSearching && tokensWithBalance.length === 0 && tokensWithoutBalance.length === 0 && (
-                <div className="px-4 py-8 text-center text-sm opacity-50" style={{ color: 'var(--wave-text)' }}>
-                  No tokens found
-                </div>
-              )}
-              
-              {!isSearching && tokensWithBalance.length > 0 && (
-                <>
-                  <div className="px-4 py-2 text-xs font-bold opacity-50" style={{ color: 'var(--wave-text)' }}>
-                    YOUR TOKENS
-                  </div>
-                  {tokensWithBalance.map((token) => {
-                    const tokenBalance = balances?.get(token.address)
-                    const balance = tokenBalance ? formatBalance(tokenBalance, token.decimals) : '0'
-                    
-                    return (
-                      <Listbox.Option
-                        key={`wallet-${token.address}`}
-                        value={token}
+      {/* Token Selection Modal */}
+      <Transition appear show={isOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-[999999]" onClose={() => setIsOpen(false)}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel
+                  className="w-full max-w-md transform overflow-hidden rounded-3xl p-0 text-left align-middle transition-all relative"
+                  style={{
+                    ...createGlassStyles(theme),
+                    background: `
+                      linear-gradient(135deg,
+                        ${theme.colors.surface}f8 0%,
+                        ${theme.colors.surfaceHover}f2 50%,
+                        ${theme.colors.surface}f6 100%
+                      )
+                    `,
+                    border: `1px solid ${theme.colors.primary}30`,
+                    boxShadow: `
+                      0 50px 100px -20px ${theme.colors.shadow},
+                      0 25px 50px -12px ${theme.colors.shadow}cc,
+                      inset 0 1px 0 rgba(255, 255, 255, ${theme.name === 'light' ? '0.3' : '0.1'})
+                    `,
+                    backdropFilter: 'blur(40px) saturate(1.5)'
+                  }}
+                >
+                  {/* Modal Header */}
+                  <div className="relative flex items-center justify-between p-6 border-b" style={{
+                    borderColor: theme.name === 'light' ? `${theme.colors.primary}33` : `${theme.colors.primary}26`,
+                    background: theme.name === 'light'
+                      ? `linear-gradient(to bottom, ${theme.colors.primary}14, transparent)`
+                      : `linear-gradient(to bottom, ${theme.colors.primary}0D, transparent)`
+                  }}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full animate-pulse" style={{
+                        background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`
+                      }} />
+                      <Dialog.Title
+                        className="text-xl font-bold"
+                        style={{
+                          fontFamily: 'var(--font-helvetica)',
+                          letterSpacing: '0.025em',
+                          color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.95)',
+                          textShadow: theme.name === 'light'
+                            ? '0 1px 2px rgba(0, 0, 0, 0.1)'
+                            : '0 0 20px rgba(33, 188, 255, 0.3)'
+                        }}
                       >
-                    {({ active, selected }) => {
-                      const inWallet = hasBalance(token)
-                      
-                      return (
+                        Select Token
+                      </Dialog.Title>
+                    </div>
+                    <button
+                      onClick={() => setIsOpen(false)}
+                      className="p-2 rounded-xl transition-all hover:bg-white/10 group"
+                      style={{
+                        color: theme.name === 'light' ? 'rgba(107, 114, 128, 0.8)' : 'rgba(229, 231, 235, 0.7)',
+                        background: theme.name === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.1)'
+                      }}
+                    >
+                      <XMarkIcon className="h-5 w-5 transition-transform group-hover:rotate-90" />
+                    </button>
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="p-6 pb-4 relative">
+                    <div className="relative group">
+                      <MagnifyingGlassIcon
+                        className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 transition-colors"
+                        style={{
+                          color: theme.name === 'light' ? theme.colors.textMuted : 'rgba(147, 197, 253, 0.8)',
+                        }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Search tokens or paste address..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-12 pr-4 py-4 rounded-2xl text-sm font-medium transition-all duration-200"
+                        style={{
+                          background: theme.name === 'light'
+                            ? 'rgba(255, 255, 255, 0.95)'
+                            : 'rgba(10, 10, 20, 0.8)',
+                          border: `1px solid ${theme.name === 'light' ? theme.colors.border : 'rgba(33, 188, 255, 0.3)'}`,
+                          color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.9)',
+                          fontFamily: 'var(--font-helvetica)',
+                          outline: 'none'
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = theme.colors.primary
+                          e.currentTarget.style.boxShadow = theme.name === 'light'
+                            ? `0 0 0 2px ${theme.colors.primary}30, 0 4px 12px rgba(33, 188, 255, 0.15)`
+                            : `0 0 0 1px ${theme.colors.primary}40, inset 0 0 20px ${theme.colors.primary}15`
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = theme.name === 'light' ? theme.colors.border : 'rgba(33, 188, 255, 0.3)'
+                          e.currentTarget.style.boxShadow = 'none'
+                        }}
+                        autoFocus
+                      />
+                    </div>
+                    {isSearching && (
+                      <div className="mt-4 flex items-center justify-center gap-2">
+                        <div className="w-2 h-2 rounded-full animate-bounce" style={{
+                          backgroundColor: theme.colors.primary
+                        }} />
                         <div
-                          className="cursor-pointer select-none mx-3 my-1 px-4 py-3 rounded-xl transition-all duration-200"
+                          className="text-sm font-medium"
                           style={{
-                            background: selected
-                              ? 'rgba(33, 188, 255, 0.15)'
-                              : active
-                              ? 'rgba(33, 188, 255, 0.08)'
-                              : 'transparent',
-                            border: selected
-                              ? '1px solid rgba(33, 188, 255, 0.4)'
-                              : '1px solid rgba(33, 188, 255, 0.1)',
+                            color: theme.colors.textSecondary
                           }}
                         >
-                          <div className="flex items-center justify-between">
-                            {/* Left: Icon + Token Info */}
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              {/* Token Icon */}
-                              <div
-                                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden border"
-                                style={{
-                                  background: 'linear-gradient(135deg, rgba(30, 30, 50, 0.9), rgba(20, 20, 35, 0.9))',
-                                  borderColor: selected ? 'rgba(33, 188, 255, 0.4)' : 'rgba(33, 188, 255, 0.2)',
-                                  borderWidth: '1px'
-                                }}
-                              >
-                              <div 
-                                className="w-full h-full rounded-full flex items-center justify-center overflow-hidden"
-                                style={{ background: '#000' }}
-                              >
-                                {token.logoURI ? (
-                                  <img
-                                    src={token.logoURI}
-                                    alt={token.symbol}
-                                    className="w-full h-full object-contain"
-                                    style={{ padding: '3px' }}
-                                    crossOrigin="anonymous"
-                                    onLoad={(e) => {
-                                      e.currentTarget.style.opacity = '1'
-                                    }}
-                                    onError={(e) => {
-                                      const parent = e.currentTarget.parentElement
-                                      if (parent) {
-                                        parent.innerHTML = `<span style="font-size:1.125rem;font-weight:900;color:var(--wave-azul);font-family:var(--font-helvetica)">${token.symbol.charAt(0)}</span>`
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <span 
-                                    className="text-lg font-black"
-                                    style={{ 
-                                      color: 'var(--wave-azul)',
-                                      fontFamily: 'var(--font-helvetica)'
-                                    }}
-                                  >
-                                    {token.symbol.charAt(0)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Token Info */}
-                            <div className="flex flex-col min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span 
-                                  className="font-black text-base truncate"
-                                  style={{ 
-                                    color: selected ? 'var(--wave-azul)' : 'var(--wave-text)',
-                                    fontFamily: 'var(--font-helvetica)',
-                                    letterSpacing: '0.05em'
-                                  }}
-                                >
-                                  {token.symbol}
-                                </span>
-                                {showConfidentialIndicator && privacyMode && token.isConfidentialSupported && (
-                                  <ShieldCheckIcon 
-                                    className="h-3.5 w-3.5 flex-shrink-0" 
-                                    style={{ color: 'var(--wave-azul)' }}
-                                    title="Confidential" 
-                                  />
-                                )}
-                              </div>
-                              <div 
-                                className="text-xs truncate"
-                                style={{ 
-                                  color: 'var(--wave-text)',
-                                  opacity: 0.6
-                                }}
-                              >
-                                {token.name}
-                              </div>
-                            </div>
-                          </div>
-
-                              {/* Balance & Checkmark */}
-                              <div className="flex items-center gap-3 flex-shrink-0">
-                                <div 
-                                  className="text-sm font-bold"
-                                  style={{ color: 'var(--wave-azul)' }}
-                                >
-                                  {balance}
-                                </div>
-                                {selected && (
-                                  <CheckIcon className="h-5 w-5" style={{ color: 'var(--wave-azul)' }} />
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      }}
-                    </Listbox.Option>
-                  )
-                })}
-                </>
-              )}
-              
-              {!isSearching && tokensWithoutBalance.length > 0 && (
-                <>
-                  {tokensWithBalance.length > 0 && (
-                    <div 
-                      className="mx-4 my-3"
-                      style={{ 
-                        height: '1px',
-                        background: 'linear-gradient(90deg, transparent, rgba(33, 188, 255, 0.3), transparent)'
-                      }}
-                    />
-                  )}
-                  <div className="px-4 py-2 text-xs font-bold opacity-50" style={{ color: 'var(--wave-text)' }}>
-                    OTHER TOKENS
+                          Searching for tokens...
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {tokensWithoutBalance.slice(0, 20).map((token) => {
-                    return (
-                      <Listbox.Option
-                        key={`other-${token.address}`}
-                        value={token}
-                      >
-                        {({ active, selected }) => (
-                          <div
-                            className="cursor-pointer select-none px-4 py-3.5 mx-2 my-0.5 rounded-xl transition-all duration-150"
-                            style={{
-                              background: selected 
-                                ? 'rgba(33, 188, 255, 0.25)' 
-                                : active 
-                                ? 'rgba(33, 188, 255, 0.12)' 
-                                : 'transparent',
-                              border: selected 
-                                ? '1px solid rgba(33, 188, 255, 0.6)'
-                                : '1px solid transparent',
-                              boxShadow: selected ? '0 0 20px rgba(33, 188, 255, 0.4)' : 'none'
-                            }}
-                          >
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <div 
-                                  className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
-                                  style={{
-                                    background: selected
-                                      ? 'linear-gradient(135deg, var(--wave-azul), rgba(33, 188, 255, 0.5))'
-                                      : 'rgba(30, 30, 45, 0.8)',
-                                    border: '1px solid rgba(33, 188, 255, 0.25)',
-                                    padding: '2px'
-                                  }}
-                                >
-                                  <div 
-                                    className="w-full h-full rounded-full flex items-center justify-center overflow-hidden"
-                                    style={{ background: '#000' }}
-                                  >
-                                    {token.logoURI ? (
-                                      <img
-                                        src={token.logoURI}
-                                        alt={token.symbol}
-                                        className="w-full h-full object-contain"
-                                        crossOrigin="anonymous"
-                                        onError={(e) => {
-                                          const parent = e.currentTarget.parentElement
-                                          if (parent) {
-                                            parent.innerHTML = `<span style="font-size:1rem;font-weight:900;color:var(--wave-azul);font-family:var(--font-helvetica)">${token.symbol.charAt(0)}</span>`
-                                          }
-                                        }}
-                                      />
-                                    ) : (
-                                      <span 
-                                        className="text-base font-black"
-                                        style={{ color: 'var(--wave-azul)', fontFamily: 'var(--font-helvetica)' }}
-                                      >
-                                        {token.symbol.charAt(0)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex flex-col min-w-0 flex-1">
-                                  <span 
-                                    className="font-black text-base truncate"
-                                    style={{ 
-                                      color: selected ? 'var(--wave-azul)' : 'var(--wave-text)',
-                                      fontFamily: 'var(--font-helvetica)',
-                                      letterSpacing: '0.05em'
-                                    }}
-                                  >
-                                    {token.symbol}
-                                  </span>
-                                  <div className="text-xs opacity-50 truncate" style={{ color: 'var(--wave-text)' }}>
-                                    {token.name}
-                                  </div>
-                                </div>
-                              </div>
-                              {selected && (
-                                <CheckIcon className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--wave-azul)' }} />
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </Listbox.Option>
-                    )
-                  })}
-                </>
-              )}
+
+                  {/* Token List */}
+                  <div className="max-h-[400px] overflow-y-auto">
+                    {searchQuery && searchResults.length === 0 && !isSearching && (
+                      <div className="p-8 text-center">
+                        <div style={{
+                          color: theme.name === 'light' ? 'rgba(107, 114, 128, 0.7)' : 'rgba(229, 231, 235, 0.5)'
+                        }}>
+                          No tokens found for "{searchQuery}"
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Search Results */}
+                    {searchQuery && searchResults.length > 0 && (
+                      <div>
+                        <div className="px-4 py-2 text-xs font-semibold" style={{
+                          color: theme.name === 'light' ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
+                          fontFamily: 'var(--font-helvetica)'
+                        }}>
+                          Search Results
+                        </div>
+                        {searchResults.map((jupiterToken) => {
+                          const token = jupiterToToken(jupiterToken)
+                          return (
+                            <TokenListItem
+                              key={token.address}
+                              token={token}
+                              balance={getTokenBalance(token)}
+                              onSelect={handleTokenSelect}
+                              isSelected={selectedToken?.address === token.address}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* User Tokens (with balance) */}
+                    {!searchQuery && userTokens.length > 0 && (
+                      <div>
+                        <div className="px-4 py-2 text-xs font-semibold" style={{
+                          color: theme.name === 'light' ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
+                          fontFamily: 'var(--font-helvetica)'
+                        }}>
+                          Your Tokens
+                        </div>
+                        {userTokens.map((token) => (
+                          <TokenListItem
+                            key={token.address}
+                            token={token}
+                            balance={balances?.get(token.address) || '0'}
+                            onSelect={handleTokenSelect}
+                            isSelected={selectedToken?.address === token.address}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Popular Tokens */}
+                    {!searchQuery && popularTokens.length > 0 && (
+                      <div>
+                        <div className="px-4 py-2 text-xs font-semibold mt-4" style={{
+                          color: theme.name === 'light' ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
+                          fontFamily: 'var(--font-helvetica)'
+                        }}>
+                          Popular
+                        </div>
+                        {popularTokens.map((token) => (
+                          <TokenListItem
+                            key={token.address}
+                            token={token}
+                            balance={balances?.get(token.address) || '0'}
+                            onSelect={handleTokenSelect}
+                            isSelected={selectedToken?.address === token.address}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Other Tokens */}
+                    {!searchQuery && otherTokens.length > 0 && (
+                      <div>
+                        <div className="px-4 py-2 text-xs font-semibold mt-4" style={{
+                          color: theme.name === 'light' ? theme.colors.textMuted : 'rgba(156, 163, 175, 0.8)',
+                          fontFamily: 'var(--font-helvetica)'
+                        }}>
+                          Other Tokens
+                        </div>
+                        {otherTokens.map((token) => (
+                          <TokenListItem
+                            key={token.address}
+                            token={token}
+                            balance={balances?.get(token.address) || '0'}
+                            onSelect={handleTokenSelect}
+                            isSelected={selectedToken?.address === token.address}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
             </div>
-          </Listbox.Options>
-        </Transition>
+          </div>
+        </Dialog>
+      </Transition>
+    </>
+  )
+}
+
+// Token List Item Component
+interface TokenListItemProps {
+  token: Token
+  balance: string
+  onSelect: (token: Token) => void
+  isSelected: boolean
+}
+
+function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemProps) {
+  const theme = useThemeConfig()
+
+  const formatBalance = (balance: string, decimals: number): string => {
+    try {
+      const num = parseFloat(balance) / Math.pow(10, decimals)
+      if (num === 0) return '0'
+      if (num < 0.001) return '<0.001'
+      if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`
+      if (num >= 1000) return `${(num / 1000).toFixed(2)}K`
+      return num.toFixed(Math.max(0, 6 - Math.floor(num).toString().length))
+    } catch {
+      return '0'
+    }
+  }
+
+  const hasBalance = parseFloat(balance) > 0
+  const isPopularToken = POPULAR_TOKENS.some(t => t.address === token.address)
+
+  return (
+    <button
+      onClick={() => onSelect(token)}
+      className="group relative w-full flex items-center justify-between p-4 transition-all duration-200 hover:translate-x-1"
+      style={{
+        background: isSelected
+          ? `linear-gradient(135deg, ${theme.colors.primary}20 0%, ${theme.colors.primary}10 100%)`
+          : hasBalance
+          ? `linear-gradient(135deg, ${theme.colors.success}10 0%, ${theme.colors.success}05 100%)`
+          : 'transparent',
+        borderLeft: isSelected
+          ? `3px solid ${theme.colors.primary}60`
+          : hasBalance
+          ? `3px solid ${theme.colors.success}40`
+          : '2px solid transparent',
+        backdropFilter: 'blur(10px)'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = isSelected
+          ? `linear-gradient(135deg, ${theme.colors.primary}25 0%, ${theme.colors.primary}15 100%)`
+          : `linear-gradient(135deg, ${theme.colors.success}15 0%, ${theme.colors.success}10 100%)`
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = isSelected
+          ? `linear-gradient(135deg, ${theme.colors.primary}20 0%, ${theme.colors.primary}10 100%)`
+          : hasBalance
+          ? `linear-gradient(135deg, ${theme.colors.success}10 0%, ${theme.colors.success}05 100%)`
+          : 'transparent'
+      }}
+    >
+      {/* Selection indicator */}
+      {isSelected && (
+        <div
+          className="absolute left-0 top-0 h-full w-1 opacity-60"
+          style={{
+            background: `linear-gradient(to bottom, ${theme.colors.primary}, ${theme.colors.primary}dd)`
+          }}
+        />
+      )}
+
+      <div className="flex items-center gap-3 flex-1">
+        <div className="relative">
+          <TokenIcon
+            symbol={token.symbol}
+            mint={token.address}
+            logoURI={token.logoURI}
+            size={36}
+          />
+          <div
+            className="absolute inset-0 rounded-full blur-md opacity-0 group-hover:opacity-30 transition-opacity"
+            style={{
+              background: isSelected
+                ? 'radial-gradient(circle, rgba(33, 188, 255, 0.5) 0%, transparent 70%)'
+                : 'radial-gradient(circle, rgba(16, 185, 129, 0.3) 0%, transparent 70%)'
+            }}
+          />
+          {/* Selection checkmark */}
+          {isSelected && (
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+              <CheckCircleIcon className="h-3 w-3 text-white" />
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-start flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="font-bold group-hover:opacity-100 transition-opacity"
+              style={{
+                fontFamily: 'var(--font-helvetica)',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                letterSpacing: '0.025em',
+                color: theme.name === 'light'
+                  ? (isSelected ? theme.colors.primary : theme.colors.textPrimary)
+                  : (isSelected ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.95)'),
+                opacity: 1
+              }}
+            >
+              {token.symbol}
+            </span>
+            {/* Popular token badge */}
+            {isPopularToken && (
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full border" style={{
+                background: theme.name === 'light'
+                  ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(249, 115, 22, 0.12))'
+                  : 'linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(249, 115, 22, 0.15))',
+                borderColor: theme.name === 'light' ? 'rgba(251, 191, 36, 0.4)' : 'rgba(251, 191, 36, 0.4)'
+              }}>
+                <StarIcon className="h-2.5 w-2.5" style={{
+                  color: theme.name === 'light' ? '#ea580c' : '#fbbf24'
+                }} />
+                <span className="text-xs font-medium" style={{
+                  color: theme.name === 'light' ? '#ea580c' : '#fbbf24'
+                }}>Popular</span>
+              </div>
+            )}
+          </div>
+          <span
+            className="text-xs font-medium transition-colors"
+            style={{
+              fontFamily: 'var(--font-helvetica)',
+              letterSpacing: '0.025em',
+              color: theme.name === 'light'
+                ? (isSelected ? 'rgba(33, 188, 255, 0.7)' : theme.colors.textSecondary)
+                : (isSelected ? 'rgba(33, 188, 255, 0.6)' : 'rgba(156, 163, 175, 0.8)')
+            }}
+          >
+            {token.name}
+          </span>
+        </div>
       </div>
-    </Listbox>
+      <div className="text-right relative">
+        <div
+          className="font-bold mb-1 transition-colors"
+          style={{
+            fontFamily: 'var(--font-helvetica)',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            letterSpacing: '0.01em',
+            color: theme.name === 'light'
+              ? (isSelected ? theme.colors.primary : theme.colors.textSecondary)
+              : (isSelected ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)')
+          }}
+        >
+          {formatBalance(balance, token.decimals)}
+        </div>
+        {/* Balance indicator */}
+        {hasBalance && (
+          <div className="flex items-center justify-end gap-1">
+            <div className="h-3 w-3 rounded-full" style={{
+              backgroundColor: theme.name === 'light' ? '#059669' : '#4ade80'
+            }} />
+            <span className="text-xs font-medium" style={{
+              color: theme.name === 'light' ? '#059669' : '#4ade80'
+            }}>Has Balance</span>
+          </div>
+        )}
+      </div>
+    </button>
   )
 }

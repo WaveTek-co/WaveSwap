@@ -48,7 +48,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       name: 'USD Coin',
       balance: privacyMode ? '****' : '5,000.00',
       price: 1.00,
-      icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+      icon: 'https://img-cdn.jup.ag/tokens/USDC.svg',
       address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
       apy: '8.2%'
     },
@@ -57,7 +57,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       name: 'Solana',
       balance: privacyMode ? '****' : '2.5',
       price: 145.30,
-      icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+      icon: 'https://img-cdn.jup.ag/tokens/SOL.svg',
       address: 'So11111111111111111111111111111111111111112',
       apy: '15.8%'
     }
