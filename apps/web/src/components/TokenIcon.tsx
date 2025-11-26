@@ -25,12 +25,18 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
   const [isLoading, setIsLoading] = useState(true)
   const theme = useThemeConfig()
 
+  // Special handling for SOL (wrapped SOL) - ensure it has a proper icon
+  const isSOL = mint === 'So11111111111111111111111111111111111111112'
+
   // Create sources array in order of preference
-  const sources = [
+  const sources: string[] = [
     logoURI,
+    `https://img-cdn.jup.ag/tokens/${mint}.png`,
     `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${mint}/logo.png`,
-    `https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/assets/mainnet/${mint}/logo.png`
-  ].filter(Boolean)
+    `https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/assets/mainnet/${mint}/logo.png`,
+    // Add local SOL icon as last resort for SOL
+    isSOL ? '/icons/sol-circular.svg' : undefined
+  ].filter((source): source is string => Boolean(source))
 
   const handleError = () => {
     setImageError(true)
@@ -49,6 +55,45 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
 
   // Fallback display
   if (showFallback || !sources[0] || imageError) {
+    // Special SOL fallback with purple gradient
+    if (isSOL) {
+      return (
+        <div
+          className={`rounded-full flex items-center justify-center ${className}`}
+          style={{
+            width: size,
+            height: size,
+            background: theme.name === 'light'
+              ? 'linear-gradient(135deg, #9945ff, #7752fe)'
+              : 'linear-gradient(135deg, #a855f7, #8b5cf6)',
+            border: theme.name === 'light'
+              ? '2px solid rgba(153, 69, 255, 0.3)'
+              : '2px solid rgba(168, 85, 247, 0.4)',
+            backdropFilter: 'blur(12px) saturate(1.8)',
+            WebkitBackdropFilter: 'blur(12px) saturate(1.8)',
+            boxShadow: theme.name === 'light'
+              ? '0 4px 12px rgba(153, 69, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+              : '0 4px 12px rgba(168, 85, 247, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <span
+            className="font-bold"
+            style={{
+              color: 'white',
+              fontFamily: 'var(--font-helvetica)',
+              fontSize: `${size * 0.5}px`,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              textShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+            }}
+          >
+            SOL
+          </span>
+        </div>
+      )
+    }
+
+    // Default fallback for other tokens
     return (
       <div
         className={`rounded-full flex items-center justify-center ${className}`}
@@ -88,7 +133,7 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
   // Main icon display
   return (
     <div
-      className={`rounded-full flex items-center justify-center ${className}`}
+      className={`rounded-full flex items-center justify-center overflow-hidden ${className}`}
       style={{
         width: size,
         height: size,
@@ -100,7 +145,6 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
           : '2px solid rgba(33, 188, 255, 0.3)',
         backdropFilter: 'blur(12px) saturate(1.8)',
         WebkitBackdropFilter: 'blur(12px) saturate(1.8)',
-        overflow: 'hidden',
         boxShadow: theme.name === 'light'
           ? '0 4px 12px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5)'
           : '0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
@@ -109,9 +153,8 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
       <img
         src={sources[currentSource]}
         alt={symbol}
-        className="w-full h-full object-contain"
+        className="w-full h-full object-cover"
         style={{
-          padding: `${size * 0.08}px`,
           filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))'
         }}
         crossOrigin="anonymous"

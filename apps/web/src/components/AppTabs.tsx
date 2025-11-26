@@ -176,7 +176,7 @@ export function AppTabs() {
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <img
-                    src="/wave0.png"
+                    src={theme.name === 'orca' ? '/wave-orca.png' : '/wave0.png'}
                     alt="WaveSwap Logo"
                     className="w-10 h-10 rounded-xl shadow-lg"
                   />

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { ArrowsUpDownIcon } from '@heroicons/react/24/outline'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { TokenSelectorNew } from '../SwapComponent/TokenSelectorNew'
@@ -127,7 +127,7 @@ const CHAIN_TOKENS = {
       decimals: 9,
       name: 'Wave Token',
       symbol: 'WAVE',
-      logoURI: '/wave0.png',
+      logoURI: '/wave0.png', // Will be updated dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -139,7 +139,7 @@ const CHAIN_TOKENS = {
       decimals: 9,
       name: 'Wealth Token',
       symbol: 'WEALTH',
-      logoURI: '/wave0.png',
+      logoURI: '/wave0.png', // Will be updated dynamically
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -216,11 +216,25 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
   const { isConnected: starknetConnected, account: starknetAccount, connect: connectStarknet, disconnect: disconnectStarknet } = useStarknetWallet()
   const theme = useThemeConfig()
 
+  // Dynamic chain tokens with theme-aware logos
+  const DYNAMIC_CHAIN_TOKENS = useMemo(() => {
+    const logoURI = theme.name === 'orca' ? '/wave-orca.png' : '/wave0.png'
+
+    return {
+      ...CHAIN_TOKENS,
+      solana: CHAIN_TOKENS.solana.map(token =>
+        (token.address === 'wave' || token.address === 'wealth')
+          ? { ...token, logoURI }
+          : token
+      )
+    }
+  }, [theme.name])
+
   // UI State
   const [fromChain, setFromChain] = useState<string>('zec')
   const [toChain, setToChain] = useState<string>('solana')
-  const [fromToken, setFromToken] = useState<Token | undefined>(CHAIN_TOKENS.zec[0])
-  const [toToken, setToToken] = useState<Token | undefined>(CHAIN_TOKENS.solana[0])
+  const [fromToken, setFromToken] = useState<Token | undefined>(DYNAMIC_CHAIN_TOKENS.zec[0])
+  const [toToken, setToToken] = useState<Token | undefined>(DYNAMIC_CHAIN_TOKENS.solana[0])
   const [amount, setAmount] = useState('')
   const [isBridging, setIsBridging] = useState(false)
   const [showStarknetWalletModal, setShowStarknetWalletModal] = useState(false)
@@ -284,8 +298,8 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
     const newFromChain = chainType === 'from' ? chainId : (chainId === fromChain ? toChain : fromChain)
     const newToChain = chainType === 'to' ? chainId : (chainId === toChain ? fromChain : toChain)
 
-    const fromTokens = CHAIN_TOKENS[newFromChain as keyof typeof CHAIN_TOKENS]
-    const toTokens = CHAIN_TOKENS[newToChain as keyof typeof CHAIN_TOKENS]
+    const fromTokens = DYNAMIC_CHAIN_TOKENS[newFromChain as keyof typeof DYNAMIC_CHAIN_TOKENS]
+    const toTokens = DYNAMIC_CHAIN_TOKENS[newToChain as keyof typeof DYNAMIC_CHAIN_TOKENS]
 
     setFromToken(fromTokens[0])
     setToToken(toTokens.find(t => t.symbol === 'USDC') || toTokens[0])
@@ -294,12 +308,12 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
 
   // Auto-update tokens when chains change
   React.useEffect(() => {
-    const fromTokens = CHAIN_TOKENS[fromChain as keyof typeof CHAIN_TOKENS]
-    const toTokens = CHAIN_TOKENS[toChain as keyof typeof CHAIN_TOKENS]
+    const fromTokens = DYNAMIC_CHAIN_TOKENS[fromChain as keyof typeof DYNAMIC_CHAIN_TOKENS]
+    const toTokens = DYNAMIC_CHAIN_TOKENS[toChain as keyof typeof DYNAMIC_CHAIN_TOKENS]
 
     setFromToken(fromTokens[0])
     setToToken(toTokens.find(t => t.symbol === 'USDC') || toTokens[0])
-  }, [fromChain, toChain])
+  }, [fromChain, toChain, DYNAMIC_CHAIN_TOKENS])
 
   const getWalletConnectionStatus = () => {
     const sourceChain = fromChain
@@ -456,11 +470,11 @@ const handleBridge = async () => {
   }
 
   const getAvailableFromTokens = () => {
-    return CHAIN_TOKENS[fromChain as keyof typeof CHAIN_TOKENS]
+    return DYNAMIC_CHAIN_TOKENS[fromChain as keyof typeof DYNAMIC_CHAIN_TOKENS]
   }
 
   const getAvailableToTokens = () => {
-    return CHAIN_TOKENS[toChain as keyof typeof CHAIN_TOKENS]
+    return DYNAMIC_CHAIN_TOKENS[toChain as keyof typeof DYNAMIC_CHAIN_TOKENS]
   }
 
   const walletStatus = getWalletConnectionStatus()

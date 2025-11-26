@@ -324,6 +324,22 @@ export const COMMON_TOKENS = {
       chain: 'solana',
       logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN/logo.png',
     },
+    {
+      symbol: 'WAVE',
+      name: 'WaveSwap',
+      address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
+      decimals: 9,
+      chain: 'solana',
+      logoURI: 'https://img-cdn.jup.ag/tokens/9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM.png',
+    },
+    {
+      symbol: 'WEALTH',
+      name: 'Wealth Token',
+      address: 'WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt',
+      decimals: 9,
+      chain: 'solana',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt/logo.png',
+    },
   ],
   near: [
     {

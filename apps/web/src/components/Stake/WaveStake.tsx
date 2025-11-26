@@ -39,7 +39,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       name: 'Wave Token',
       balance: privacyMode ? '****' : '1,250.50',
       price: 0.85,
-      icon: '/wave0.png',
+      icon: theme.name === 'orca' ? '/wave-orca.png' : '/wave0.png',
       address: 'wave-token-address',
       apy: '12.5%'
     },

@@ -34,6 +34,9 @@ const RECOMMENDED_TOKENS = [
   'So11111111111111111111111111111111111111112', // SOL
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', // WAVE
+  'WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt', // WEALTH
+  'zEc1pBwgY1CHwGhVmeU52sreu3v9UtQmRzKPAGBmfexr', // ZEC
 ]
 
 const JUPITER_SEARCH_API = '/api/v1/jupiter/tokens/v2/search'
@@ -512,7 +515,7 @@ export function TokenSelectorNew({
                       <MagnifyingGlassIcon
                         className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 transition-colors"
                         style={{
-                          color: theme.name === 'light' ? 'rgba(107, 114, 128, 0.6)' : 'rgba(147, 197, 253, 0.6)',
+                          color: theme.name === 'light' ? theme.colors.textMuted : 'rgba(147, 197, 253, 0.8)',
                         }}
                       />
                       <input
@@ -523,27 +526,33 @@ export function TokenSelectorNew({
                         className="w-full pl-12 pr-4 py-4 rounded-2xl text-sm font-medium transition-all duration-200"
                         style={{
                           background: theme.name === 'light'
-                            ? 'rgba(255, 255, 255, 0.9)'
+                            ? 'rgba(255, 255, 255, 0.95)'
                             : 'rgba(10, 10, 20, 0.8)',
-                          border: `1px solid ${theme.name === 'light' ? 'rgba(33, 188, 255, 0.3)' : 'rgba(33, 188, 255, 0.3)'}`,
+                          border: `1px solid ${theme.name === 'light' ? theme.colors.border : 'rgba(33, 188, 255, 0.3)'}`,
                           color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.9)',
                           fontFamily: 'var(--font-helvetica)',
                           fontSize: '0.9rem',
                           outline: 'none',
-                          boxShadow: '0 0 0 0 transparent'
+                          boxShadow: theme.name === 'light'
+                            ? '0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9)'
+                            : '0 0 0 0 transparent'
                         }}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = theme.colors.primary;
-                          e.currentTarget.style.boxShadow = `0 0 0 1px ${theme.colors.primary}40, inset 0 0 20px ${theme.colors.primary}15`;
+                          e.currentTarget.style.borderColor = theme.name === 'light' ? theme.colors.primary : theme.colors.primary;
+                          e.currentTarget.style.boxShadow = theme.name === 'light'
+                            ? `0 0 0 2px ${theme.colors.primary}30, 0 4px 12px rgba(33, 188, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.95)`
+                            : `0 0 0 1px ${theme.colors.primary}40, inset 0 0 20px ${theme.colors.primary}15`;
                           e.currentTarget.style.background = theme.name === 'light'
-                            ? 'rgba(255, 255, 255, 0.95)'
+                            ? 'rgba(255, 255, 255, 1)'
                             : 'rgba(10, 10, 20, 0.95)';
                         }}
                         onBlur={(e) => {
-                          e.currentTarget.style.borderColor = theme.name === 'light' ? 'rgba(33, 188, 255, 0.3)' : 'rgba(33, 188, 255, 0.3)';
-                          e.currentTarget.style.boxShadow = '0 0 0 0 transparent';
+                          e.currentTarget.style.borderColor = theme.name === 'light' ? theme.colors.border : 'rgba(33, 188, 255, 0.3)';
+                          e.currentTarget.style.boxShadow = theme.name === 'light'
+                            ? '0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9)'
+                            : '0 0 0 0 transparent';
                           e.currentTarget.style.background = theme.name === 'light'
-                            ? 'rgba(255, 255, 255, 0.9)'
+                            ? 'rgba(255, 255, 255, 0.95)'
                             : 'rgba(10, 10, 20, 0.8)';
                         }}
                         autoFocus
@@ -745,9 +754,9 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
                 fontWeight: 600,
                 letterSpacing: '0.025em',
                 color: theme.name === 'light'
-                  ? (isSelected ? 'rgba(33, 188, 255, 0.95)' : theme.colors.textPrimary)
+                  ? (isSelected ? theme.colors.primary : theme.colors.textPrimary)
                   : (isSelected ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.95)'),
-                opacity: theme.name === 'light' ? 0.9 : 1
+                opacity: 1
               }}
             >
               {token.symbol}
@@ -756,15 +765,15 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
             {isPopularToken && (
               <div className="flex items-center gap-1 px-2 py-0.5 rounded-full border" style={{
                 background: theme.name === 'light'
-                  ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(249, 115, 22, 0.08))'
+                  ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(249, 115, 22, 0.12))'
                   : 'linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(249, 115, 22, 0.15))',
-                borderColor: theme.name === 'light' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.4)'
+                borderColor: theme.name === 'light' ? 'rgba(251, 191, 36, 0.4)' : 'rgba(251, 191, 36, 0.4)'
               }}>
                 <StarIcon className="h-2.5 w-2.5" style={{
-                  color: theme.name === 'light' ? '#d97706' : '#fbbf24'
+                  color: theme.name === 'light' ? '#ea580c' : '#fbbf24'
                 }} />
                 <span className="text-xs font-medium" style={{
-                  color: theme.name === 'light' ? '#d97706' : '#fbbf24'
+                  color: theme.name === 'light' ? '#ea580c' : '#fbbf24'
                 }}>Popular</span>
               </div>
             )}
@@ -792,7 +801,7 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
             fontWeight: 600,
             letterSpacing: '0.01em',
             color: theme.name === 'light'
-              ? (isSelected ? 'rgba(33, 188, 255, 0.95)' : theme.colors.textPrimary)
+              ? (isSelected ? theme.colors.primary : theme.colors.textSecondary)
               : (isSelected ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)')
           }}
         >

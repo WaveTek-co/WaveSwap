@@ -15,7 +15,7 @@ const POPULAR_TOKENS = [
     decimals: 9,
     name: 'Wrapped SOL',
     symbol: 'SOL',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/So11111111111111111111111111111111111111112.png',
     tags: ['native', 'solana'],
   },
   {
@@ -24,7 +24,7 @@ const POPULAR_TOKENS = [
     decimals: 6,
     name: 'USD Coin',
     symbol: 'USDC',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+    logoURI: 'https://img-cdn.jup.ag/tokens/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v.png',
     tags: ['stablecoin', 'usd'],
   },
   {
@@ -143,6 +143,33 @@ const POPULAR_TOKENS = [
     symbol: 'POLIS',
     logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/PoRMzmAnKygNbzUmby8uwGcdq3gqzJX4tUXQyamAJE3E/logo.png',
     tags: ['gaming', 'staratlas'],
+  },
+  {
+    address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
+    chainId: 101,
+    decimals: 9,
+    name: 'WaveSwap',
+    symbol: 'WAVE',
+    logoURI: 'https://img-cdn.jup.ag/tokens/9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM.png',
+    tags: ['defi', 'dex'],
+  },
+  {
+    address: 'WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt',
+    chainId: 101,
+    decimals: 9,
+    name: 'Wealth Token',
+    symbol: 'WEALTH',
+    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/WeaL1thsNAUSLjJgmqrjhmTkpgLiu6Q9tmvAFLc2W7Rt/logo.png',
+    tags: ['defi'],
+  },
+  {
+    address: 'zEc1pBwgY1CHwGhVmeU52sreu3v9UtQmRzKPAGBmfexr',
+    chainId: 101,
+    decimals: 8,
+    name: 'Zcash Bridge Token',
+    symbol: 'ZEC',
+    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/zEc1pBwgY1CHwGhVmeU52sreu3v9UtQmRzKPAGBmfexr/logo.png',
+    tags: ['bridge', 'privacy'],
   }
 ]
 

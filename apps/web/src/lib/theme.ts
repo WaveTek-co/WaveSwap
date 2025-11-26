@@ -76,9 +76,9 @@ const lightTheme: ThemeConfig = {
     textMuted: '#64748b',
     textInverse: '#ffffff',
 
-    // Brand colors - WaveSwap Azul Theme
-    primary: '#21bcff', // WaveSwap azul
-    primaryHover: '#1999d4', // Azul dark
+    // Brand colors - WaveSwap Theme
+    primary: '#264af5',
+    primaryHover: '#1c3fd1', // Slightly darker hover
     secondary: '#10b981',
     accent: '#4a4aff', // Deep blue light
 
@@ -99,8 +99,8 @@ const lightTheme: ThemeConfig = {
     shadowLight: 'rgba(0, 0, 0, 0.05)',
     shadowHeavy: 'rgba(0, 0, 0, 0.25)',
 
-    // Special colors - WaveSwap Azul Theme
-    gradientStart: '#21bcff', // WaveSwap azul
+    // Special colors - WaveSwap Theme
+    gradientStart: '#264af5',
     gradientEnd: '#4a4aff', // Deep blue light
     overlay: 'rgba(0, 0, 0, 0.3)'
   },
@@ -133,8 +133,8 @@ const darkTheme: ThemeConfig = {
     textInverse: '#1e293b',
 
     // Brand colors
-    primary: '#3b82f6',
-    primaryHover: '#60a5fa',
+    primary: '#264af5',
+    primaryHover: '#1c3fd1', // Slightly darker hover
     secondary: '#10b981',
     accent: '#a855f7',
 
@@ -147,8 +147,8 @@ const darkTheme: ThemeConfig = {
     // Border and outline
     border: '#334155',
     borderLight: '#475569',
-    outline: '#3b82f6',
-    outlineFocus: '#60a5fa',
+    outline: '#264af5',
+    outlineFocus: '#1c3fd1',
 
     // Shadow colors
     shadow: 'rgba(0, 0, 0, 0.5)',
@@ -156,7 +156,7 @@ const darkTheme: ThemeConfig = {
     shadowHeavy: 'rgba(0, 0, 0, 0.75)',
 
     // Special colors
-    gradientStart: '#3b82f6',
+    gradientStart: '#264af5',
     gradientEnd: '#a855f7',
     overlay: 'rgba(0, 0, 0, 0.8)'
   },
@@ -175,52 +175,52 @@ const darkTheme: ThemeConfig = {
 const orcaTheme: ThemeConfig = {
   name: 'orca',
   colors: {
-    // Background colors
-    background: '#0a0e1a',
-    surface: '#1a1f2e',
-    surfaceHover: '#262d3d',
-    glass: 'rgba(26, 31, 46, 0.9)',
-    glassBorder: 'rgba(74, 222, 128, 0.2)',
+    // Background colors - pure black to white scale
+    background: '#000000',
+    surface: '#1a1a1a',
+    surfaceHover: '#2a2a2a',
+    glass: 'rgba(42, 42, 42, 0.9)',
+    glassBorder: 'rgba(128, 128, 128, 0.3)',
 
-    // Text colors
-    textPrimary: '#ecfdf5',
-    textSecondary: '#d1fae5',
-    textMuted: '#a7f3d0',
-    textInverse: '#0a0e1a',
+    // Text colors - white to grey scale
+    textPrimary: '#ffffff',
+    textSecondary: '#e0e0e0',
+    textMuted: '#b0b0b0',
+    textInverse: '#000000',
 
-    // Brand colors
-    primary: '#4ade80',
-    primaryHover: '#22c55e',
-    secondary: '#10b981',
-    accent: '#14b8a6',
+    // Brand colors - WaveSwap Theme
+    primary: '#264af5',
+    primaryHover: '#1c3fd1',
+    secondary: '#808080',
+    accent: '#a0a0a0',
 
-    // Status colors
-    success: '#4ade80',
+    // Status colors - grey scale with standard red/yellow
+    success: '#ffffff',
     warning: '#fbbf24',
     error: '#f87171',
-    info: '#22d3ee',
+    info: '#60a5fa',
 
-    // Border and outline
-    border: '#262d3d',
-    borderLight: '#334155',
-    outline: '#4ade80',
-    outlineFocus: '#22c55e',
+    // Border and outline - grey scale
+    border: '#333333',
+    borderLight: '#404040',
+    outline: '#264af5',
+    outlineFocus: '#1c3fd1',
 
-    // Shadow colors
-    shadow: 'rgba(0, 0, 0, 0.6)',
-    shadowLight: 'rgba(0, 0, 0, 0.3)',
-    shadowHeavy: 'rgba(0, 0, 0, 0.8)',
+    // Shadow colors - pure black and grey
+    shadow: 'rgba(0, 0, 0, 0.7)',
+    shadowLight: 'rgba(0, 0, 0, 0.4)',
+    shadowHeavy: 'rgba(0, 0, 0, 0.9)',
 
-    // Special colors
-    gradientStart: '#4ade80',
-    gradientEnd: '#14b8a6',
-    overlay: 'rgba(10, 14, 26, 0.9)'
+    // Special colors - WaveSwap Theme gradient
+    gradientStart: '#264af5',
+    gradientEnd: '#a0a0a0',
+    overlay: 'rgba(0, 0, 0, 0.8)'
   },
   glassStyles: {
     backdrop: 'blur(24px) saturate(1.6)',
     blur: '24px',
-    border: '1px solid rgba(74, 222, 128, 0.2)',
-    background: 'rgba(26, 31, 46, 0.9)'
+    border: '1px solid rgba(128, 128, 128, 0.3)',
+    background: 'rgba(42, 42, 42, 0.9)'
   },
   animations: {
     duration: '0.2s',

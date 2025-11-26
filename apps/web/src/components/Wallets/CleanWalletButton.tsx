@@ -83,23 +83,37 @@ export function CleanWalletButton() {
         background: publicKey
           ? `
             linear-gradient(135deg,
-              ${theme.colors.success}20 0%,
-              ${theme.colors.success}10 50%,
-              ${theme.colors.success}20 100%
+              ${theme.colors.success}25 0%,
+              ${theme.colors.success}15 50%,
+              ${theme.colors.success}25 100%
             ),
             radial-gradient(circle at 30% 30%,
-              ${theme.colors.success}15 0%,
+              ${theme.colors.success}20 0%,
               transparent 50%
             )
           `
-          : createGlassStyles(theme).background as string,
+          : theme.name === 'light'
+            ? `
+              linear-gradient(135deg,
+                ${theme.colors.primary}dd 0%,
+                ${theme.colors.primary}cc 50%,
+                ${theme.colors.primary}dd 100%
+              ),
+              radial-gradient(circle at 30% 30%,
+                ${theme.colors.primary}20 0%,
+                transparent 50%
+              )
+            `
+            : createGlassStyles(theme).background as string,
         border: publicKey
-          ? `1px solid ${theme.colors.success}30`
-          : `1px solid ${theme.colors.primary}10`,
+          ? `1px solid ${theme.colors.success}40`
+          : `1px solid ${theme.colors.primary}30`,
         backdropFilter: 'blur(20px) saturate(1.8)',
         boxShadow: publicKey
-          ? `0 8px 24px ${theme.colors.success}20, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
-          : `0 8px 32px ${theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primary}05`,
+          ? `0 8px 24px ${theme.colors.success}25, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
+          : theme.name === 'light'
+            ? `0 8px 24px ${theme.colors.primary}30, inset 0 1px 0 rgba(255, 255, 255, 0.3)`
+            : `0 8px 32px ${theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primary}05`,
         fontFamily: 'var(--font-helvetica)',
         fontWeight: 600,
         letterSpacing: '0.025em'
@@ -183,8 +197,14 @@ export function CleanWalletButton() {
         )}
 
         <span style={{
-          color: publicKey ? theme.colors.textPrimary : theme.colors.textMuted,
-          textShadow: publicKey ? `0 0 10px ${theme.colors.success}30` : `0 0 10px ${theme.colors.primary}30`,
+          color: publicKey
+            ? theme.colors.textPrimary
+            : theme.name === 'light' ? '#ffffff' : theme.colors.textMuted,
+          textShadow: publicKey
+            ? `0 0 10px ${theme.colors.success}30`
+            : theme.name === 'light'
+              ? '0 1px 2px rgba(0, 0, 0, 0.2)'
+              : `0 0 10px ${theme.colors.primary}30`,
           fontFamily: 'var(--font-helvetica)'
         }}>
           {getButtonText()}
@@ -194,8 +214,9 @@ export function CleanWalletButton() {
           <ChevronDown
             className="w-3 h-3"
             style={{
-              color: `${theme.colors.textMuted}cc`,
-              transition: 'all 0.3s ease'
+              color: theme.name === 'light' ? '#ffffff' : `${theme.colors.textMuted}cc`,
+              transition: 'all 0.3s ease',
+              textShadow: theme.name === 'light' ? '0 1px 2px rgba(0, 0, 0, 0.2)' : 'none'
             }}
           />
         )}
@@ -219,32 +240,54 @@ export function CleanWalletButton() {
         className="absolute top-full left-0 mt-2 w-64 rounded-xl z-50"
         style={{
           ...createGlassStyles(theme),
-          background: `
-            linear-gradient(135deg,
-              ${theme.colors.surface}ee 0%,
-              ${theme.colors.surfaceHover}cc 25%,
-              ${theme.colors.surface}ee 50%,
-              ${theme.colors.surfaceHover}cc 75%,
-              ${theme.colors.surface}ee 100%
-            ),
-            radial-gradient(circle at 25% 25%,
-              ${theme.colors.primary}05 0%,
-              transparent 50%
-            )
-          `,
-          border: `1px solid ${theme.colors.primary}15`,
+          background: theme.name === 'light'
+            ? `
+              linear-gradient(135deg,
+                ${theme.colors.surface}f8 0%,
+                ${theme.colors.surface}f0 25%,
+                ${theme.colors.surface}f8 50%,
+                ${theme.colors.surface}f0 75%,
+                ${theme.colors.surface}f8 100%
+              ),
+              radial-gradient(circle at 25% 25%,
+                ${theme.colors.primary}08 0%,
+                transparent 50%
+              )
+            `
+            : `
+              linear-gradient(135deg,
+                ${theme.colors.surface}ee 0%,
+                ${theme.colors.surfaceHover}cc 25%,
+                ${theme.colors.surface}ee 50%,
+                ${theme.colors.surfaceHover}cc 75%,
+                ${theme.colors.surface}ee 100%
+              ),
+              radial-gradient(circle at 25% 25%,
+                ${theme.colors.primary}05 0%,
+                transparent 50%
+              )
+            `,
+          border: theme.name === 'light' ? `1px solid ${theme.colors.border}` : `1px solid ${theme.colors.primary}15`,
           backdropFilter: 'blur(24px) saturate(1.8)',
-          boxShadow: `
-            0 20px 40px ${theme.colors.shadow},
-            inset 0 1px 0 rgba(255, 255, 255, 0.1),
-            0 0 0 1px ${theme.colors.primary}05
-          `
+          boxShadow: theme.name === 'light'
+            ? `
+              0 20px 40px ${theme.colors.shadowLight},
+              inset 0 1px 0 rgba(255, 255, 255, 0.4),
+              0 0 0 1px ${theme.colors.primary}10
+            `
+            : `
+              0 20px 40px ${theme.colors.shadow},
+              inset 0 1px 0 rgba(255, 255, 255, 0.1),
+              0 0 0 1px ${theme.colors.primary}05
+            `
         }}
       >
         {/* Wallet Address Section */}
         <div
           className="p-4 border-b"
-          style={{ borderColor: `${theme.colors.border}50` }}
+          style={{
+            borderColor: theme.name === 'light' ? theme.colors.border : `${theme.colors.border}50`
+          }}
         >
           <div className="flex items-center gap-3">
             <div
