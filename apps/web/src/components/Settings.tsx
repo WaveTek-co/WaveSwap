@@ -61,37 +61,27 @@ export function Settings() {
         onMouseEnter={(e) => {
           e.currentTarget.style.background = `
             linear-gradient(135deg,
-              rgba(107, 114, 128, 0.9) 0%,
-              rgba(75, 85, 99, 0.9) 50%,
-              rgba(107, 114, 128, 0.9) 100%
+              ${themeConfig.colors.surfaceHover}dd 0%,
+              ${themeConfig.colors.surface}cc 50%,
+              ${themeConfig.colors.surfaceHover}dd 100%
             ),
             radial-gradient(circle at 30% 30%,
-              rgba(162, 89, 250, 0.2) 0%,
+              ${themeConfig.colors.primary}20 0%,
               transparent 50%
             )
           `
           e.currentTarget.style.boxShadow = `
-            0 12px 40px rgba(0, 0, 0, 0.3),
+            0 12px 40px ${themeConfig.colors.shadow},
             inset 0 1px 0 rgba(255, 255, 255, 0.2),
-            0 0 0 1px rgba(162, 89, 250, 0.2)
+            0 0 0 1px ${themeConfig.colors.primary}30
           `
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = `
-            linear-gradient(135deg,
-              rgba(107, 114, 128, 0.8) 0%,
-              rgba(75, 85, 99, 0.8) 50%,
-              rgba(107, 114, 128, 0.8) 100%
-            ),
-            radial-gradient(circle at 30% 30%,
-              rgba(162, 89, 250, 0.1) 0%,
-              transparent 50%
-            )
-          `
+          e.currentTarget.style.background = createGlassStyles(themeConfig).background as string
           e.currentTarget.style.boxShadow = `
-            0 8px 32px rgba(0, 0, 0, 0.2),
+            0 8px 32px ${themeConfig.colors.shadow},
             inset 0 1px 0 rgba(255, 255, 255, 0.1),
-            0 0 0 1px rgba(162, 89, 250, 0.1)
+            0 0 0 1px ${themeConfig.colors.primary}10
           `
         }}
         title="Settings"
@@ -105,46 +95,55 @@ export function Settings() {
           }}
         />
 
-        <Cog6ToothIcon className="h-5 w-5 text-white/90 relative z-10" style={{ filter: 'drop-shadow(0 0 8px rgba(162, 89, 250, 0.3))' }} />
+        <Cog6ToothIcon className="h-5 w-5 relative z-10" style={{
+          color: themeConfig.colors.textPrimary,
+          filter: `drop-shadow(0 0 8px ${themeConfig.colors.primary}40)`
+        }} />
         <ChevronUpIcon
-          className={`h-3 w-3 text-white/70 transition-transform duration-300 relative z-10 ${isOpen ? 'rotate-180' : ''}`}
+          className={`h-3 w-3 transition-transform duration-300 relative z-10 ${isOpen ? 'rotate-180' : ''}`}
+          style={{ color: themeConfig.colors.textMuted }}
         />
       </button>
 
       {/* Dropdown Menu */}
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-2 w-96 rounded-2xl overflow-hidden"
-          style={{
-            background: `
-              linear-gradient(135deg,
-                rgba(30, 30, 45, 0.95) 0%,
-                rgba(45, 45, 65, 0.9) 25%,
-                rgba(30, 30, 45, 0.95) 50%,
-                rgba(45, 45, 65, 0.9) 75%,
-                rgba(30, 30, 45, 0.95) 100%
-              ),
-              radial-gradient(circle at 25% 25%,
-                rgba(33, 188, 255, 0.05) 0%,
-                transparent 50%
-              ),
-              radial-gradient(circle at 75% 75%,
-                rgba(16, 185, 129, 0.03) 0%,
-                transparent 50%
-              )
-            `,
-            border: '1px solid rgba(33, 188, 255, 0.15)',
-            backdropFilter: 'blur(24px) saturate(1.8)',
-            boxShadow: `
-              0 25px 70px rgba(0, 0, 0, 0.5),
-              0 12px 32px rgba(33, 188, 255, 0.15),
-              inset 0 1px 0 rgba(255, 255, 255, 0.15),
-              inset 0 -1px 0 rgba(0, 0, 0, 0.3),
-              0 0 0 1px rgba(33, 188, 255, 0.1)
-            `,
-            zIndex: 50
-          }}
-        >
+            className="absolute right-0 top-full mt-2 w-96 rounded-2xl overflow-hidden"
+            style={{
+              ...createGlassStyles(themeConfig),
+              background: `
+                linear-gradient(135deg,
+                  ${themeConfig.colors.surface}f0 0%,
+                  ${themeConfig.colors.surfaceHover}e8 25%,
+                  ${themeConfig.colors.surface}f0 50%,
+                  ${themeConfig.colors.surfaceHover}e8 75%,
+                  ${themeConfig.colors.surface}f0 100%
+                ),
+                radial-gradient(circle at 25% 25%,
+                  ${themeConfig.colors.primary}10 0%,
+                  transparent 50%
+                ),
+                radial-gradient(circle at 75% 75%,
+                  ${themeConfig.colors.success}08 0%,
+                  transparent 50%
+                )
+              `,
+              border: `1px solid ${themeConfig.colors.primary}25`,
+              backdropFilter: 'blur(28px) saturate(1.8) contrast(1.05)',
+              WebkitBackdropFilter: 'blur(28px) saturate(1.8) contrast(1.05)', // Safari support
+              boxShadow: `
+                0 25px 70px ${themeConfig.colors.shadow},
+                0 12px 32px ${themeConfig.colors.primary}20,
+                0 8px 24px ${themeConfig.colors.shadow},
+                inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                inset 0 -1px 0 ${themeConfig.colors.shadow},
+                0 0 0 1px ${themeConfig.colors.primary}15
+              `,
+              zIndex: 50,
+              transform: 'translateZ(0)', // Enable hardware acceleration
+              willChange: 'backdrop-filter, transform' // Optimize animations
+            }}
+          >
           {/* Noise grain overlay */}
           <div
             className="absolute inset-0 opacity-4 pointer-events-none"
@@ -155,24 +154,23 @@ export function Settings() {
           />
 
           {/* Header */}
-          <div className="relative z-10 p-4 border-b border-gray-700/50" style={{
-            background: `
-              linear-gradient(135deg,
-                rgba(33, 188, 255, 0.1) 0%,
-                rgba(33, 188, 255, 0.05) 50%,
-                rgba(33, 188, 255, 0.1) 100%
-              )
-            `,
+          <div className="relative z-10 p-4" style={{
+            background: `linear-gradient(135deg, ${themeConfig.colors.primary}15 0%, ${themeConfig.colors.primary}08 50%, ${themeConfig.colors.primary}15 100%)`,
+            borderBottom: `1px solid ${themeConfig.colors.border}50`,
             backdropFilter: 'blur(12px) saturate(1.5)'
           }}>
             <div className="flex items-center gap-3">
               <div className="rounded-lg p-2" style={{
-                background: 'rgba(33, 188, 255, 0.2)',
-                border: '1px solid rgba(33, 188, 255, 0.3)'
+                background: `${themeConfig.colors.primary}20`,
+                border: `1px solid ${themeConfig.colors.primary}40`
               }}>
-                <Cog6ToothIcon className="h-5 w-5 text-blue-400" style={{ filter: 'drop-shadow(0 0 8px rgba(33, 188, 255, 0.4))' }} />
+                <Cog6ToothIcon className="h-5 w-5" style={{
+                  color: themeConfig.colors.primary,
+                  filter: `drop-shadow(0 0 8px ${themeConfig.colors.primary}40)`
+                }} />
               </div>
-              <h2 className="text-lg font-semibold text-white" style={{
+              <h2 className="text-lg font-semibold" style={{
+                color: themeConfig.colors.textPrimary,
                 fontFamily: 'var(--font-helvetica)',
                 fontWeight: 600,
                 letterSpacing: '0.025em'
@@ -185,8 +183,9 @@ export function Settings() {
             {/* Trading Preferences */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-3">
-                <AdjustmentsHorizontalIcon className="h-4 w-4 text-blue-400" />
-                <h3 className="text-xs font-medium text-blue-400 uppercase tracking-wider" style={{
+                <AdjustmentsHorizontalIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
+                <h3 className="text-xs font-medium uppercase tracking-wider" style={{
+                  color: themeConfig.colors.primary,
                   fontFamily: 'var(--font-helvetica)',
                   letterSpacing: '0.05em'
                 }}>Trading Preferences</h3>
@@ -194,19 +193,19 @@ export function Settings() {
 
               {/* Expert Mode */}
               <div className="flex items-center justify-between p-3 rounded-xl" style={{
-                background: 'rgba(59, 130, 246, 0.05)',
-                border: '1px solid rgba(59, 130, 246, 0.1)'
+                background: `${themeConfig.colors.primary}08`,
+                border: `1px solid ${themeConfig.colors.primary}15`
               }}>
                 <div className="flex items-center gap-3">
                   <div className="rounded-lg p-2" style={{
-                    background: 'rgba(59, 130, 246, 0.2)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)'
+                    background: `${themeConfig.colors.primary}20`,
+                    border: `1px solid ${themeConfig.colors.primary}30`
                   }}>
-                    <ChartBarIcon className="h-4 w-4 text-blue-400" />
+                    <ChartBarIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
                   </div>
                   <div>
-                    <h4 className="font-medium text-white text-sm">Expert Mode</h4>
-                    <p className="text-xs text-gray-400">Advanced trading features</p>
+                    <h4 className="font-medium text-sm" style={{ color: themeConfig.colors.textPrimary }}>Expert Mode</h4>
+                    <p className="text-xs" style={{ color: themeConfig.colors.textMuted }}>Advanced trading features</p>
                   </div>
                 </div>
 
@@ -215,7 +214,7 @@ export function Settings() {
                   onChange={setExpertMode}
                   className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-transparent"
                   style={{
-                    backgroundColor: expertMode ? 'rgba(59, 130, 246, 0.8)' : 'rgba(55, 65, 81, 0.8)'
+                    backgroundColor: expertMode ? `${themeConfig.colors.primary}cc` : `${themeConfig.colors.surface}`
                   }}
                 >
                   <span className="sr-only">Enable expert mode</span>
@@ -229,8 +228,9 @@ export function Settings() {
             {/* Theme Selection */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-3">
-                <SunIcon className="h-4 w-4 text-yellow-400" />
-                <h3 className="text-xs font-medium text-yellow-400 uppercase tracking-wider" style={{
+                <SunIcon className="h-4 w-4" style={{ color: themeConfig.colors.warning }} />
+                <h3 className="text-xs font-medium uppercase tracking-wider" style={{
+                  color: themeConfig.colors.warning,
                   fontFamily: 'var(--font-helvetica)',
                   letterSpacing: '0.05em'
                 }}>Theme</h3>
@@ -241,89 +241,112 @@ export function Settings() {
                 <button
                   onClick={setLightTheme}
                   className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
-                    theme === 'light'
-                      ? 'border-yellow-400/50'
-                      : 'border-gray-600/50 hover:border-yellow-400/30'
+                    theme === 'light' ? '' : ''
                   }`}
                   style={{
+                    borderColor: theme === 'light' ? `${themeConfig.colors.warning}50` : `${themeConfig.colors.border}50`,
                     background: theme === 'light'
-                      ? 'rgba(251, 191, 36, 0.1)'
-                      : 'rgba(55, 65, 81, 0.3)',
+                      ? `${themeConfig.colors.warning}10`
+                      : `${themeConfig.colors.surface}30`,
                     backdropFilter: 'blur(8px) saturate(1.2)'
                   }}
+                  onMouseEnter={(e) => {
+                    if (theme !== 'light') {
+                      e.currentTarget.style.borderColor = `${themeConfig.colors.warning}30`
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (theme !== 'light') {
+                      e.currentTarget.style.borderColor = `${themeConfig.colors.border}50`
+                    }
+                  }}
                 >
-                  <SunIcon className={`h-5 w-5 ${
-                    theme === 'light' ? 'text-yellow-400' : 'text-gray-400'
-                  }`} />
-                  <span className={`text-xs font-medium ${
-                    theme === 'light' ? 'text-yellow-400' : 'text-gray-400'
-                  }`} style={{
+                  <SunIcon className="h-5 w-5" style={{
+                    color: theme === 'light' ? themeConfig.colors.warning : themeConfig.colors.textMuted
+                  }} />
+                  <span className="text-xs font-medium" style={{
+                    color: theme === 'light' ? themeConfig.colors.warning : themeConfig.colors.textMuted,
                     fontFamily: 'var(--font-helvetica)'
                   }}>
                     Light
                   </span>
                   {theme === 'light' && (
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-400 rounded-full" />
+                    <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ backgroundColor: themeConfig.colors.warning }} />
                   )}
                 </button>
 
                 <button
                   onClick={setDarkTheme}
                   className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
-                    theme === 'dark'
-                      ? 'border-blue-400/50'
-                      : 'border-gray-600/50 hover:border-blue-400/30'
+                    theme === 'dark' ? '' : ''
                   }`}
                   style={{
+                    borderColor: theme === 'dark' ? `${themeConfig.colors.primary}50` : `${themeConfig.colors.border}50`,
                     background: theme === 'dark'
-                      ? 'rgba(59, 130, 246, 0.1)'
-                      : 'rgba(55, 65, 81, 0.3)',
+                      ? `${themeConfig.colors.primary}10`
+                      : `${themeConfig.colors.surface}30`,
                     backdropFilter: 'blur(8px) saturate(1.2)'
                   }}
+                  onMouseEnter={(e) => {
+                    if (theme !== 'dark') {
+                      e.currentTarget.style.borderColor = `${themeConfig.colors.primary}30`
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (theme !== 'dark') {
+                      e.currentTarget.style.borderColor = `${themeConfig.colors.border}50`
+                    }
+                  }}
                 >
-                  <MoonIcon className={`h-5 w-5 ${
-                    theme === 'dark' ? 'text-blue-400' : 'text-gray-400'
-                  }`} />
-                  <span className={`text-xs font-medium ${
-                    theme === 'dark' ? 'text-blue-400' : 'text-gray-400'
-                  }`} style={{
+                  <MoonIcon className="h-5 w-5" style={{
+                    color: theme === 'dark' ? themeConfig.colors.primary : themeConfig.colors.textMuted
+                  }} />
+                  <span className="text-xs font-medium" style={{
+                    color: theme === 'dark' ? themeConfig.colors.primary : themeConfig.colors.textMuted,
                     fontFamily: 'var(--font-helvetica)'
                   }}>
                     Dark
                   </span>
                   {theme === 'dark' && (
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full" />
+                    <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ backgroundColor: themeConfig.colors.primary }} />
                   )}
                 </button>
 
                 <button
                   onClick={setOrcaTheme}
                   className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
-                    theme === 'orca'
-                      ? 'border-gray-400/50'
-                      : 'border-gray-600/50 hover:border-gray-400/30'
+                    theme === 'orca' ? '' : ''
                   }`}
                   style={{
+                    borderColor: theme === 'orca' ? `${themeConfig.colors.textMuted}50` : `${themeConfig.colors.border}50`,
                     background: theme === 'orca'
-                      ? 'rgba(156, 163, 175, 0.1)'
-                      : 'rgba(55, 65, 81, 0.3)',
+                      ? `${themeConfig.colors.textMuted}10`
+                      : `${themeConfig.colors.surface}30`,
                     backdropFilter: 'blur(8px) saturate(1.2)'
                   }}
+                  onMouseEnter={(e) => {
+                    if (theme !== 'orca') {
+                      e.currentTarget.style.borderColor = `${themeConfig.colors.textMuted}30`
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (theme !== 'orca') {
+                      e.currentTarget.style.borderColor = `${themeConfig.colors.border}50`
+                    }
+                  }}
                 >
-                  <div className={`w-5 h-5 rounded-full border-2 ${
-                    theme === 'orca'
-                      ? 'bg-gray-400 border-gray-400'
-                      : 'border-gray-400'
-                  }`} />
-                  <span className={`text-xs font-medium ${
-                    theme === 'orca' ? 'text-gray-400' : 'text-gray-400'
-                  }`} style={{
+                  <div className="w-5 h-5 rounded-full border-2" style={{
+                    backgroundColor: theme === 'orca' ? themeConfig.colors.textMuted : 'transparent',
+                    borderColor: themeConfig.colors.textMuted
+                  }} />
+                  <span className="text-xs font-medium" style={{
+                    color: themeConfig.colors.textMuted,
                     fontFamily: 'var(--font-helvetica)'
                   }}>
                     Orca
                   </span>
                   {theme === 'orca' && (
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-gray-400 rounded-full" />
+                    <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ backgroundColor: themeConfig.colors.textMuted }} />
                   )}
                 </button>
               </div>
@@ -332,8 +355,9 @@ export function Settings() {
             {/* Slippage & Deadline */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-3">
-                <AdjustmentsHorizontalIcon className="h-4 w-4 text-blue-400" />
-                <h3 className="text-xs font-medium text-blue-400 uppercase tracking-wider" style={{
+                <AdjustmentsHorizontalIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
+                <h3 className="text-xs font-medium uppercase tracking-wider" style={{
+                  color: themeConfig.colors.primary,
                   fontFamily: 'var(--font-helvetica)',
                   letterSpacing: '0.05em'
                 }}>Trading Preferences</h3>
@@ -341,10 +365,11 @@ export function Settings() {
 
               {/* Slippage */}
               <div className="p-3 rounded-xl" style={{
-                background: 'rgba(59, 130, 246, 0.05)',
-                border: '1px solid rgba(59, 130, 246, 0.1)'
+                background: `${themeConfig.colors.primary}08`,
+                border: `1px solid ${themeConfig.colors.primary}15`
               }}>
-                <label className="block text-sm font-medium text-white mb-2" style={{
+                <label className="block text-sm font-medium mb-2" style={{
+                  color: themeConfig.colors.textPrimary,
                   fontFamily: 'var(--font-helvetica)'
                 }}>Slippage Tolerance</label>
                 <div className="flex items-center gap-2">
@@ -352,10 +377,11 @@ export function Settings() {
                     type="number"
                     value={slippage}
                     onChange={(e) => setSlippage(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-white text-sm"
+                    className="flex-1 px-3 py-2 rounded-lg text-sm"
                     style={{
-                      border: '1px solid rgba(156, 163, 175, 0.2)',
-                      background: 'rgba(30, 30, 45, 0.6)',
+                      border: `1px solid ${themeConfig.colors.border}`,
+                      background: `${themeConfig.colors.surface}99`,
+                      color: themeConfig.colors.textPrimary,
                       backdropFilter: 'blur(8px) saturate(1.2)',
                       fontFamily: 'var(--font-mono)'
                     }}
@@ -363,17 +389,18 @@ export function Settings() {
                     max="50"
                     step="0.1"
                   />
-                  <span className="text-sm text-gray-400">%</span>
+                  <span className="text-sm" style={{ color: themeConfig.colors.textMuted }}>%</span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Your transaction will revert if price changes unfavorably by more than this amount</p>
+                <p className="text-xs mt-1" style={{ color: themeConfig.colors.textMuted }}>Your transaction will revert if price changes unfavorably by more than this amount</p>
               </div>
 
               {/* Deadline */}
               <div className="p-3 rounded-xl" style={{
-                background: 'rgba(59, 130, 246, 0.05)',
-                border: '1px solid rgba(59, 130, 246, 0.1)'
+                background: `${themeConfig.colors.primary}08`,
+                border: `1px solid ${themeConfig.colors.primary}15`
               }}>
-                <label className="block text-sm font-medium text-white mb-2" style={{
+                <label className="block text-sm font-medium mb-2" style={{
+                  color: themeConfig.colors.textPrimary,
                   fontFamily: 'var(--font-helvetica)'
                 }}>Transaction Deadline</label>
                 <div className="flex items-center gap-2">
@@ -381,10 +408,11 @@ export function Settings() {
                     type="number"
                     value={deadline}
                     onChange={(e) => setDeadline(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-white text-sm"
+                    className="flex-1 px-3 py-2 rounded-lg text-sm"
                     style={{
-                      border: '1px solid rgba(156, 163, 175, 0.2)',
-                      background: 'rgba(30, 30, 45, 0.6)',
+                      border: `1px solid ${themeConfig.colors.border}`,
+                      background: `${themeConfig.colors.surface}99`,
+                      color: themeConfig.colors.textPrimary,
                       backdropFilter: 'blur(8px) saturate(1.2)',
                       fontFamily: 'var(--font-mono)'
                     }}
@@ -392,17 +420,18 @@ export function Settings() {
                     max="60"
                     step="1"
                   />
-                  <span className="text-sm text-gray-400">minutes</span>
+                  <span className="text-sm" style={{ color: themeConfig.colors.textMuted }}>minutes</span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Your transaction will revert if it's pending for more than this time</p>
+                <p className="text-xs mt-1" style={{ color: themeConfig.colors.textMuted }}>Your transaction will revert if it's pending for more than this time</p>
               </div>
             </div>
 
             {/* Interface */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-3">
-                <BellIcon className="h-4 w-4 text-blue-400" />
-                <h3 className="text-xs font-medium text-blue-400 uppercase tracking-wider" style={{
+                <BellIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
+                <h3 className="text-xs font-medium uppercase tracking-wider" style={{
+                  color: themeConfig.colors.primary,
                   fontFamily: 'var(--font-helvetica)',
                   letterSpacing: '0.05em'
                 }}>Interface</h3>
@@ -410,19 +439,19 @@ export function Settings() {
 
               {/* Notifications */}
               <div className="flex items-center justify-between p-3 rounded-xl" style={{
-                background: 'rgba(59, 130, 246, 0.05)',
-                border: '1px solid rgba(59, 130, 246, 0.1)'
+                background: `${themeConfig.colors.primary}08`,
+                border: `1px solid ${themeConfig.colors.primary}15`
               }}>
                 <div className="flex items-center gap-3">
                   <div className="rounded-lg p-2" style={{
-                    background: 'rgba(59, 130, 246, 0.2)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)'
+                    background: `${themeConfig.colors.primary}20`,
+                    border: `1px solid ${themeConfig.colors.primary}30`
                   }}>
-                    <BellIcon className="h-4 w-4 text-blue-400" />
+                    <BellIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
                   </div>
                   <div>
-                    <h4 className="font-medium text-white text-sm">Notifications</h4>
-                    <p className="text-xs text-gray-400">Transaction alerts and updates</p>
+                    <h4 className="font-medium text-sm" style={{ color: themeConfig.colors.textPrimary }}>Notifications</h4>
+                    <p className="text-xs" style={{ color: themeConfig.colors.textMuted }}>Transaction alerts and updates</p>
                   </div>
                 </div>
 
@@ -431,7 +460,7 @@ export function Settings() {
                   onChange={setNotifications}
                   className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-transparent"
                   style={{
-                    backgroundColor: notifications ? 'var(--wave-azul)' : '#374151'
+                    backgroundColor: notifications ? `${themeConfig.colors.primary}cc` : `${themeConfig.colors.surface}`
                   }}
                 >
                   <span className="sr-only">Enable notifications</span>
@@ -444,13 +473,14 @@ export function Settings() {
 
             {/* Info Section */}
             <div className="p-3 rounded-xl" style={{
-              background: 'rgba(59, 130, 246, 0.05)',
-              border: '1px solid rgba(59, 130, 246, 0.1)'
+              background: `${themeConfig.colors.primary}08`,
+              border: `1px solid ${themeConfig.colors.primary}15`
             }}>
               <div className="flex items-start gap-2">
-                <InformationCircleIcon className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                <InformationCircleIcon className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: themeConfig.colors.primary }} />
                 <div className="flex-1">
-                  <p className="text-xs text-gray-300" style={{
+                  <p className="text-xs" style={{
+                    color: themeConfig.colors.textSecondary,
                     fontFamily: 'var(--font-helvetica)'
                   }}>
                     Configure your trading preferences and privacy settings to optimize your WaveSwap experience.

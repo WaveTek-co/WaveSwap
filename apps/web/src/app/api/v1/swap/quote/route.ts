@@ -141,7 +141,29 @@ export async function GET(request: NextRequest) {
       console.log('[Jupiter Quote API] Getting public swap quote...')
 
       // Get quote from Jupiter for public swaps
-      quote = await jupiterApi.getQuote(quoteParams)
+      // Use the JupiterAPI class which has proper server-side fetch implementation
+      try {
+        quote = await jupiterApi.getQuote(quoteParams)
+      } catch (jupiterError) {
+        console.error('[Jupiter Quote API] Jupiter API error:', jupiterError)
+
+        // If Jupiter fails, try the old proxy method as fallback
+        console.log('[Jupiter Quote API] Trying proxy fallback...')
+        const proxyUrl = new URL(`/api/v1/jupiter/quote`, request.url)
+        Object.entries(quoteParams).forEach(([key, value]) => {
+          if (value !== undefined) {
+            proxyUrl.searchParams.set(key, String(value))
+          }
+        })
+
+        const proxyResponse = await fetch(proxyUrl.toString())
+        if (!proxyResponse.ok) {
+          throw new Error(`Jupiter API and proxy both failed: ${jupiterError instanceof Error ? jupiterError.message : 'Unknown error'}`)
+        }
+
+        const proxyData = await proxyResponse.json()
+        quote = proxyData.quote || proxyData
+      }
 
       routingProvider = 'jupiter'
 

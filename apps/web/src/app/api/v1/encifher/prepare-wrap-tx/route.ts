@@ -13,13 +13,27 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     console.log('[Encifher Prepare Wrap API] Request body:', body)
 
+    // Get the API key from environment
+    const encifherKey = process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
+
+    // Prepare headers with authentication
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'WaveSwap-Proxy/1.0'
+    }
+
+    // Add API key if available
+    if (encifherKey && encifherKey !== 'your-api-key-here') {
+      headers['Authorization'] = `Bearer ${encifherKey}`
+      console.log('[Encifher Prepare Wrap API] Using API key for authentication')
+    } else {
+      console.log('[Encifher Prepare Wrap API] No API key configured, using default')
+    }
+
     // Make server-side request to Encifher API (bypasses CORS)
     const encifherResponse = await fetch('https://authority.encrypt.trade/api/v1/prepare-wrap-tx', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'WaveSwap-Proxy/1.0'
-      },
+      headers,
       body: JSON.stringify(body)
     })
 

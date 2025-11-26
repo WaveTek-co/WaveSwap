@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import https from 'https'
 
 // Circuit breaker state to prevent cascade failures
 let circuitBreakerOpen = false
@@ -52,7 +53,7 @@ async function proxyRequest(
   try {
     // Reconstruct the path
     const path = pathSegments.join('/')
-    const jupiterUrl = `https://quote-api.jup.ag/v6/${path}`
+    const jupiterUrl = `https://lite-api.jup.ag/swap/v1/${path}`
 
     // Circuit breaker logic
     const now = Date.now()
@@ -100,7 +101,65 @@ async function proxyRequest(
     }
 
     // Make server-side request to Jupiter API (bypasses CORS and rate limits)
-    const jupiterResponse = await fetch(jupiterUrl, requestOptions)
+    let jupiterResponse: any
+
+    if (typeof window === 'undefined') {
+      // Server-side: use https module for Node.js
+      jupiterResponse = await new Promise((resolve, reject) => {
+        const url = new URL(jupiterUrl)
+        const options = {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: `${url.pathname}${url.search}`,
+          method: requestOptions.method as any,
+          headers: requestOptions.headers ? Object.fromEntries(requestOptions.headers instanceof Headers ?
+            Array.from(requestOptions.headers.entries()) :
+            Array.isArray(requestOptions.headers) ? requestOptions.headers :
+            Object.entries(requestOptions.headers)) : undefined,
+          timeout: 5000, // 5 second timeout
+        }
+
+        let data = ''
+        const req = https.request(options, (res: any) => {
+          res.on('data', (chunk: any) => {
+            data += chunk
+          })
+          res.on('end', () => {
+            resolve({
+              ok: res.statusCode! >= 200 && res.statusCode! < 300,
+              status: res.statusCode,
+              statusText: res.statusMessage,
+              headers: {
+                'content-type': res.headers['content-type'] || 'application/json',
+              },
+              text: async () => data,
+              json: async () => {
+                try {
+                  return JSON.parse(data)
+                } catch {
+                  throw new Error('Invalid JSON response')
+                }
+              }
+            })
+          })
+        })
+
+        req.on('error', reject)
+        req.on('timeout', () => {
+          req.destroy()
+          reject(new Error('Request timeout'))
+        })
+
+        if (requestOptions.body) {
+          req.write(requestOptions.body)
+        }
+
+        req.end()
+      })
+    } else {
+      // Client-side: use regular fetch
+      jupiterResponse = await fetch(jupiterUrl, requestOptions)
+    }
     clearTimeout(timeoutId)
 
     if (!jupiterResponse.ok) {

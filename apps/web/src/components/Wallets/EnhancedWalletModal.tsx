@@ -365,7 +365,7 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
                                     className="w-8 h-8 object-contain"
                                     onError={(e) => {
                                       e.currentTarget.style.display = 'none'
-                                      e.currentTarget.parentElement!.innerHTML = wallet.name.charAt(0)
+                                      e.currentTarget.parentElement!.innerHTML = (wallet.name || 'W').charAt(0)
                                     }}
                                   />
                                 ) : (
@@ -529,7 +529,7 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
               }}>
                 <ShieldCheck className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="text-emerald-300 font-medium mb-1">Secure Connection</p>
+                  <p className="text-emerald-300 font-medium mb-1">Connection Active</p>
                   <p className="text-emerald-200/80">
                     Your wallet connection is encrypted and secure. Never share your private key or seed phrase with anyone.
                   </p>

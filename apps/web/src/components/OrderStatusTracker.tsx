@@ -33,7 +33,7 @@ export function OrderStatusTracker({
   })
   const [isPolling, setIsPolling] = useState(false)
   const [attempts, setAttempts] = useState(0)
-  const maxAttempts = 40 // 40 attempts * 3 seconds = 2 minutes max
+  const maxAttempts = 120 // 120 attempts * 3 seconds = 6 minutes max
 
   useEffect(() => {
     if (!orderStatusIdentifier) return
@@ -42,6 +42,25 @@ export function OrderStatusTracker({
     setAttempts(0)
 
     const pollStatus = async () => {
+      // Increment attempts for each poll
+      setAttempts(prev => {
+        const newAttempts = prev + 1
+
+        if (newAttempts >= maxAttempts) {
+          setStatus({
+            status: 'failed',
+            progress: 0,
+            message: 'Private swap timed out - please check your transaction history',
+            estimatedTime: 'Timed out'
+          })
+          setIsPolling(false)
+          onError?.('Private swap timed out - please check your transaction history')
+          return newAttempts
+        }
+
+        return newAttempts
+      })
+
       try {
         const response = await fetch('/api/v1/encifher/status', {
           method: 'POST',
@@ -75,16 +94,8 @@ export function OrderStatusTracker({
       } catch (error) {
         console.error('Error polling order status:', error)
 
-        if (attempts >= maxAttempts - 1) {
-          setStatus({
-            status: 'failed',
-            progress: 0,
-            message: 'Failed to track transaction after maximum attempts',
-            estimatedTime: 'Failed'
-          })
-          setIsPolling(false)
-          onError?.('Transaction tracking timeout')
-        }
+        // Don't show timeout error here - it's handled in the attempts counter
+        // Just log the error and continue polling
       }
     }
 
@@ -93,8 +104,7 @@ export function OrderStatusTracker({
 
     // Set up polling interval
     const interval = setInterval(() => {
-      if (isPolling && attempts < maxAttempts) {
-        setAttempts(prev => prev + 1)
+      if (isPolling) {
         pollStatus()
       }
     }, 3000) // Poll every 3 seconds

@@ -12,7 +12,8 @@ import {
   ChevronDownIcon,
   StarIcon,
   ShieldCheckIcon,
-  SparklesIcon
+  SparklesIcon,
+  WalletIcon
 } from '@heroicons/react/24/outline'
 import {
   nearIntentBridge,
@@ -23,6 +24,7 @@ import {
   COMMON_TOKENS
 } from '../../lib/nearIntentBridge'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 
 interface BridgeComponentProps {
   privacyMode: boolean
@@ -33,6 +35,7 @@ type SwapDirection = 'from' | 'to'
 
 export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
   const { publicKey, connected } = useWallet()
+  const theme = useThemeConfig()
 
   // Form state
   const [fromChain, setFromChain] = useState<ChainId>('solana')
@@ -83,17 +86,23 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
   // Validate form
   const isFormValid = useMemo(() => {
     return (
-      connected &&
       amount &&
       parseFloat(amount) > 0 &&
       recipientAddress &&
       fromChain !== toChain &&
       !loading
     )
-  }, [connected, amount, recipientAddress, fromChain, toChain, loading])
+  }, [amount, recipientAddress, fromChain, toChain, loading])
+
+  // Check if wallet is connected
+  const isWalletConnected = connected
 
   // Get quote for bridge transaction
   const getQuote = async () => {
+    if (!isWalletConnected) {
+      setError('Please connect your wallet first')
+      return
+    }
     if (!isFormValid) return
 
     setLoading(true)
@@ -172,16 +181,16 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'SUCCESS':
-        return { icon: CheckCircleIcon, color: 'text-green-400', bg: 'bg-green-500/10' }
+        return { icon: CheckCircleIcon, color: theme.colors.success, bg: `${theme.colors.success}10` }
       case 'PROCESSING':
-        return { icon: ClockIcon, color: 'text-blue-400', bg: 'bg-blue-500/10' }
+        return { icon: ClockIcon, color: theme.colors.primary, bg: `${theme.colors.primary}10` }
       case 'PENDING_DEPOSIT':
-        return { icon: ClockIcon, color: 'text-yellow-400', bg: 'bg-yellow-500/10' }
+        return { icon: ClockIcon, color: theme.colors.warning, bg: `${theme.colors.warning}10` }
       case 'FAILED':
       case 'INCOMPLETE_DEPOSIT':
-        return { icon: ExclamationTriangleIcon, color: 'text-red-400', bg: 'bg-red-500/10' }
+        return { icon: ExclamationTriangleIcon, color: theme.colors.error, bg: `${theme.colors.error}10` }
       default:
-        return { icon: ClockIcon, color: 'text-gray-400', bg: 'bg-gray-500/10' }
+        return { icon: ClockIcon, color: theme.colors.textMuted, bg: `${theme.colors.textMuted}10` }
     }
   }
 
@@ -189,25 +198,33 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
     <div className="w-full max-w-2xl mx-auto">
       {/* Header */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600">
-          <ArrowsRightLeftIcon className="h-8 w-8 text-white" />
+        <div className="inline-flex items-center justify-center w-16 h-16 mb-4 rounded-2xl" style={{
+          background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.secondary} 100%)`
+        }}>
+          <ArrowsRightLeftIcon className="h-8 w-8" style={{ color: theme.colors.textPrimary }} />
         </div>
-        <h1 className="text-3xl font-bold text-white mb-2" style={{ fontFamily: 'var(--font-helvetica)' }}>
+        <h1 className="text-3xl font-bold mb-2" style={{
+          color: theme.colors.textPrimary,
+          fontFamily: 'var(--font-helvetica)'
+        }}>
           Cross-Chain Bridge
         </h1>
-        <p className="text-gray-400">
+        <p style={{ color: theme.colors.textMuted }}>
           Seamlessly bridge assets between Solana, NEAR, and Zcash with Near Intent
         </p>
       </div>
 
       {/* Privacy indicator */}
       {privacyMode && (
-        <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+        <div className="mb-6 p-4 rounded-xl" style={{
+          background: `${theme.colors.success}10`,
+          border: `1px solid ${theme.colors.success}20`
+        }}>
           <div className="flex items-center gap-3">
-            <ShieldCheckIcon className="h-5 w-5 text-emerald-400" />
+            <ShieldCheckIcon className="h-5 w-5" style={{ color: theme.colors.success }} />
             <div className="flex-1">
-              <p className="text-emerald-400 font-medium">Privacy Mode Active</p>
-              <p className="text-emerald-300/70 text-sm">Your bridge transactions are confidential</p>
+              <p style={{ color: theme.colors.success }} className="font-medium">Privacy Mode Active</p>
+              <p className="text-sm" style={{ color: `${theme.colors.success}cc` }}>Your bridge transactions are confidential</p>
             </div>
           </div>
         </div>
@@ -217,35 +234,49 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
       <div className="space-y-6">
         {/* From Chain */}
         <div className="relative">
-          <label className="block text-sm font-medium text-gray-300 mb-2">From</label>
+          <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.textSecondary }}>From</label>
           <button
             onClick={() => setShowFromChainDropdown(!showFromChainDropdown)}
-            className="w-full p-4 rounded-xl bg-gray-800/60 border border-gray-700 text-left transition-all hover:border-gray-600"
+            className="w-full p-4 rounded-xl text-left transition-all"
             style={{
+              ...createGlassStyles(theme),
+              border: `1px solid ${theme.colors.border}`,
               backdropFilter: 'blur(8px)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = theme.colors.primary
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = theme.colors.border
             }}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{
+                  background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.secondary} 100%)`
+                }}>
+                  <span className="font-bold text-sm" style={{ color: theme.colors.textPrimary }}>
                     {SUPPORTED_CHAINS.find(c => c.id === fromChain)?.name[0]}
                   </span>
                 </div>
                 <div>
-                  <p className="text-white font-medium">
+                  <p className="font-medium" style={{ color: theme.colors.textPrimary }}>
                     {SUPPORTED_CHAINS.find(c => c.id === fromChain)?.name}
                   </p>
-                  <p className="text-gray-400 text-sm">{fromToken.symbol}</p>
+                  <p className="text-sm" style={{ color: theme.colors.textMuted }}>{fromToken.symbol}</p>
                 </div>
               </div>
-              <ChevronDownIcon className="h-5 w-5 text-gray-400" />
+              <ChevronDownIcon className="h-5 w-5" style={{ color: theme.colors.textMuted }} />
             </div>
           </button>
 
           {/* Chain Dropdown */}
           {showFromChainDropdown && (
-            <div className="absolute z-10 w-full mt-2 p-2 rounded-xl bg-gray-800 border border-gray-700 shadow-xl">
+            <div className="absolute z-10 w-full mt-2 p-2 rounded-xl shadow-xl" style={{
+              ...createGlassStyles(theme),
+              border: `1px solid ${theme.colors.border}`,
+              background: `${theme.colors.surface}f2`
+            }}>
               {SUPPORTED_CHAINS.filter(chain => chain.id !== toChain).map((chain) => (
                 <button
                   key={chain.id}
@@ -254,13 +285,25 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
                     setShowFromChainDropdown(false)
                     setQuote(null)
                   }}
-                  className="w-full p-3 rounded-lg hover:bg-gray-700 text-left transition-colors"
+                  className="w-full p-3 rounded-lg text-left transition-colors"
+                  style={{
+                    background: 'transparent',
+                    color: theme.colors.textPrimary
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = `${theme.colors.surfaceHover}50`
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent'
+                  }}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-                      <span className="text-white font-bold text-xs">{chain.name[0]}</span>
+                    <div className="w-6 h-6 rounded flex items-center justify-center" style={{
+                      background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.secondary} 100%)`
+                    }}>
+                      <span className="font-bold text-xs" style={{ color: theme.colors.textPrimary }}>{chain.name[0]}</span>
                     </div>
-                    <span className="text-white">{chain.name}</span>
+                    <span style={{ color: theme.colors.textPrimary }}>{chain.name}</span>
                   </div>
                 </button>
               ))}
@@ -272,43 +315,70 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
         <div className="flex justify-center">
           <button
             onClick={switchChains}
-            className="p-3 rounded-xl bg-gray-800 border border-gray-700 hover:border-gray-600 transition-all hover:scale-105"
+            className="p-3 rounded-xl transition-all hover:scale-105"
+            style={{
+              ...createGlassStyles(theme),
+              border: `1px solid ${theme.colors.border}`,
+              backdropFilter: 'blur(8px)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = theme.colors.primary
+              e.currentTarget.style.background = `${theme.colors.primary}15`
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = theme.colors.border
+              e.currentTarget.style.background = createGlassStyles(theme).background as string
+            }}
           >
-            <ArrowsRightLeftIcon className="h-5 w-5 text-gray-300" />
+            <ArrowsRightLeftIcon className="h-5 w-5" style={{ color: theme.colors.textSecondary }} />
           </button>
         </div>
 
         {/* To Chain */}
         <div className="relative">
-          <label className="block text-sm font-medium text-gray-300 mb-2">To</label>
+          <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.textSecondary }}>To</label>
           <button
             onClick={() => setShowToChainDropdown(!showToChainDropdown)}
-            className="w-full p-4 rounded-xl bg-gray-800/60 border border-gray-700 text-left transition-all hover:border-gray-600"
+            className="w-full p-4 rounded-xl text-left transition-all"
             style={{
+              ...createGlassStyles(theme),
+              border: `1px solid ${theme.colors.border}`,
               backdropFilter: 'blur(8px)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = theme.colors.primary
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = theme.colors.border
             }}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{
+                  background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.secondary} 100%)`
+                }}>
+                  <span className="font-bold text-sm" style={{ color: theme.colors.textPrimary }}>
                     {SUPPORTED_CHAINS.find(c => c.id === toChain)?.name[0]}
                   </span>
                 </div>
                 <div>
-                  <p className="text-white font-medium">
+                  <p className="font-medium" style={{ color: theme.colors.textPrimary }}>
                     {SUPPORTED_CHAINS.find(c => c.id === toChain)?.name}
                   </p>
-                  <p className="text-gray-400 text-sm">{toToken.symbol}</p>
+                  <p className="text-sm" style={{ color: theme.colors.textMuted }}>{toToken.symbol}</p>
                 </div>
               </div>
-              <ChevronDownIcon className="h-5 w-5 text-gray-400" />
+              <ChevronDownIcon className="h-5 w-5" style={{ color: theme.colors.textMuted }} />
             </div>
           </button>
 
           {/* Chain Dropdown */}
           {showToChainDropdown && (
-            <div className="absolute z-10 w-full mt-2 p-2 rounded-xl bg-gray-800 border border-gray-700 shadow-xl">
+            <div className="absolute z-10 w-full mt-2 p-2 rounded-xl shadow-xl" style={{
+              ...createGlassStyles(theme),
+              border: `1px solid ${theme.colors.border}`,
+              background: `${theme.colors.surface}f2`
+            }}>
               {SUPPORTED_CHAINS.filter(chain => chain.id !== fromChain).map((chain) => (
                 <button
                   key={chain.id}
@@ -317,13 +387,25 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
                     setShowToChainDropdown(false)
                     setQuote(null)
                   }}
-                  className="w-full p-3 rounded-lg hover:bg-gray-700 text-left transition-colors"
+                  className="w-full p-3 rounded-lg text-left transition-colors"
+                  style={{
+                    background: 'transparent',
+                    color: theme.colors.textPrimary
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = `${theme.colors.surfaceHover}50`
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent'
+                  }}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-                      <span className="text-white font-bold text-xs">{chain.name[0]}</span>
+                    <div className="w-6 h-6 rounded flex items-center justify-center" style={{
+                      background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.secondary} 100%)`
+                    }}>
+                      <span className="font-bold text-xs" style={{ color: theme.colors.textPrimary }}>{chain.name[0]}</span>
                     </div>
-                    <span className="text-white">{chain.name}</span>
+                    <span style={{ color: theme.colors.textPrimary }}>{chain.name}</span>
                   </div>
                 </button>
               ))}
@@ -439,11 +521,41 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
 
         {/* Action Buttons */}
         <div className="space-y-3">
-          {!quote ? (
+          {!isWalletConnected ? (
+            <button
+              className="w-full p-4 rounded-xl font-medium transition-all hover:scale-[1.02]"
+              style={{
+                ...createGlassStyles(theme),
+                background: `
+                  linear-gradient(135deg,
+                    ${theme.colors.warning}cc 0%,
+                    ${theme.colors.warning}aa 100%
+                  )
+                `,
+                color: theme.colors.textPrimary,
+                border: `2px solid ${theme.colors.warning}60`,
+                fontWeight: 600
+              }}
+            >
+              <div className="flex items-center justify-center gap-3">
+                <WalletIcon className="h-5 w-5" />
+                <span>Connect Wallet to Bridge</span>
+              </div>
+            </button>
+          ) : !quote ? (
             <button
               onClick={getQuote}
               disabled={!isFormValid || loading}
-              className="w-full p-4 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full p-4 rounded-xl font-medium transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                ...createGlassStyles(theme),
+                background: isFormValid && !loading
+                  ? `linear-gradient(135deg, ${theme.colors.primary}dd 0%, ${theme.colors.primary}bb 100%)`
+                  : `${theme.colors.surface}60`,
+                color: isFormValid && !loading ? theme.colors.textPrimary : `${theme.colors.textMuted}cc`,
+                border: `2px solid ${isFormValid && !loading ? theme.colors.primary : theme.colors.border}60`,
+                cursor: isFormValid && !loading ? 'pointer' : 'not-allowed'
+              }}
             >
               {loading ? 'Getting Quote...' : 'Get Quote'}
             </button>
@@ -452,7 +564,16 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
               <button
                 onClick={executeBridge}
                 disabled={loading}
-                className="w-full p-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 text-white font-medium transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full p-4 rounded-xl font-medium transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  ...createGlassStyles(theme),
+                  background: !loading
+                    ? `linear-gradient(135deg, ${theme.colors.success}dd 0%, ${theme.colors.success}bb 100%)`
+                    : `${theme.colors.surface}60`,
+                  color: theme.colors.textPrimary,
+                  border: `2px solid ${!loading ? theme.colors.success : theme.colors.border}60`,
+                  cursor: loading ? 'wait' : 'pointer'
+                }}
               >
                 {loading ? 'Processing...' : 'Execute Bridge'}
               </button>
@@ -461,7 +582,21 @@ export function BridgeComponent({ privacyMode }: BridgeComponentProps) {
                   setQuote(null)
                   setError(null)
                 }}
-                className="w-full p-3 rounded-xl bg-gray-800/60 border border-gray-700 text-gray-300 font-medium transition-all hover:border-gray-600"
+                className="w-full p-3 rounded-xl font-medium transition-all"
+                style={{
+                  ...createGlassStyles(theme),
+                  background: `${theme.colors.surface}60`,
+                  color: theme.colors.textSecondary,
+                  border: `1px solid ${theme.colors.border}`
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = theme.colors.primary
+                  e.currentTarget.style.background = `${theme.colors.primary}15`
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = theme.colors.border
+                  e.currentTarget.style.background = `${theme.colors.surface}60`
+                }}
               >
                 Get New Quote
               </button>

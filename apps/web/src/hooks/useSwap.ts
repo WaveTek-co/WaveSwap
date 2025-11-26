@@ -50,10 +50,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   const { connection } = useConnection()
   const { signTransaction, signAllTransactions } = useWallet()
 
-  // TEMP DEBUG: Allow normal testing by temporarily disabling privacy override
-  // const debugPrivacyMode = true // TEMP: Commented out to test normal operation
-  const debugPrivacyMode = privacyMode // Use actual privacy mode for testing
-  console.log('useSwap: Original privacyMode:', privacyMode, '-> Debug override:', debugPrivacyMode)
+  const debugPrivacyMode = privacyMode // Use actual privacy mode without debug override
   const swapServiceRef = useRef<any>(null)
   const privateSwapServiceRef = useRef<PrivateSwapService | null>(null)
   const encifherClientRef = useRef<EncifherClient | null>(null)
@@ -110,18 +107,22 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       try {
         const jupiterApi = JupiterAPI.createClient(connection)
 
-        // Initialize Encifher client using our wrapper
+        // Initialize Encifher client for private swaps
         const encifherClient = new EncifherClient(connection)
         encifherClientRef.current = encifherClient
+
+        // Only initialize if configured (will fall back to default)
         if (EncifherUtils.isConfigured()) {
           const config = EncifherUtils.getConfig()!
-          encifherClient.initialize(config).catch(console.error)
+          encifherClient.initialize(config).catch(error => {
+            console.warn('[Encifher] Initialization failed, will retry on demand:', error)
+          })
         }
 
         // Initialize PrivateSwapService for enhanced private swap flow
         privateSwapServiceRef.current = new PrivateSwapService(connection, encifherClient)
 
-        // Integrated wallet adapter with Encifher support
+        // Integrated wallet adapter with Jupiter API (without Encifher for now)
         swapServiceRef.current = createSwapService({
           connection,
           jupiterApi,
@@ -160,6 +161,8 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           },
           onProgress: setProgress
         })
+
+        console.log('Swap service initialized successfully with Jupiter API')
       } catch (error) {
         console.error('Failed to initialize swap service:', error)
         setError('Failed to initialize swap service')
@@ -169,9 +172,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Update swap mode when privacy mode changes
   useEffect(() => {
-    console.log('useSwap: privacyMode changed:', privacyMode, '-> using debug override:', debugPrivacyMode)
-    const newMode = debugPrivacyMode ? SwapMode.PRIVATE : SwapMode.NORMAL
-    console.log('useSwap: setting swapMode to:', newMode)
+    const newMode = privacyMode ? SwapMode.PRIVATE : SwapMode.NORMAL
     setSwapMode(newMode)
   }, [privacyMode])
 
@@ -253,12 +254,33 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
     }
   }
 
-  // Refresh balances when wallet connects or tokens change
+  // Debounced balance refresh to avoid excessive API calls
   useEffect(() => {
-    if (publicKey && (inputToken || outputToken)) {
-      refreshBalances()
-    }
+    const timeoutId = setTimeout(() => {
+      if (publicKey && (inputToken || outputToken)) {
+        refreshBalances()
+      }
+    }, 500) // 500ms debounce
+
+    return () => clearTimeout(timeoutId)
   }, [publicKey, inputToken, outputToken])
+
+  // Initial balance fetch on wallet connection
+  useEffect(() => {
+    if (publicKey && !inputToken && !outputToken && availableTokens.length > 0) {
+      // Fetch balances for top tokens by default
+      const topTokens = availableTokens.slice(0, 6) // Fetch for 6 most common tokens
+      fetchMultipleBalances(topTokens).then(newBalances => {
+        setBalances(prev => {
+          const merged = new Map(prev)
+          newBalances.forEach((balance, address) => {
+            merged.set(address, balance)
+          })
+          return merged
+        })
+      })
+    }
+  }, [publicKey, availableTokens])
 
   const handleSetInputAmount = useCallback((amount: string) => {
     setInputAmount(amount)
@@ -556,12 +578,45 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             decimals: inputToken.decimals
           })
 
-          // Create private swap transaction
+          // Step 1: Deposit tokens into Encifher private pool
+          setProgress({
+            status: 'pending' as any,
+            message: 'Depositing tokens into Encifher privacy pool...',
+            currentStep: 1,
+            totalSteps: 6
+          })
+
+          console.log('[Private Swap] Depositing tokens into private pool...')
+          const { transaction: depositTxn } = await encifherClient.privateDeposit({
+            token: {
+              tokenMintAddress: inputToken.address,
+              decimals: inputToken.decimals,
+              isConfidentialSupported: inputToken.isConfidentialSupported || false
+            },
+            userPublicKey: publicKey,
+            amount: inputAmount // Use human-readable amount for deposits
+          })
+
+          // Sign and send deposit transaction
+          if (!signTransaction) {
+            throw new Error('Wallet signing function not available')
+          }
+          const signedDepositTxn = await signTransaction(depositTxn)
+          const depositSignature = await connection.sendRawTransaction(signedDepositTxn.serialize(), {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed'
+          })
+
+          console.log('[Private Swap] Deposit transaction sent:', depositSignature)
+          await connection.confirmTransaction(depositSignature, 'confirmed')
+          console.log('[Private Swap] Deposit confirmed')
+
+          // Step 2: Create private swap transaction using private pool balance
           setProgress({
             status: 'pending' as any,
             message: 'Creating private swap transaction...',
-            currentStep: 1,
-            totalSteps: 3
+            currentStep: 2,
+            totalSteps: 6
           })
 
           console.log('[Private Swap] About to call createPrivateSwap...')
@@ -576,16 +631,15 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           console.log('[Private Swap] Transaction created successfully')
           console.log('[Private Swap] Transaction details:', {
             instructions: transaction.instructions.length,
-            signers: transaction.signatures.length,
             feePayer: transaction.feePayer?.toBase58(),
             recentBlockhash: transaction.recentBlockhash
           })
 
           setProgress({
             status: 'pending' as any,
-            message: 'Please sign the transaction in your wallet...',
-            currentStep: 2,
-            totalSteps: 3
+            message: 'Please sign the swap transaction in your wallet...',
+            currentStep: 3,
+            totalSteps: 6
           })
 
           // Sign transaction using wallet adapter
@@ -596,8 +650,8 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             setProgress({
               status: 'pending' as any,
               message: 'Executing private swap through Encifher privacy system...',
-              currentStep: 3,
-              totalSteps: 4
+              currentStep: 4,
+              totalSteps: 6
             })
 
             try {
@@ -620,8 +674,8 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
               setProgress({
                 status: 'pending' as any,
                 message: 'Private swap submitted to privacy network...',
-                currentStep: 4,
-                totalSteps: 4
+                currentStep: 5,
+                totalSteps: 6
               })
 
               // Poll for order completion
@@ -642,12 +696,56 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
                   if (status.status === 'completed') {
                     console.log('[Private Swap] Private swap completed successfully!')
+
+                    // Step 6: Withdraw swapped tokens back to wallet
                     setProgress({
                       status: 'completed' as any,
-                      message: `Private swap completed! Order ID: ${orderStatusId.slice(0, 8)}...`,
-                      currentStep: 4,
-                      totalSteps: 4
+                      message: 'Withdrawing swapped tokens to your wallet...',
+                      currentStep: 6,
+                      totalSteps: 6
                     })
+
+                    try {
+                      const { transaction: withdrawTxn } = await encifherClient.privateWithdraw({
+                        token: {
+                          tokenMintAddress: outputToken.address,
+                          decimals: outputToken.decimals,
+                          isConfidentialSupported: outputToken.isConfidentialSupported || false
+                        },
+                        amount: (parseFloat(status.details?.expectedOutAmount || '0') / Math.pow(10, outputToken.decimals)).toFixed(6),
+                        userPublicKey: publicKey
+                      })
+
+                      // Sign and send withdrawal transaction
+                      if (!signTransaction) {
+                        throw new Error('Wallet signing function not available')
+                      }
+                      const signedWithdrawTxn = await signTransaction(withdrawTxn)
+                      const withdrawSignature = await connection.sendRawTransaction(signedWithdrawTxn.serialize(), {
+                        skipPreflight: false,
+                        preflightCommitment: 'confirmed'
+                      })
+
+                      console.log('[Private Swap] Withdrawal transaction sent:', withdrawSignature)
+                      await connection.confirmTransaction(withdrawSignature, 'confirmed')
+                      console.log('[Private Swap] Withdrawal confirmed - tokens are now in your wallet!')
+
+                      setProgress({
+                        status: 'completed' as any,
+                        message: `Private swap completed! Tokens withdrawn to your wallet.`,
+                        currentStep: 6,
+                        totalSteps: 6
+                      })
+
+                    } catch (withdrawError) {
+                      console.warn('[Private Swap] Withdrawal failed (tokens remain in private pool):', withdrawError)
+                      setProgress({
+                        status: 'completed' as any,
+                        message: `Swap completed! Withdrawal failed - tokens remain in private pool.`,
+                        currentStep: 6,
+                        totalSteps: 6
+                      })
+                    }
 
                     // Clear progress after showing completion
                     setTimeout(() => {
@@ -749,19 +847,46 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
     }
   }, [inputToken, outputToken, inputAmount, swapMode, publicKey])
 
+  // Optimized batch balance fetching
+  const fetchMultipleBalances = useCallback(async (tokens: Token[]): Promise<Map<string, string>> => {
+    if (!publicKey || !connection || tokens.length === 0) return new Map()
+
+    const balancePromises = tokens.map(async (token) => {
+      try {
+        const balance = await getTokenBalance(connection, publicKey, token.address)
+        return [token.address, balance] as [string, string]
+      } catch (error) {
+        console.warn(`Failed to fetch balance for ${token.address}:`, error)
+        return [token.address, '0'] as [string, string]
+      }
+    })
+
+    const results = await Promise.allSettled(balancePromises)
+    const newBalances = new Map<string, string>()
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value) {
+        const [address, balance] = result.value
+        newBalances.set(address, balance)
+      }
+    })
+
+    return newBalances
+  }, [publicKey, connection])
+
   const refreshBalances = useCallback(async () => {
     if (!publicKey || !connection) {
       setBalances(new Map())
       return
     }
 
-    // Clear balance cache to force fresh data
-    clearBalanceCache()
+    // Don't clear cache on every refresh - only clear stale entries
+    // clearBalanceCache() // Commented out for better performance
 
     try {
       // Get user's tokens from wallet
       const userTokens = await getUserTokens(connection, publicKey)
-      
+
       // Update available tokens with user's holdings
       if (userTokens.length > 0) {
         // Merge user tokens with common tokens (prioritize user tokens)
@@ -784,19 +909,20 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         setAvailableTokens(enrichedTokens)
       }
 
-      // Fetch balances for all tokens
-      const newBalances = new Map<string, string>()
-
+      // Batch fetch balances for currently selected tokens only (faster)
       const tokensToCheck = [inputToken, outputToken].filter((token): token is Token => token !== null)
 
-      for (const token of tokensToCheck) {
-        if (token?.address) {
-          const balance = await getTokenBalance(connection, publicKey, token.address)
-          newBalances.set(token.address, balance)
-        }
+      if (tokensToCheck.length > 0) {
+        const newBalances = await fetchMultipleBalances(tokensToCheck)
+        setBalances(prev => {
+          // Merge with existing balances to preserve other cached balances
+          const merged = new Map(prev)
+          newBalances.forEach((balance, address) => {
+            merged.set(address, balance)
+          })
+          return merged
+        })
       }
-
-      setBalances(newBalances)
     } catch (error) {
       console.error('Error refreshing balances:', error)
       setBalances(new Map())

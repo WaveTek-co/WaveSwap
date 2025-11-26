@@ -7,7 +7,7 @@ import {
   PhantomWalletAdapter,
   SolflareWalletAdapter
 } from '@solana/wallet-adapter-wallets'
-import { clusterApiUrl } from '@solana/web3.js'
+import { config } from '@/lib/config'
 
 // Removed default wallet adapter styles since we use custom UI
 
@@ -16,11 +16,8 @@ interface SolanaWalletProviderProps {
 }
 
 export function SolanaWalletProvider({ children }: SolanaWalletProviderProps) {
-  // The network can be set to 'devnet', 'testnet', or 'mainnet-beta'
-  const network = clusterApiUrl('mainnet-beta')
-
-  // You can also provide a custom RPC endpoint
-  const endpoint = useMemo(() => network, [network])
+  // Use the configured RPC endpoint from config (Helius with fallback to public)
+  const endpoint = useMemo(() => config.rpc.url, [])
 
   // @solana/wallet-adapter-wallets includes all wallet adapters
   const wallets = useMemo(

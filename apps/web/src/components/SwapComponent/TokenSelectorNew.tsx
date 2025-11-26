@@ -17,6 +17,7 @@ import {
 import { Token } from '@/types/token'
 import { TokenIcon } from '@/components/TokenIcon'
 import { TOKEN_ADDRESS_MAP, TOKEN_SYMBOL_MAP } from '@/lib/tokens'
+import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 
 interface TokenSelectorProps {
   selectedToken: Token | null
@@ -47,6 +48,7 @@ export function TokenSelectorNew({
   privacyMode = false,
   showConfidentialIndicator = false
 }: TokenSelectorProps) {
+  const theme = useThemeConfig()
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Token[]>([])
@@ -233,50 +235,128 @@ export function TokenSelectorNew({
       <button
         onClick={() => setIsOpen(true)}
         disabled={disabled}
-        className="group relative flex items-center justify-between gap-3 px-4 py-3 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed w-full h-14 rounded-xl overflow-hidden"
+        className="group relative flex items-center justify-between gap-3 px-6 py-4 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed min-w-[220px] h-16 rounded-xl overflow-hidden"
         style={{
-          background: `
-            linear-gradient(135deg,
-              rgba(30, 30, 45, 0.95) 0%,
-              rgba(45, 45, 65, 0.9) 50%,
-              rgba(30, 30, 45, 0.95) 100%
-            ),
-            radial-gradient(circle at 30% 30%,
-              rgba(33, 188, 255, 0.1) 0%,
-              transparent 50%
-            )
-          `,
-          border: '1px solid rgba(33, 188, 255, 0.3)',
-          backdropFilter: 'blur(20px) saturate(1.8)',
-          boxShadow: `
-            0 8px 32px rgba(0, 0, 0, 0.3),
-            0 4px 12px rgba(33, 188, 255, 0.1),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1)
-          `,
+          ...createGlassStyles(theme),
+          background: theme.name === 'light'
+            ? `
+              linear-gradient(135deg,
+                rgba(255, 255, 255, 0.95) 0%,
+                rgba(248, 250, 252, 0.9) 25%,
+                rgba(255, 255, 255, 0.95) 50%,
+                rgba(241, 245, 249, 0.9) 75%,
+                rgba(255, 255, 255, 0.95) 100%
+              ),
+              radial-gradient(circle at 20% 30%,
+                rgba(33, 188, 255, 0.06) 0%,
+                rgba(33, 188, 255, 0.02) 50%
+              ),
+              radial-gradient(circle at 80% 70%,
+                rgba(16, 185, 129, 0.04) 0%,
+                transparent 50%
+              )
+            `
+            : `
+              linear-gradient(135deg,
+                ${theme.colors.surface}f2 0%,
+                ${theme.colors.surfaceHover}e8 25%,
+                ${theme.colors.surface}f2 50%,
+                ${theme.colors.surfaceHover}e8 75%,
+                ${theme.colors.surface}f2 100%
+              ),
+              radial-gradient(circle at 25% 25%,
+                ${theme.colors.primary}12 0%,
+                transparent 50%
+              ),
+              radial-gradient(circle at 75% 75%,
+                ${theme.colors.success}08 0%,
+                transparent 50%
+              )
+            `,
+          borderWidth: '2px',
+          borderStyle: 'solid',
+          borderColor: theme.name === 'light' ? 'rgba(33, 188, 255, 0.2)' : theme.colors.border,
+          backdropFilter: theme.name === 'light'
+            ? 'blur(20px) saturate(1.5) contrast(1.02)'
+            : 'blur(24px) saturate(1.9) contrast(1.05)',
+          WebkitBackdropFilter: theme.name === 'light'
+            ? 'blur(20px) saturate(1.5) contrast(1.02)'
+            : 'blur(24px) saturate(1.9) contrast(1.05)',
+          boxShadow: theme.name === 'light'
+            ? `
+              0 8px 32px rgba(0, 0, 0, 0.06),
+              0 4px 16px rgba(33, 188, 255, 0.08),
+              0 1px 4px rgba(0, 0, 0, 0.03),
+              inset 0 1px 0 rgba(255, 255, 255, 0.95),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.02),
+              0 0 0 1px rgba(33, 188, 255, 0.1)
+            `
+            : `
+              0 12px 40px ${theme.colors.shadowHeavy},
+              0 6px 20px ${theme.colors.primary}30,
+              0 2px 8px ${theme.colors.shadow},
+              inset 0 1px 0 rgba(255, 255, 255, 0.15),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.3)
+            `,
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'translateY(-1px)'
-          e.currentTarget.style.boxShadow = `
-            0 12px 40px rgba(0, 0, 0, 0.4),
-            0 6px 16px rgba(33, 188, 255, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.15)
-          `
+          e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)'
+          if (theme.name === 'light') {
+            e.currentTarget.style.borderWidth = '2px'
+            e.currentTarget.style.borderStyle = 'solid'
+            e.currentTarget.style.borderColor = theme.colors.primary
+          } else {
+            e.currentTarget.style.borderColor = theme.colors.primary
+          }
+          e.currentTarget.style.boxShadow = theme.name === 'light'
+            ? `
+              0 12px 48px rgba(0, 0, 0, 0.08),
+              0 6px 24px rgba(33, 188, 255, 0.15),
+              0 2px 8px rgba(0, 0, 0, 0.04),
+              inset 0 1px 0 rgba(255, 255, 255, 0.98),
+              0 0 0 1px rgba(33, 188, 255, 0.25)
+            `
+            : `
+              0 16px 50px ${theme.colors.shadowHeavy},
+              0 8px 25px ${theme.colors.primary}40,
+              0 4px 12px ${theme.colors.shadow},
+              inset 0 1px 0 rgba(255, 255, 255, 0.25),
+              0 0 0 1px ${theme.colors.primary}25
+            `
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'translateY(0px)'
-          e.currentTarget.style.boxShadow = `
-            0 8px 32px rgba(0, 0, 0, 0.3),
-            0 4px 12px rgba(33, 188, 255, 0.1),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1)
-          `
+          e.currentTarget.style.transform = 'translateY(0px) scale(1)'
+          if (theme.name === 'light') {
+            e.currentTarget.style.borderWidth = '2px'
+            e.currentTarget.style.borderStyle = 'solid'
+            e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.2)'
+          } else {
+            e.currentTarget.style.borderColor = theme.colors.border
+          }
+          e.currentTarget.style.boxShadow = theme.name === 'light'
+            ? `
+              0 12px 40px rgba(0, 0, 0, 0.08),
+              0 6px 20px rgba(33, 188, 255, 0.12),
+              0 2px 8px rgba(0, 0, 0, 0.04),
+              inset 0 1px 0 rgba(255, 255, 255, 0.9),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.05)
+            `
+            : `
+              0 12px 40px ${theme.colors.shadowHeavy},
+              0 6px 20px ${theme.colors.primary}30,
+              0 2px 8px ${theme.colors.shadow},
+              inset 0 1px 0 rgba(255, 255, 255, 0.15),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.3)
+            `
         }}
       >
         {/* Noise grain overlay */}
         <div
-          className="absolute inset-0 opacity-5 pointer-events-none"
+          className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
-            filter: 'contrast(1.4) brightness(1.2)'
+            filter: theme.name === 'light' ? 'contrast(1.2) brightness(1.1)' : 'contrast(1.4) brightness(1.2)',
+            opacity: theme.name === 'light' ? 0.02 : 0.05
           }}
         />
 
@@ -290,23 +370,29 @@ export function TokenSelectorNew({
                   logoURI={currentToken.logoURI}
                   size={32}
                 />
-                {/* Glow effect for icon */}
+                {/* Glow effect for icon - theme-aware */}
                 <div
-                  className="absolute inset-0 rounded-full blur-xl opacity-30 pointer-events-none"
+                  className="absolute inset-0 rounded-full blur-sm pointer-events-none"
                   style={{
-                    background: 'radial-gradient(circle, rgba(33, 188, 255, 0.4) 0%, transparent 70%)'
+                    opacity: theme.name === 'light' ? 0.15 : 0.3,
+                    background: theme.name === 'light'
+                      ? 'radial-gradient(circle, rgba(33, 188, 255, 0.2) 0%, transparent 60%)'
+                      : 'radial-gradient(circle, rgba(33, 188, 255, 0.4) 0%, transparent 70%)'
                   }}
                 />
               </div>
               <div className="flex flex-col items-start">
                 <span
-                  className="font-bold tracking-wide text-white/95"
+                  className="font-bold tracking-wide"
                   style={{
                     fontFamily: 'var(--font-helvetica)',
                     fontSize: '0.95rem',
                     fontWeight: 600,
                     letterSpacing: '0.01em',
-                    textShadow: '0 0 10px rgba(33, 188, 255, 0.3)'
+                    color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.95)',
+                    textShadow: theme.name === 'light'
+                      ? '0 1px 2px rgba(0, 0, 0, 0.1)'
+                      : '0 0 10px rgba(33, 188, 255, 0.3)'
                   }}
                 >
                   {currentToken.symbol}
@@ -316,10 +402,12 @@ export function TokenSelectorNew({
           )}
         </div>
         <ChevronDownIcon
-          className="h-5 w-5 flex-shrink-0 transition-all duration-300 text-blue-300 group-hover:text-blue-200"
+          className={`h-5 w-5 flex-shrink-0 transition-all duration-300 ${theme.name === 'light' ? 'text-blue-500' : 'text-blue-300'} group-hover:${theme.name === 'light' ? 'text-blue-400' : 'text-blue-200'}`}
           style={{
             transform: isOpen ? 'rotate(180deg) translateY(1px)' : 'rotate(0deg)',
-            filter: 'drop-shadow(0 0 8px rgba(33, 188, 255, 0.4))'
+            filter: theme.name === 'light'
+              ? 'drop-shadow(0 0 6px rgba(33, 188, 255, 0.3))'
+              : 'drop-shadow(0 0 8px rgba(33, 188, 255, 0.4))'
           }}
         />
       </button>
@@ -353,23 +441,24 @@ export function TokenSelectorNew({
                 <Dialog.Panel
                   className="w-full max-w-md transform overflow-hidden rounded-3xl p-0 text-left align-middle transition-all relative"
                   style={{
+                    ...createGlassStyles(theme),
                     background: `
                       linear-gradient(135deg,
-                        rgba(20, 20, 35, 0.98) 0%,
-                        rgba(30, 30, 50, 0.95) 50%,
-                        rgba(25, 25, 40, 0.98) 100%
+                        ${theme.colors.surface}f8 0%,
+                        ${theme.colors.surfaceHover}f2 50%,
+                        ${theme.colors.surface}f6 100%
                       ),
                       radial-gradient(circle at 50% 10%,
-                        rgba(33, 188, 255, 0.08) 0%,
+                        ${theme.colors.primary}12 0%,
                         transparent 50%
                       )
                     `,
-                    border: '1px solid rgba(33, 188, 255, 0.25)',
+                    border: `1px solid ${theme.colors.primary}30`,
                     boxShadow: `
-                      0 50px 100px -20px rgba(0, 0, 0, 0.7),
-                      0 25px 50px -12px rgba(0, 0, 0, 0.5),
-                      0 0 0 1px rgba(33, 188, 255, 0.2),
-                      inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                      0 50px 100px -20px ${theme.colors.shadow},
+                      0 25px 50px -12px ${theme.colors.shadow}cc,
+                      0 0 0 1px ${theme.colors.primary}20,
+                      inset 0 1px 0 rgba(255, 255, 255, ${theme.name === 'light' ? '0.3' : '0.1'})
                     `,
                     backdropFilter: 'blur(40px) saturate(1.5)'
                   }}
@@ -384,17 +473,22 @@ export function TokenSelectorNew({
                   />
                   {/* Modal Header */}
                   <div className="relative flex items-center justify-between p-6 border-b" style={{
-                    borderColor: 'rgba(33, 188, 255, 0.15)',
-                    background: 'linear-gradient(to bottom, rgba(33, 188, 255, 0.05), transparent)'
+                    borderColor: theme.name === 'light' ? 'rgba(33, 188, 255, 0.2)' : 'rgba(33, 188, 255, 0.15)',
+                    background: theme.name === 'light'
+                      ? 'linear-gradient(to bottom, rgba(33, 188, 255, 0.08), transparent)'
+                      : 'linear-gradient(to bottom, rgba(33, 188, 255, 0.05), transparent)'
                   }}>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-gradient-to-r from-blue-400 to-cyan-400 rounded-full animate-pulse" />
                       <Dialog.Title
-                        className="text-xl font-bold text-white"
+                        className="text-xl font-bold"
                         style={{
                           fontFamily: 'var(--font-helvetica)',
                           letterSpacing: '0.025em',
-                          textShadow: '0 0 20px rgba(33, 188, 255, 0.3)'
+                          color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.95)',
+                          textShadow: theme.name === 'light'
+                            ? '0 1px 2px rgba(0, 0, 0, 0.1)'
+                            : '0 0 20px rgba(33, 188, 255, 0.3)'
                         }}
                       >
                         Select Token
@@ -403,7 +497,10 @@ export function TokenSelectorNew({
                     <button
                       onClick={() => setIsOpen(false)}
                       className="p-2 rounded-xl transition-all hover:bg-white/10 group"
-                      style={{ color: 'rgba(229, 231, 235, 0.7)' }}
+                      style={{
+                        color: theme.name === 'light' ? 'rgba(107, 114, 128, 0.8)' : 'rgba(229, 231, 235, 0.7)',
+                        background: theme.name === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.1)'
+                      }}
                     >
                       <XMarkIcon className="h-5 w-5 transition-transform group-hover:rotate-90" />
                     </button>
@@ -413,31 +510,41 @@ export function TokenSelectorNew({
                   <div className="p-6 pb-4 relative">
                     <div className="relative group">
                       <MagnifyingGlassIcon
-                        className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-blue-300/60 group-focus-within:text-blue-300 transition-colors"
+                        className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 transition-colors"
+                        style={{
+                          color: theme.name === 'light' ? 'rgba(107, 114, 128, 0.6)' : 'rgba(147, 197, 253, 0.6)',
+                        }}
                       />
                       <input
                         type="text"
                         placeholder="Search tokens or paste address..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 rounded-2xl text-white/90 placeholder-white/40 text-sm font-medium transition-all duration-200"
+                        className="w-full pl-12 pr-4 py-4 rounded-2xl text-sm font-medium transition-all duration-200"
                         style={{
-                          background: 'rgba(10, 10, 20, 0.8)',
-                          border: '1px solid rgba(33, 188, 255, 0.3)',
+                          background: theme.name === 'light'
+                            ? 'rgba(255, 255, 255, 0.9)'
+                            : 'rgba(10, 10, 20, 0.8)',
+                          border: `1px solid ${theme.name === 'light' ? 'rgba(33, 188, 255, 0.3)' : 'rgba(33, 188, 255, 0.3)'}`,
+                          color: theme.name === 'light' ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.9)',
                           fontFamily: 'var(--font-helvetica)',
                           fontSize: '0.9rem',
                           outline: 'none',
                           boxShadow: '0 0 0 0 transparent'
                         }}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.6)';
-                          e.currentTarget.style.boxShadow = '0 0 0 1px rgba(33, 188, 255, 0.3), inset 0 0 20px rgba(33, 188, 255, 0.1)';
-                          e.currentTarget.style.background = 'rgba(10, 10, 20, 0.95)';
+                          e.currentTarget.style.borderColor = theme.colors.primary;
+                          e.currentTarget.style.boxShadow = `0 0 0 1px ${theme.colors.primary}40, inset 0 0 20px ${theme.colors.primary}15`;
+                          e.currentTarget.style.background = theme.name === 'light'
+                            ? 'rgba(255, 255, 255, 0.95)'
+                            : 'rgba(10, 10, 20, 0.95)';
                         }}
                         onBlur={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.3)';
+                          e.currentTarget.style.borderColor = theme.name === 'light' ? 'rgba(33, 188, 255, 0.3)' : 'rgba(33, 188, 255, 0.3)';
                           e.currentTarget.style.boxShadow = '0 0 0 0 transparent';
-                          e.currentTarget.style.background = 'rgba(10, 10, 20, 0.8)';
+                          e.currentTarget.style.background = theme.name === 'light'
+                            ? 'rgba(255, 255, 255, 0.9)'
+                            : 'rgba(10, 10, 20, 0.8)';
                         }}
                         autoFocus
                       />
@@ -445,14 +552,19 @@ export function TokenSelectorNew({
                       <div
                         className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 blur-xl opacity-0 group-focus-within:opacity-40 transition-opacity rounded-full"
                         style={{
-                          background: 'radial-gradient(circle, rgba(33, 188, 255, 0.3) 0%, transparent 70%)'
+                          background: `radial-gradient(circle, ${theme.colors.primary}40 0%, transparent 70%)`
                         }}
                       />
                     </div>
                     {isSearching && (
                       <div className="mt-4 flex items-center justify-center gap-2">
                         <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" />
-                        <div className="text-sm font-medium text-blue-300">
+                        <div
+                          className="text-sm font-medium"
+                          style={{
+                            color: theme.name === 'light' ? theme.colors.textSecondary : 'rgba(147, 197, 253, 0.9)'
+                          }}
+                        >
                           Searching for tokens...
                         </div>
                       </div>
@@ -463,7 +575,9 @@ export function TokenSelectorNew({
                   <div className="max-h-[400px] overflow-y-auto">
                     {searchQuery && searchResults.length === 0 && !isSearching && (
                       <div className="p-8 text-center">
-                        <div style={{ color: 'rgba(229, 231, 235, 0.5)' }}>
+                        <div style={{
+                          color: theme.name === 'light' ? 'rgba(107, 114, 128, 0.7)' : 'rgba(229, 231, 235, 0.5)'
+                        }}>
                           No tokens found for "{searchQuery}"
                         </div>
                       </div>
@@ -472,7 +586,7 @@ export function TokenSelectorNew({
                     {!searchQuery && tokensWithBalance.length > 0 && (
                       <div>
                         <div className="px-4 py-2 text-xs font-semibold" style={{
-                          color: 'rgba(33, 188, 255, 0.8)',
+                          color: theme.name === 'light' ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
                           fontFamily: 'var(--font-helvetica)'
                         }}>
                           Your Tokens
@@ -493,7 +607,7 @@ export function TokenSelectorNew({
                       <div>
                         {tokensWithBalance.length > 0 && (
                           <div className="px-4 py-2 text-xs font-semibold mt-4" style={{
-                            color: 'rgba(33, 188, 255, 0.8)',
+                            color: theme.name === 'light' ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
                             fontFamily: 'var(--font-helvetica)'
                           }}>
                             Popular Tokens
@@ -540,6 +654,7 @@ interface TokenListItemProps {
 }
 
 function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemProps) {
+  const theme = useThemeConfig()
   const formatBalance = (balance: string, decimals: number): string => {
     try {
       const num = parseFloat(balance) / Math.pow(10, decimals)
@@ -562,33 +677,38 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
       className="group relative w-full flex items-center justify-between p-4 transition-all duration-200 hover:translate-x-1"
       style={{
         background: isSelected
-          ? `linear-gradient(135deg, rgba(33, 188, 255, 0.2) 0%, rgba(33, 188, 255, 0.1) 100%)`
+          ? `linear-gradient(135deg, ${theme.colors.primary}20 0%, ${theme.colors.primary}10 100%)`
           : hasBalance
-          ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)'
+          ? `linear-gradient(135deg, ${theme.colors.success}10 0%, ${theme.colors.success}05 100%)`
           : 'transparent',
         borderLeft: isSelected
-          ? '3px solid rgba(33, 188, 255, 0.6)'
+          ? `3px solid ${theme.colors.primary}60`
           : hasBalance
-          ? '3px solid rgba(16, 185, 129, 0.4)'
+          ? `3px solid ${theme.colors.success}40`
           : '2px solid transparent',
         backdropFilter: 'blur(10px)'
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = isSelected
-          ? `linear-gradient(135deg, rgba(33, 188, 255, 0.25) 0%, rgba(33, 188, 255, 0.15) 100%)`
-          : `linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%)`
+          ? `linear-gradient(135deg, ${theme.colors.primary}25 0%, ${theme.colors.primary}15 100%)`
+          : `linear-gradient(135deg, ${theme.colors.success}15 0%, ${theme.colors.success}10 100%)`
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = isSelected
-          ? `linear-gradient(135deg, rgba(33, 188, 255, 0.2) 0%, rgba(33, 188, 255, 0.1) 100%)`
+          ? `linear-gradient(135deg, ${theme.colors.primary}20 0%, ${theme.colors.primary}10 100%)`
           : hasBalance
-          ? `linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)`
+          ? `linear-gradient(135deg, ${theme.colors.success}10 0%, ${theme.colors.success}05 100%)`
           : 'transparent'
       }}
     >
       {/* Selection indicator */}
       {isSelected && (
-        <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-blue-500 to-blue-600 opacity-60" />
+        <div
+          className="absolute left-0 top-0 h-full w-1 opacity-60"
+          style={{
+            background: `linear-gradient(to bottom, ${theme.colors.primary}, ${theme.colors.primary}dd)`
+          }}
+        />
       )}
 
       <div className="flex items-center gap-3 flex-1">
@@ -618,29 +738,45 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
         <div className="flex flex-col items-start flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span
-              className="font-bold text-white/95 group-hover:text-white"
+              className="font-bold group-hover:opacity-100 transition-opacity"
               style={{
                 fontFamily: 'var(--font-helvetica)',
                 fontSize: '0.9rem',
                 fontWeight: 600,
-                letterSpacing: '0.025em'
+                letterSpacing: '0.025em',
+                color: theme.name === 'light'
+                  ? (isSelected ? 'rgba(33, 188, 255, 0.95)' : theme.colors.textPrimary)
+                  : (isSelected ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.95)'),
+                opacity: theme.name === 'light' ? 0.9 : 1
               }}
             >
               {token.symbol}
             </span>
             {/* Popular token badge */}
             {isPopularToken && (
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30">
-                <StarIcon className="h-2.5 w-2.5 text-yellow-400" />
-                <span className="text-xs font-medium text-yellow-400">Popular</span>
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full border" style={{
+                background: theme.name === 'light'
+                  ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(249, 115, 22, 0.08))'
+                  : 'linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(249, 115, 22, 0.15))',
+                borderColor: theme.name === 'light' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.4)'
+              }}>
+                <StarIcon className="h-2.5 w-2.5" style={{
+                  color: theme.name === 'light' ? '#d97706' : '#fbbf24'
+                }} />
+                <span className="text-xs font-medium" style={{
+                  color: theme.name === 'light' ? '#d97706' : '#fbbf24'
+                }}>Popular</span>
               </div>
             )}
           </div>
           <span
-            className="text-xs font-medium text-gray-400/80 group-hover:text-gray-300"
+            className="text-xs font-medium transition-colors"
             style={{
               fontFamily: 'var(--font-helvetica)',
-              letterSpacing: '0.025em'
+              letterSpacing: '0.025em',
+              color: theme.name === 'light'
+                ? (isSelected ? 'rgba(33, 188, 255, 0.7)' : theme.colors.textSecondary)
+                : (isSelected ? 'rgba(33, 188, 255, 0.6)' : 'rgba(156, 163, 175, 0.8)')
             }}
           >
             {token.name}
@@ -649,12 +785,15 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
       </div>
       <div className="text-right relative">
         <div
-          className="font-bold text-white/90 group-hover:text-white mb-1"
+          className="font-bold mb-1 transition-colors"
           style={{
             fontFamily: 'var(--font-helvetica)',
             fontSize: '0.85rem',
             fontWeight: 600,
-            letterSpacing: '0.01em'
+            letterSpacing: '0.01em',
+            color: theme.name === 'light'
+              ? (isSelected ? 'rgba(33, 188, 255, 0.95)' : theme.colors.textPrimary)
+              : (isSelected ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)')
           }}
         >
           {formatBalance(balance, token.decimals)}
@@ -662,8 +801,12 @@ function TokenListItem({ token, balance, onSelect, isSelected }: TokenListItemPr
         {/* Balance indicator */}
         {hasBalance && (
           <div className="flex items-center justify-end gap-1">
-            <WalletIcon className="h-3 w-3 text-green-400" />
-            <span className="text-xs text-green-400 font-medium">Has Balance</span>
+            <WalletIcon className="h-3 w-3" style={{
+              color: theme.name === 'light' ? '#059669' : '#4ade80'
+            }} />
+            <span className="text-xs font-medium" style={{
+              color: theme.name === 'light' ? '#059669' : '#4ade80'
+            }}>Has Balance</span>
           </div>
         )}
       </div>

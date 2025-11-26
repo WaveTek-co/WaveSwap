@@ -7,7 +7,7 @@
 export const config = {
   // Solana RPC Configuration
   rpc: {
-    url: process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY',
+    url: process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com',
     network: process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet-beta',
   },
 

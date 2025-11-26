@@ -139,18 +139,27 @@ export function Tabs({ tabs, defaultTab, onTabChange, className = '' }: TabsProp
               }}
             >
               {tab.icon && (
-                <span style={{
-                  color: isSelected ? `${theme.colors.primary}e6` : `${theme.colors.textMuted}cc`,
-                  transition: 'all 0.3s ease',
-                  filter: isSelected ? `drop-shadow(0 0 8px ${theme.colors.primary}40)` : 'none'
-                }}>
+                <span
+                  style={{
+                    color: isSelected ? `${theme.colors.primary}e6` : `${theme.colors.textMuted}cc`,
+                    transition: 'all 0.3s ease',
+                    filter: isSelected ? `drop-shadow(0 0 8px ${theme.colors.primary}40)` : 'none',
+                    ...(tab.id === 'bridge' && {
+                      // Apply filters to make portal.svg match theme colors (azul #21bcff)
+                      filter: isSelected
+                        ? `drop-shadow(0 0 8px ${theme.colors.primary}40) brightness(0) invert(67%) sepia(96%) saturate(1482%) hue-rotate(174deg) brightness(101%) contrast(102%)`
+                        : `brightness(0) invert(67%) sepia(20%) saturate(385%) hue-rotate(174deg) brightness(90%) contrast(85%)`
+                    })
+                  }}
+                >
                   {tab.icon}
                 </span>
               )}
 
               <span style={{
-                color: isSelected ? theme.colors.textPrimary : `${theme.colors.textMuted}e6`,
-                textShadow: isSelected ? `0 0 10px ${theme.colors.primary}30` : 'none'
+                color: isSelected ? theme.colors.textPrimary : theme.colors.textSecondary,
+                textShadow: isSelected ? `0 0 10px ${theme.colors.primary}30` : 'none',
+                fontWeight: isSelected ? 600 : 500
               }}>
                 {tab.label}
               </span>

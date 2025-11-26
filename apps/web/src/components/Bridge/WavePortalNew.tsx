@@ -1,719 +1,947 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import {
-  ArrowsUpDownIcon,
-  UserIcon,
-  ExclamationTriangleIcon
-} from '@heroicons/react/24/outline'
-import { ChainSelectorModal } from './ChainSelectorModal'
-import { TokenSelectorModal } from './TokenSelectorModal'
-import {
-  SUPPORTED_CHAINS,
-  type ChainId
-} from '../../lib/nearIntentBridge'
-import {
-  enhancedBridgeService,
-  type CrossChainToken,
-  type EnhancedBridgeQuote,
-  type BridgeExecution,
-  type BridgeOptions
-} from '../../lib/services/enhancedBridgeService'
+import React, { useState, useEffect } from 'react'
+import { ArrowsUpDownIcon } from '@heroicons/react/24/outline'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { zcashWalletService } from '../../lib/wallets/zcash'
-import { starknetWalletService } from '../../lib/wallets/starknet'
-import { ChainIcon } from '../ui/IconWithFallback'
+import { TokenSelectorNew } from '../SwapComponent/TokenSelectorNew'
+import { useThemeConfig, createGlassStyles, createInputStyles } from '@/lib/theme'
 import { useNearWallet } from '@/providers/NearWalletProvider'
-import { useThemeConfig, createGlassStyles } from '@/lib/theme'
+import { useStarknetWallet } from '@/providers/StarknetWalletProvider'
+import { StarknetWalletModal } from '@/providers/StarknetWalletProvider'
+import { Token } from '@/types/token'
+import { enhancedBridgeService } from '@/lib/services/enhancedBridgeService'
+import { ComingSoon } from '@/components/ui/ComingSoon'
 
 interface WavePortalProps {
   privacyMode: boolean
+  comingSoon?: boolean
 }
 
-export function WavePortal({ privacyMode }: WavePortalProps) {
-  const { publicKey, connected } = useWallet()
-  const { accountId: nearAccountId, isConnected: isNearConnected, connect: connectNear } = useNearWallet()
+// Chain definitions
+const SUPPORTED_CHAINS = [
+  {
+    id: 'zec',
+    name: 'Zcash',
+    fullName: 'Zcash Network',
+    icon: '/static/icons/network/zcash.svg',
+    color: '#F4B942',
+    description: 'Privacy-focused cryptocurrency',
+    chainId: 1
+  },
+  {
+    id: 'solana',
+    name: 'Solana',
+    fullName: 'Solana Network',
+    icon: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+    color: '#14F195',
+    description: 'High-performance blockchain',
+    chainId: 101
+  },
+  {
+    id: 'starknet',
+    name: 'StarkNet',
+    fullName: 'StarkNet Network',
+    icon: '/static/icons/network/starknet.svg',
+    color: '#5F8BFF',
+    description: 'Layer 2 scaling solution',
+    chainId: 1
+  }
+]
+
+// Bridge providers mapping
+const BRIDGE_PROVIDERS = {
+  'zec-solana': 'near-intents',
+  'solana-zec': 'near-intents',
+  'solana-starknet': 'starkgate',
+  'starknet-solana': 'starkgate'
+} as const
+
+// Token mapping for different chains - convert to Token type
+const CHAIN_TOKENS = {
+  zec: [
+    {
+      address: 'zec',
+      chainId: 1, // Zcash mainnet
+      decimals: 8,
+      name: 'Zcash',
+      symbol: 'ZEC',
+      logoURI: '/static/icons/network/zcash.svg',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: true,
+      addressable: true
+    }
+  ],
+  solana: [
+    {
+      address: 'So11111111111111111111111111111111111111112',
+      chainId: 101, // Solana mainnet
+      decimals: 9,
+      name: 'Solana',
+      symbol: 'SOL',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: true,
+      addressable: true
+    },
+    {
+      address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+      chainId: 101,
+      decimals: 6,
+      name: 'USD Coin',
+      symbol: 'USDC',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    },
+    {
+      address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+      chainId: 101,
+      decimals: 6,
+      name: 'USDT',
+      symbol: 'USDT',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    },
+    {
+      address: 'So11111111111111111111111111111111111111112',
+      chainId: 101,
+      decimals: 9,
+      name: 'Wrapped SOL',
+      symbol: 'wSOL',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    },
+    {
+      address: 'wave',
+      chainId: 101,
+      decimals: 9,
+      name: 'Wave Token',
+      symbol: 'WAVE',
+      logoURI: '/wave0.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    },
+    {
+      address: 'wealth',
+      chainId: 101,
+      decimals: 9,
+      name: 'Wealth Token',
+      symbol: 'WEALTH',
+      logoURI: '/wave0.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    }
+  ],
+  starknet: [
+    {
+      address: '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7',
+      chainId: 1, // StarkNet mainnet
+      decimals: 18,
+      name: 'Ethereum',
+      symbol: 'ETH',
+      logoURI: '/static/icons/network/ethereum.svg',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: true,
+      addressable: true
+    },
+    {
+      address: '0x053c9123bc8a2a8f2e6b47d0f9d3c4b1a2e3f4d5a6b7c8d9e0f1a2b3c4d5e6f',
+      chainId: 1,
+      decimals: 6,
+      name: 'USD Coin',
+      symbol: 'USDC',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    },
+    {
+      address: '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d',
+      chainId: 1,
+      decimals: 18,
+      name: 'StarkNet Token',
+      symbol: 'STRK',
+      logoURI: '/static/icons/network/starknet.svg',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: true,
+      addressable: true
+    },
+    {
+      address: '0x07394cbe418daa16e42b87ba67372d4ab4a5df0b05c6e554d158458ce245bc10',
+      chainId: 1,
+      decimals: 18,
+      name: 'wstETH',
+      symbol: 'wstETH',
+      logoURI: '/static/icons/network/ethereum.svg',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    },
+    {
+      address: '0x05a7f0a0a91e8eebf2ac5f4e1fcdac74d67a9d7a876a2b3e0b5e9e1f2a3d4e5f',
+      chainId: 1,
+      decimals: 6,
+      name: 'USDT',
+      symbol: 'USDT',
+      logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+      tags: [],
+      isConfidentialSupported: true,
+      isNative: false,
+      addressable: true
+    }
+  ]
+}
+
+export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps) {
+  const { publicKey, connected: solanaConnected } = useWallet()
+  const { isConnected: nearConnected, accountId, connect: connectNear, disconnect: disconnectNear } = useNearWallet()
+  const { isConnected: starknetConnected, account: starknetAccount, connect: connectStarknet, disconnect: disconnectStarknet } = useStarknetWallet()
   const theme = useThemeConfig()
 
-  // Form state
-  const [fromChain, setFromChain] = useState<ChainId>('solana')
-  const [toChain, setToChain] = useState<ChainId>('near')
-  const [fromToken, setFromToken] = useState<CrossChainToken | null>(null)
-  const [toToken, setToToken] = useState<CrossChainToken | null>(null)
+  // UI State
+  const [fromChain, setFromChain] = useState<string>('zec')
+  const [toChain, setToChain] = useState<string>('solana')
+  const [fromToken, setFromToken] = useState<Token | undefined>(CHAIN_TOKENS.zec[0])
+  const [toToken, setToToken] = useState<Token | undefined>(CHAIN_TOKENS.solana[0])
   const [amount, setAmount] = useState('')
-  const [recipientAddress, setRecipientAddress] = useState('')
-  const [supportedTokens, setSupportedTokens] = useState<CrossChainToken[]>([])
-  const [loadingTokens, setLoadingTokens] = useState(true)
+  const [isBridging, setIsBridging] = useState(false)
+  const [showStarknetWalletModal, setShowStarknetWalletModal] = useState(false)
+  const [isReversed, setIsReversed] = useState(false)
 
-  // Modal states
-  const [showFromChainModal, setShowFromChainModal] = useState(false)
-  const [showFromTokenModal, setShowFromTokenModal] = useState(false)
-  const [showToChainModal, setShowToChainModal] = useState(false)
-  const [showToTokenModal, setShowToTokenModal] = useState(false)
+  
+  const getBridgeProvider = (from: string, to: string) => {
+    const routeKey = `${from}-${to}` as keyof typeof BRIDGE_PROVIDERS
+    return BRIDGE_PROVIDERS[routeKey] || 'near-intents'
+  }
 
-  // UI state
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [quote, setQuote] = useState<EnhancedBridgeQuote | null>(null)
-  const [execution, setExecution] = useState<BridgeExecution | null>(null)
+  const getChainName = (chainId: string) => {
+    const chain = SUPPORTED_CHAINS.find(c => c.id === chainId)
+    return chain ? chain.name : chainId.toUpperCase()
+  }
 
-  // Wallet states
-  const [zcashWallet, setZcashWallet] = useState<any>(null)
-  const [starknetWallet, setStarknetWallet] = useState<any>(null)
-
-  // Check if source wallet is connected
-  const isSourceWalletConnected = useMemo(() => {
-    switch (fromChain) {
-      case 'solana':
-        return connected && !!publicKey
-      case 'near':
-        return isNearConnected && !!nearAccountId
-      case 'zec':
-        return !!zcashWallet?.connected
-      case 'starknet':
-        return !!starknetWallet?.connected
-      default:
-        return false
+  const getDynamicQuote = (toChainId: string) => {
+    const quotes = {
+      solana: "Bridge assets seamlessly to the Solana ecosystem.",
+      near: "Cross into the NEAR protocol's user-centric world.",
+      zec: "Transfer assets to the privacy-focused Zcash network.",
+      starknet: "Enter the StarkNet layer 2 scaling solution.",
+      ethereum: "Connect to the world's largest smart contract platform.",
+      polygon: "Move assets to Polygon's fast and affordable network.",
+      bsc: "Bridge to Binance Smart Chain's vibrant ecosystem.",
+      arbitrum: "Access Arbitrum's layer 2 scaling and low fees.",
+      optimism: "Transfer to Optimism's optimistic rollup solution.",
+      avalanche: "Enter Avalanche's high-throughput blockchain.",
+      base: "Connect to Coinbase's Layer 2 network.",
+      aptos: "Move to Aptos's next-generation blockchain.",
+      sui: "Bridge to Sui's object-oriented smart contract platform.",
+      intents: "Leverage cross-chain intent protocols."
     }
-  }, [fromChain, connected, publicKey, isNearConnected, nearAccountId, zcashWallet, starknetWallet])
+    return quotes[toChainId as keyof typeof quotes] || "Bridge assets seamlessly across the most innovative networks."
+  }
 
-  // Initialize tokens and wallets
-  useEffect(() => {
-    const initialize = async () => {
-      try {
-        // Load supported tokens
-        setLoadingTokens(true)
-        const tokens = await enhancedBridgeService.getSupportedTokens()
-        setSupportedTokens(tokens)
-
-        // Set default tokens
-        const solToken = tokens.find(t => t.chain === 'solana' && t.symbol === 'SOL')
-        const nearToken = tokens.find(t => t.chain === 'near' && t.symbol === 'NEAR')
-
-        if (solToken) setFromToken(solToken)
-        if (nearToken) setToToken(nearToken)
-
-        // Initialize wallets
-        const zcash = await zcashWalletService.connect()
-        setZcashWallet(zcash)
-
-        const starknet = await starknetWalletService.connect()
-        setStarknetWallet(starknet)
-
-      } catch (error) {
-        console.error('Failed to initialize:', error)
-        setError('Failed to load bridge data')
-      } finally {
-        setLoadingTokens(false)
+  const handleChainSelect = (chainType: 'from' | 'to', chainId: string) => {
+    if (chainType === 'from') {
+      // Prevent selecting the same chain as destination
+      if (chainId === toChain) {
+        // Swap chains
+        setFromChain(toChain)
+        setToChain(chainId)
+        setIsReversed(!isReversed)
+      } else {
+        setFromChain(chainId)
+      }
+    } else {
+      // Prevent selecting the same chain as source
+      if (chainId === fromChain) {
+        // Swap chains
+        setToChain(fromChain)
+        setFromChain(chainId)
+        setIsReversed(!isReversed)
+      } else {
+        setToChain(chainId)
       }
     }
-    initialize()
-  }, [])
 
-  // Handle source wallet connection
-  const handleSourceWalletConnect = async () => {
-    try {
+    // Update tokens after chain change
+    const newFromChain = chainType === 'from' ? chainId : (chainId === fromChain ? toChain : fromChain)
+    const newToChain = chainType === 'to' ? chainId : (chainId === toChain ? fromChain : toChain)
+
+    const fromTokens = CHAIN_TOKENS[newFromChain as keyof typeof CHAIN_TOKENS]
+    const toTokens = CHAIN_TOKENS[newToChain as keyof typeof CHAIN_TOKENS]
+
+    setFromToken(fromTokens[0])
+    setToToken(toTokens.find(t => t.symbol === 'USDC') || toTokens[0])
+    setAmount('')
+  }
+
+  // Auto-update tokens when chains change
+  React.useEffect(() => {
+    const fromTokens = CHAIN_TOKENS[fromChain as keyof typeof CHAIN_TOKENS]
+    const toTokens = CHAIN_TOKENS[toChain as keyof typeof CHAIN_TOKENS]
+
+    setFromToken(fromTokens[0])
+    setToToken(toTokens.find(t => t.symbol === 'USDC') || toTokens[0])
+  }, [fromChain, toChain])
+
+  const getWalletConnectionStatus = () => {
+    const sourceChain = fromChain
+
+    switch (sourceChain) {
+      case 'solana':
+        return {
+          connected: solanaConnected,
+          address: publicKey?.toString(),
+          label: 'Solana Wallet'
+        }
+      case 'zec':
+        return {
+          connected: nearConnected,
+          address: accountId,
+          label: 'NEAR Wallet (for Zcash)'
+        }
+      case 'starknet':
+        return {
+          connected: starknetConnected,
+          address: starknetAccount?.address,
+          label: 'StarkNet Wallet'
+        }
+      default:
+        return {
+          connected: false,
+          address: null,
+          label: 'Wallet'
+        }
+    }
+  }
+
+  const handleWalletConnect = async () => {
+    const walletStatus = getWalletConnectionStatus()
+
+    if (walletStatus.connected) {
+      // Disconnect wallet
       switch (fromChain) {
-        case 'solana':
-          // Handled by WalletModalButton
-          break
-        case 'near':
-          await connectNear()
-          break
         case 'zec':
-          const zcash = await zcashWalletService.connect()
-          setZcashWallet(zcash)
+          await disconnectNear()
           break
         case 'starknet':
-          const starknet = await starknetWalletService.connect()
-          setStarknetWallet(starknet)
+          await disconnectStarknet()
+          break
+        case 'solana':
+          // Solana disconnect is handled by wallet adapter
+          alert('Please use the Solana wallet button in the header to disconnect')
           break
       }
-    } catch (error) {
-      setError(`Failed to connect ${fromChain} wallet: ${error}`)
+      return
+    }
+
+    switch (fromChain) {
+      case 'solana':
+        // Solana wallet is handled by Solana wallet adapter in header
+        alert('Please use the Solana wallet connect button in the header')
+        break
+      case 'zec':
+        // NEAR wallet for Zcash
+        try {
+          await connectNear()
+        } catch (error) {
+          console.error('NEAR wallet connection failed:', error)
+          alert('Failed to connect NEAR wallet. Please try again.')
+        }
+        break
+      case 'starknet':
+        // Show StarkNet wallet modal
+        setShowStarknetWalletModal(true)
+        break
     }
   }
 
-  // Handle chain switch
-  const switchChains = () => {
-    setFromChain(toChain)
-    setToChain(fromChain)
-    setFromToken(toToken)
-    setToToken(fromToken)
-    setQuote(null)
-    setError(null)
-  }
+const handleBridge = async () => {
+    const walletStatus = getWalletConnectionStatus()
+    const bridgeProvider = getBridgeProvider(fromChain, toChain)
 
-  // Handle bridge execution
-  const handleBridge = async () => {
-    if (!isSourceWalletConnected) {
-      setError('Please connect your source wallet first')
+    if (!walletStatus.connected) {
+      alert(`Please connect your ${walletStatus.label}`)
       return
     }
 
     if (!amount || parseFloat(amount) <= 0) {
-      setError('Please enter a valid amount')
+      alert('Please enter a valid amount')
       return
     }
 
     if (!fromToken || !toToken) {
-      setError('Please select tokens')
+      alert('Please select valid tokens')
       return
     }
 
-    // Check privacy mode
-    if (privacyMode) {
-      setError('Confidential Bridging Coming Soon - Please disable privacy mode for bridge transactions')
-      return
-    }
+    setIsBridging(true)
 
     try {
-      setLoading(true)
-      setError(null)
+      const amountInSmallestUnits = parseFloat(amount) * Math.pow(10, fromToken.decimals)
 
-      // Generate enhanced quote
-      const bridgeQuote = await enhancedBridgeService.generateQuote(
-        fromToken,
-        toToken,
-        amount,
+      // Generate quote first
+      const quote = await enhancedBridgeService.generateQuote(
+        {
+          symbol: fromToken.symbol,
+          name: fromToken.name,
+          address: fromToken.address,
+          decimals: fromToken.decimals,
+          chain: fromChain,
+          logoURI: fromToken.logoURI,
+          bridgeSupport: {
+            nearIntents: bridgeProvider === 'near-intents',
+            starkgate: bridgeProvider === 'starkgate',
+            defuse: true,
+            directBridge: false
+          }
+        },
+        {
+          symbol: toToken.symbol,
+          name: toToken.name,
+          address: toToken.address,
+          decimals: toToken.decimals,
+          chain: toChain,
+          logoURI: toToken.logoURI,
+          bridgeSupport: {
+            nearIntents: bridgeProvider === 'near-intents',
+            starkgate: bridgeProvider === 'starkgate',
+            defuse: true,
+            directBridge: false
+          }
+        },
+        amountInSmallestUnits.toString(),
         {
           slippageBps: 50, // 0.5%
-          deadline: 20 * 60, // 20 minutes
-          recipientAddress: recipientAddress || undefined,
-          privacyMode: false // Temporarily disabled
+          recipientAddress: walletStatus.address || '',
+          deadline: 20 * 60 // 20 minutes
         }
       )
 
-      setQuote(bridgeQuote)
+      console.log('Bridge quote generated:', quote)
 
-      // Execute bridge transaction
-      const bridgeExecution = await enhancedBridgeService.executeBridge(
-        bridgeQuote,
-        {
-          signTransaction: async (tx) => tx, // Would integrate with wallet signing
-          wallet: { publicKey, connected } // Current wallet state
-        }
-      )
+      // Execute the bridge
+      const result = await enhancedBridgeService.executeBridge(quote, {
+        recipientAddress: walletStatus.address || '',
+        privacyMode: privacyMode
+      })
 
-      setExecution(bridgeExecution)
-
-      if (bridgeExecution.status === 'COMPLETED') {
-        // Success handling
-        setAmount('')
-        setQuote(null)
-        setExecution(null)
-      } else if (bridgeExecution.status === 'FAILED') {
-        throw new Error(bridgeExecution.error || 'Bridge failed')
-      }
+      console.log('Bridge execution result:', result)
+      alert(`Bridge initiated successfully! ${amount} ${fromToken.symbol} → ${toChain}`)
+      setAmount('')
 
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Bridge failed')
-      setQuote(null)
-      setExecution(null)
+      console.error('Bridge failed:', error)
+      alert(`Bridge failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
-      setLoading(false)
+      setIsBridging(false)
     }
   }
 
-  // Close modals on escape key press
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowFromChainModal(false)
-        setShowFromTokenModal(false)
-        setShowToChainModal(false)
-        setShowToTokenModal(false)
-      }
-    }
+  const getAvailableFromTokens = () => {
+    return CHAIN_TOKENS[fromChain as keyof typeof CHAIN_TOKENS]
+  }
 
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [])
+  const getAvailableToTokens = () => {
+    return CHAIN_TOKENS[toChain as keyof typeof CHAIN_TOKENS]
+  }
+
+  const walletStatus = getWalletConnectionStatus()
+  const bridgeProvider = getBridgeProvider(fromChain, toChain)
+
+  // Show Coming Soon if enabled
+  if (comingSoon) {
+    return (
+      <div className="w-full max-w-xl mx-auto">
+        <ComingSoon
+          message="Coming Soon"
+          description="Seamlessly transfer assets across Solana, NEAR, StarkNet, and more. Experience lightning-fast bridging with military-grade security."
+          icon={
+            <svg
+              className="w-10 h-10"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+              />
+            </svg>
+          }
+          compact={false}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="w-full max-w-xl mx-auto">
-      {/* Bridge Card */}
-      <div className="relative">
-        {/* Privacy Mode Indicator */}
-        {privacyMode && (
-          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 z-10">
-            <div
-              className="inline-flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-sm"
+      {/* Dynamic Quote Section */}
+      <div className="mb-8 text-center">
+        <div className="relative z-10">
+            <p className="text-center text-sm italic" style={{ color: theme.colors.textMuted }}>
+              {getDynamicQuote(toChain)}
+            </p>
+          </div>
+      </div>
+
+      {/* Enhanced Chain Selector */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between">
+          {/* From Chain */}
+          <div className="flex-1">
+            <label className="block text-sm font-medium mb-2" style={{ color: theme.colors.textSecondary }}>
+              From
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {SUPPORTED_CHAINS.map((chain) => {
+                const isDisabled = chain.id === toChain
+                return (
+                <button
+                  key={chain.id}
+                  onClick={() => !isDisabled && handleChainSelect('from', chain.id)}
+                  disabled={isDisabled}
+                  className={`p-3 rounded-xl border-2 transition-all hover:scale-[1.02] ${
+                    fromChain === chain.id
+                      ? 'ring-2 ring-blue-500/20 shadow-lg'
+                      : isDisabled
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'hover:border-opacity-60'
+                  }`}
+                  style={{
+                    backgroundColor: fromChain === chain.id
+                      ? `${chain.color}15`
+                      : isDisabled
+                      ? `${theme.colors.surface}30`
+                      : `${theme.colors.surface}60`,
+                    borderColor: fromChain === chain.id
+                      ? chain.color
+                      : isDisabled
+                      ? `${theme.colors.border}50`
+                      : theme.colors.border,
+                    borderWidth: '2px',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    cursor: isDisabled ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {fromChain === chain.id && (
+                    <div
+                      className="absolute inset-0 opacity-10"
+                      style={{
+                        background: `linear-gradient(135deg, ${chain.color} 0%, transparent 70%)`
+                      }}
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col items-center gap-2">
+                    <div
+                      className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden"
+                      style={{
+                        backgroundColor: fromChain === chain.id ? `${chain.color}20` : 'rgba(255, 255, 255, 0.05)'
+                      }}
+                    >
+                      <img
+                        src={chain.icon}
+                        alt={chain.name}
+                        className="w-8 h-8 rounded-full"
+                        style={{
+                          filter: fromChain === chain.id ? 'brightness(1.2)' : 'brightness(0.7)',
+                          transition: 'filter 0.2s'
+                        }}
+                        onError={(e) => {
+                          e.currentTarget.src = '/icons/default-token.svg'
+                        }}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <div
+                        className="font-semibold text-sm"
+                        style={{
+                          color: fromChain === chain.id
+                            ? theme.colors.primary
+                            : theme.colors.textPrimary
+                        }}
+                      >
+                        {chain.name}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Arrow Button */}
+          <div className="flex items-center justify-center mx-4">
+            <button
+              onClick={() => handleChainSelect('from', toChain)}
+              className="p-3 rounded-full transition-all hover:scale-110 active:scale-95"
               style={{
-                background: `${theme.colors.warning}10`,
-                border: `1px solid ${theme.colors.warning}20`,
+                ...createGlassStyles(theme),
+                backgroundColor: theme.colors.surface,
+                border: `1px solid ${theme.colors.border}`,
+                cursor: 'pointer'
               }}
             >
-              <div
-                className="w-2 h-2 rounded-full animate-pulse"
-                style={{ backgroundColor: theme.colors.warning }}
+              <ArrowsUpDownIcon
+                className={`w-5 h-5 transition-transform ${isReversed ? 'rotate-180' : ''}`}
+                style={{ color: theme.colors.primary }}
               />
-              <span
-                className="text-xs font-medium"
-                style={{ color: theme.colors.warning }}
-              >
-                Confidential Bridging Coming Soon
+            </button>
+          </div>
+
+          {/* To Chain */}
+          <div className="flex-1">
+            <label className="block text-sm font-medium mb-2 text-right" style={{ color: theme.colors.textSecondary }}>
+              To
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {SUPPORTED_CHAINS.map((chain) => {
+                const isDisabled = chain.id === fromChain
+                return (
+                <button
+                  key={chain.id}
+                  onClick={() => !isDisabled && handleChainSelect('to', chain.id)}
+                  disabled={isDisabled}
+                  className={`p-3 rounded-xl border-2 transition-all hover:scale-[1.02] ${
+                    toChain === chain.id
+                      ? 'ring-2 ring-blue-500/20 shadow-lg'
+                      : isDisabled
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'hover:border-opacity-60'
+                  }`}
+                  style={{
+                    backgroundColor: toChain === chain.id
+                      ? `${chain.color}15`
+                      : isDisabled
+                      ? `${theme.colors.surface}30`
+                      : `${theme.colors.surface}60`,
+                    borderColor: toChain === chain.id
+                      ? chain.color
+                      : isDisabled
+                      ? `${theme.colors.border}50`
+                      : theme.colors.border,
+                    borderWidth: '2px',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    cursor: isDisabled ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {toChain === chain.id && (
+                    <div
+                      className="absolute inset-0 opacity-10"
+                      style={{
+                        background: `linear-gradient(135deg, ${chain.color} 0%, transparent 70%)`
+                      }}
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col items-center gap-2">
+                    <div
+                      className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden"
+                      style={{
+                        backgroundColor: toChain === chain.id ? `${chain.color}20` : 'rgba(255, 255, 255, 0.05)'
+                      }}
+                    >
+                      <img
+                        src={chain.icon}
+                        alt={chain.name}
+                        className="w-8 h-8 rounded-full"
+                        style={{
+                          filter: toChain === chain.id ? 'brightness(1.2)' : 'brightness(0.7)',
+                          transition: 'filter 0.2s'
+                        }}
+                        onError={(e) => {
+                          e.currentTarget.src = '/icons/default-token.svg'
+                        }}
+                      />
+                    </div>
+                    <div className="text-center">
+                      <div
+                        className="font-semibold text-sm"
+                        style={{
+                          color: toChain === chain.id
+                            ? theme.colors.primary
+                            : theme.colors.textPrimary
+                        }}
+                      >
+                        {chain.name}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Bridge Provider Info */}
+        <div className="mt-4 text-center">
+          <div
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+            style={{
+              backgroundColor: `${theme.colors.primary}10`,
+              color: theme.colors.primary,
+              border: `1px solid ${theme.colors.primary}30`
+            }}
+          >
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: theme.colors.primary }} />
+            <span>
+              Via {getChainName(toChain)}
+            </span>
+          </div>
+        </div>
+
+        {/* Wallet Connection Status */}
+        {walletStatus.connected && walletStatus.address && (
+          <div className="mt-4 text-center">
+            <div
+              className="inline-flex items-center gap-3 px-4 py-2.5 rounded-full text-sm"
+              style={{
+                ...createGlassStyles(theme),
+                backgroundColor: `${theme.colors.success}10`,
+                color: theme.colors.success,
+                border: `1px solid ${theme.colors.success}30`
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: theme.colors.success }} />
+                <span className="font-medium">
+                  {walletStatus.label}
+                </span>
+              </div>
+              <div className="h-4 w-px" style={{ backgroundColor: `${theme.colors.success}30` }} />
+              <span className="font-mono text-xs">
+                {walletStatus.address.slice(0, 8)}...{walletStatus.address.slice(-6)}
               </span>
             </div>
           </div>
         )}
+      </div>
 
-        {/* Main Bridge Card */}
-        <div
-          className="relative p-6 space-y-6 w-full rounded-2xl overflow-hidden"
-          style={{
-            background: `
-              linear-gradient(135deg,
-                ${theme.colors.surface}ee 0%,
-                ${theme.colors.surfaceHover}cc 25%,
-                ${theme.colors.surface}ee 50%,
-                ${theme.colors.surfaceHover}cc 75%,
-                ${theme.colors.surface}ee 100%
-              ),
-              radial-gradient(circle at 25% 25%,
-                ${theme.colors.primary}08 0%,
-                transparent 50%
-              ),
-              radial-gradient(circle at 75% 75%,
-                ${theme.colors.success}03 0%,
-                transparent 50%
-              )
-            `,
-            border: `1px solid ${theme.colors.primary}15`,
-            backdropFilter: 'blur(24px) saturate(1.8)',
-            boxShadow: `
-              0 20px 60px ${theme.colors.shadowHeavy},
-              0 8px 24px ${theme.colors.primary}08,
-              inset 0 1px 0 rgba(255, 255, 255, 0.1),
-              inset 0 -1px 0 rgba(0, 0, 0, 0.2)
-            `
-          }}
-        >
-          {/* Noise grain overlay */}
-          <div
-            className="absolute inset-0 opacity-4 pointer-events-none"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='200' height='200' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
-              filter: 'contrast(1.2) brightness(1.1)'
-            }}
-          />
-
-          {/* You Send Section */}
-          <div className="relative z-10 space-y-3">
-            <div className="flex items-center justify-between">
-              <label
-                className="text-sm font-bold tracking-wide"
-                style={{ color: theme.colors.textSecondary }}
-              >
-                You Send
-              </label>
-              <button
-                onClick={handleSourceWalletConnect}
-                className="text-xs font-medium transition-colors px-2 py-1 rounded-md hover:bg-opacity-10"
-                style={{
-                  color: theme.colors.primary
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = theme.colors.primaryHover
-                  e.currentTarget.style.backgroundColor = `${theme.colors.primary}10`
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = theme.colors.primary
-                  e.currentTarget.style.backgroundColor = 'transparent'
-                }}
-              >
-                {isSourceWalletConnected ? 'Change Wallet' : 'Connect Wallet'}
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {/* Chain and Token Selection */}
-              <div className="flex gap-2">
-                {/* Chain */}
-                <div className="relative" style={{ width: '120px' }}>
-                  <button
-                    onClick={() => setShowFromChainModal(true)}
-                    className="w-full p-3 rounded-xl bg-gray-800/60 border border-gray-700 text-left transition-all hover:border-gray-600"
-                    style={{ backdropFilter: 'blur(8px)' }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ChainIcon chainId={fromChain} size={16} />
-                        <span className="text-white font-medium text-xs">
-                          {SUPPORTED_CHAINS.find(c => c.id === fromChain)?.icon}
-                        </span>
-                      </div>
-                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </button>
+      {/* Bridge Interface - matches swap UI exactly */}
+      <div
+        className="relative rounded-2xl overflow-hidden"
+        style={{
+          ...createGlassStyles(theme),
+          backgroundColor: theme.colors.surface,
+          border: `1px solid ${theme.colors.border}`
+        }}
+      >
+        {/* From Token */}
+        <div className="p-6 pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium" style={{ color: theme.colors.textSecondary }}>
+              From
+            </span>
+            {walletStatus.connected && walletStatus.address ? (
+              <div className="text-right">
+                <div className="text-xs font-medium" style={{ color: theme.colors.textPrimary }}>
+                  {walletStatus.label?.split(' ')[0]}
                 </div>
-
-                {/* Token */}
-                <div className="relative flex-1">
-                  <button
-                    onClick={() => setShowFromTokenModal(true)}
-                    className="w-full p-3 rounded-xl bg-gray-800/60 border border-gray-700 text-left transition-all hover:border-gray-600"
-                    style={{ backdropFilter: 'blur(8px)' }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {fromToken ? (
-                          <>
-                            {fromToken.logoURI ? (
-                              <img
-                                src={fromToken.logoURI}
-                                alt={fromToken.symbol}
-                                className="w-4 h-4 rounded-full"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement
-                                  target.style.display = 'none'
-                                }}
-                              />
-                            ) : (
-                              <div className="w-4 h-4 bg-gray-600 rounded-full"></div>
-                            )}
-                            <span className="text-white font-medium text-sm">{fromToken.symbol}</span>
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-4 h-4 bg-gray-600 rounded-full"></div>
-                            <span className="text-gray-400 text-sm">Select Token</span>
-                          </>
-                        )}
-                      </div>
-                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Amount Input */}
-              <div className="relative">
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
-                  disabled={!isSourceWalletConnected}
-                  className="w-full p-4 rounded-xl bg-gray-800/60 border border-gray-700 text-white placeholder-gray-500 transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 text-lg font-medium"
-                  style={{ backdropFilter: 'blur(8px)' }}
-                />
-                <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-medium text-sm">
-                  {fromToken?.symbol || ''}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Switch Button */}
-          <div className="flex justify-center -my-2 z-10">
-            <button
-              onClick={switchChains}
-              className="relative z-10 p-2.5 rounded-full transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 bg-gray-800/50 border border-gray-700 hover:border-gray-600"
-              disabled={loading}
-            >
-              <ArrowsUpDownIcon className="h-5 w-5 text-blue-400" />
-            </button>
-          </div>
-
-          {/* You Receive Section */}
-          <div className="relative z-10 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-bold tracking-wide text-gray-300">
-                You Receive
-              </label>
-              {quote && (
-                <span className="text-xs text-green-400">
-                  ✓
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {/* Chain and Token Selection */}
-              <div className="flex gap-2">
-                {/* Chain */}
-                <div className="relative" style={{ width: '120px' }}>
-                  <button
-                    onClick={() => setShowToChainModal(true)}
-                    className="w-full p-3 rounded-xl bg-gray-800/60 border border-gray-700 text-left transition-all hover:border-gray-600"
-                    style={{ backdropFilter: 'blur(8px)' }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ChainIcon chainId={toChain} size={16} />
-                        <span className="text-white font-medium text-xs">
-                          {SUPPORTED_CHAINS.find(c => c.id === toChain)?.icon}
-                        </span>
-                      </div>
-                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </button>
-                </div>
-
-                {/* Token */}
-                <div className="relative flex-1">
-                  <button
-                    onClick={() => setShowToTokenModal(true)}
-                    className="w-full p-3 rounded-xl bg-gray-800/60 border border-gray-700 text-left transition-all hover:border-gray-600"
-                    style={{ backdropFilter: 'blur(8px)' }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {toToken ? (
-                          <>
-                            {toToken.logoURI ? (
-                              <img
-                                src={toToken.logoURI}
-                                alt={toToken.symbol}
-                                className="w-4 h-4 rounded-full"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement
-                                  target.style.display = 'none'
-                                }}
-                              />
-                            ) : (
-                              <div className="w-4 h-4 bg-gray-600 rounded-full"></div>
-                            )}
-                            <span className="text-white font-medium text-sm">{toToken.symbol}</span>
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-4 h-4 bg-gray-600 rounded-full"></div>
-                            <span className="text-gray-400 text-sm">Select Token</span>
-                          </>
-                        )}
-                      </div>
-                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Output Amount (Read-only) */}
-              <div className="relative">
-                <input
-                  type="text"
-                  value={quote ? quote.toAmount : ''}
-                  onChange={() => {}}
-                  placeholder="0.00"
-                  disabled={true}
-                  readOnly={true}
-                  className="w-full p-4 rounded-xl bg-gray-800/60 border border-gray-700 text-white placeholder-gray-500 transition-all opacity-75 text-lg font-medium"
-                  style={{ backdropFilter: 'blur(8px)' }}
-                />
-                <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-medium text-sm">
-                  {toToken?.symbol || ''}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Bridge Quote Details */}
-          {quote && (
-            <div
-              className="relative z-10 space-y-3 p-4 rounded-xl"
-              style={{
-                background: `
-                  linear-gradient(135deg,
-                    rgba(16, 185, 129, 0.08) 0%,
-                    rgba(16, 185, 129, 0.04) 50%,
-                    rgba(16, 185, 129, 0.08) 100%
-                  ),
-                  radial-gradient(circle at 50% 0%,
-                    rgba(16, 185, 129, 0.02) 0%,
-                    transparent 50%
-                  )
-                `,
-                border: '1px solid rgba(16, 185, 129, 0.15)',
-                backdropFilter: 'blur(20px) saturate(1.6)',
-                boxShadow: `
-                  0 12px 40px rgba(0, 0, 0, 0.25),
-                  inset 0 1px 0 rgba(255, 255, 255, 0.08),
-                  0 0 0 1px rgba(16, 185, 129, 0.05)
-                `
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-400">Rate</span>
-                <span className="text-sm font-semibold text-white">
-                  1 {fromToken?.symbol || ''} = {parseFloat(quote.toAmount || '0') > 0 ?
-                    (parseFloat(quote.toAmount) / parseFloat(amount)).toFixed(6) : '---'} {toToken?.symbol || ''}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-400">Estimated Fee</span>
-                <span className="text-sm font-semibold text-white">
-                  ~0.1%
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-400">Bridge Time</span>
-                <span className="text-sm font-semibold text-white">
-                  {quote.estimatedTime || '2-5 minutes'}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Error Display */}
-          {error && (
-            <div
-              className="relative z-10 flex items-start gap-3 p-4 rounded-xl"
-              style={{
-                background: 'rgba(239, 68, 68, 0.05)',
-                border: '1px solid rgba(239, 68, 68, 0.2)',
-                backdropFilter: 'blur(20px) saturate(1.6)'
-              }}
-            >
-              <ExclamationTriangleIcon className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-bold text-red-400">{error}</p>
-                <button
-                  onClick={() => setError(null)}
-                  className="text-xs font-medium text-red-400 hover:text-red-300 transition-colors mt-2"
+                <div
+                  className="text-xs font-mono mt-1 px-2 py-1 rounded-full inline-block"
+                  style={{
+                    backgroundColor: `${theme.colors.primary}15`,
+                    color: theme.colors.primary,
+                    border: `1px solid ${theme.colors.primary}30`
+                  }}
                 >
-                  Dismiss
-                </button>
+                  {walletStatus.address.slice(0, 6)}...{walletStatus.address.slice(-4)}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* Bridge Button */}
-          <div className="w-full">
-            <button
-              onClick={handleBridge}
-              disabled={!isSourceWalletConnected || !amount || parseFloat(amount) <= 0 || loading}
-              className="w-full relative font-medium py-4 px-8 rounded-2xl text-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] overflow-hidden disabled:cursor-not-allowed"
-              style={{
-                background: (!isSourceWalletConnected || !amount || parseFloat(amount) <= 0 || loading)
-                  ? 'rgba(40, 40, 60, 0.5)'
-                  : 'var(--wave-azul)',
-                color: 'white',
-                border: '1px solid rgba(33, 188, 255, 0.4)',
-                boxShadow: (!isSourceWalletConnected || !amount || parseFloat(amount) <= 0 || loading)
-                  ? 'none'
-                  : '0 8px 32px rgba(33, 188, 255, 0.3)'
-              }}
-              onMouseEnter={(e) => {
-                if (isSourceWalletConnected && amount && parseFloat(amount) > 0 && !loading) {
-                  e.currentTarget.style.boxShadow = '0 0 30px rgba(33, 188, 255, 0.6)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (isSourceWalletConnected && amount && parseFloat(amount) > 0 && !loading) {
-                  e.currentTarget.style.boxShadow = '0 8px 32px rgba(33, 188, 255, 0.3)'
-                }
-              }}
-            >
-              {loading ? (
-                <div className="flex items-center justify-center gap-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white"></div>
-                  <span>Processing Bridge...</span>
-                </div>
-              ) : !isSourceWalletConnected ? (
-                <span>Connect Wallet First</span>
-              ) : !amount || parseFloat(amount) <= 0 ? (
-                <span>Enter Amount</span>
-              ) : (
-                <div className="flex items-center justify-center gap-3">
-                  <span>Execute Bridge</span>
-                </div>
-              )}
-            </button>
+            ) : (
+              <span className="text-xs" style={{ color: theme.colors.textMuted }}>
+                Not Connected
+              </span>
+            )}
           </div>
 
-          {/* Security & Info Footer */}
-          <div className="mt-6 pt-4 border-t border-gray-700">
-            <div className="flex items-center justify-center gap-6 text-xs text-gray-500">
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                <span>Audited</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-blue-500 rounded-full" />
-                <span>Secure</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-blue-500 rounded-full" />
-                <span>Cross-chain</span>
-              </div>
+          <div className="space-y-4">
+            <TokenSelectorNew
+              selectedToken={fromToken || null}
+              onTokenChange={setFromToken}
+              tokens={getAvailableFromTokens()}
+              privacyMode={privacyMode}
+            />
+
+            <div
+              className="relative rounded-xl p-4"
+              style={{
+                ...createGlassStyles(theme),
+                backgroundColor: theme.colors.background,
+                border: `1px solid ${theme.colors.border}`
+              }}
+            >
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full bg-transparent border-none outline-none text-2xl font-bold"
+                style={{
+                  ...createInputStyles(theme),
+                  height: '3rem',
+                  fontSize: '1.75rem',
+                  fontWeight: 600,
+                  padding: '0.75rem 1rem',
+                  fontFamily: 'var(--font-mono), var(--font-jetbrains), monospace',
+                  color: theme.colors.textPrimary
+                }}
+              />
+              {fromToken && (
+                <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-sm" style={{ color: theme.colors.textMuted }}>
+                  {fromToken.symbol}
+                </div>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Arrow Divider */}
+        <div className="relative h-6 flex items-center justify-center px-6">
+          <div className="absolute left-6 right-6 h-px" style={{ backgroundColor: theme.colors.border }} />
+          <button
+            onClick={() => {
+              // Swap chains
+              setFromChain(toChain)
+              setToChain(fromChain)
+              setIsReversed(!isReversed)
+            }}
+            className="relative z-10 p-2 rounded-full transition-all hover:scale-110"
+            style={{
+              backgroundColor: theme.colors.surface,
+              border: `1px solid ${theme.colors.border}`
+            }}
+          >
+            <ArrowsUpDownIcon className="w-4 h-4" style={{ color: theme.colors.primary }} />
+          </button>
+        </div>
+
+        {/* To Token */}
+        <div className="p-6 pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium" style={{ color: theme.colors.textSecondary }}>
+              To
+            </span>
+            <span className="text-xs" style={{ color: theme.colors.textMuted }}>
+              {getChainName(toChain)}
+            </span>
+          </div>
+
+          <TokenSelectorNew
+            selectedToken={toToken || null}
+            onTokenChange={setToToken}
+            tokens={getAvailableToTokens()}
+            privacyMode={privacyMode}
+          />
+        </div>
+
+        {/* Wallet Status & Bridge Button */}
+        <div className="p-6 pt-0">
+          {!walletStatus.connected && (
+            <div
+              className="p-3 rounded-lg mb-4 text-sm"
+              style={{
+                backgroundColor: `${theme.colors.warning}10`,
+                border: `1px solid ${theme.colors.warning}20`
+              }}
+            >
+              <span style={{ color: theme.colors.warning }}>
+                Connect your {walletStatus.label} to continue
+              </span>
+            </div>
+          )}
+
+          <button
+            onClick={!walletStatus.connected ? handleWalletConnect : handleBridge}
+            disabled={isBridging}
+            className="w-full relative font-medium py-4 px-6 rounded-2xl transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 overflow-hidden"
+            style={{
+              ...createGlassStyles(theme),
+              background: walletStatus.connected && amount && parseFloat(amount) > 0
+                ? 'var(--wave-azul)'
+                : `${theme.colors.surface}60`,
+              border: `1px solid ${
+                walletStatus.connected && amount && parseFloat(amount) > 0
+                  ? theme.colors.primary
+                  : theme.colors.border
+              }`
+            }}
+          >
+            {isBridging ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
+                <span style={{ color: theme.colors.textPrimary }}>
+                  Bridging...
+                </span>
+              </div>
+            ) : !walletStatus.connected ? (
+              <div className="text-left">
+                <span style={{ color: theme.colors.textPrimary }}>
+                  Connect {walletStatus.label}
+                </span>
+                <span className="text-xs block mt-1 opacity-80" style={{ color: theme.colors.textMuted }}>
+                  Required to bridge assets
+                </span>
+              </div>
+            ) : !amount || parseFloat(amount) <= 0 ? (
+              <span style={{ color: theme.colors.textMuted }}>
+                Enter Amount
+              </span>
+            ) : (
+              <div className="text-left">
+                <span style={{ color: theme.colors.textPrimary }}>
+                  Send to {getChainName(toChain)}
+                </span>
+                {walletStatus.address && (
+                  <span className="text-xs block mt-1 font-mono opacity-80" style={{ color: theme.colors.textMuted }}>
+                    {walletStatus.address.slice(0, 10)}...{walletStatus.address.slice(-6)}
+                  </span>
+                )}
+              </div>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Modals */}
-      <ChainSelectorModal
-        isOpen={showFromChainModal}
-        onClose={() => setShowFromChainModal(false)}
-        onSelectChain={(chainId) => {
-          setFromChain(chainId)
-          const newToken = supportedTokens.find(t => t.chain === chainId)
-          if (newToken) {
-            setFromToken(newToken)
-          }
-          setQuote(null)
-          setError(null)
-        }}
-        excludeChain={toChain}
-        title="Select Source Chain"
-      />
-
-      <ChainSelectorModal
-        isOpen={showToChainModal}
-        onClose={() => setShowToChainModal(false)}
-        onSelectChain={(chainId) => {
-          setToChain(chainId)
-          const newToken = supportedTokens.find(t => t.chain === chainId)
-          if (newToken) {
-            setToToken(newToken)
-          }
-          setQuote(null)
-          setError(null)
-        }}
-        excludeChain={fromChain}
-        title="Select Destination Chain"
-      />
-
-      <TokenSelectorModal
-        isOpen={showFromTokenModal}
-        onClose={() => setShowFromTokenModal(false)}
-        onSelectToken={(token) => {
-          setFromToken(token)
-          setQuote(null)
-        }}
-        tokens={supportedTokens}
-        title="Select Source Token"
-        selectedChain={fromChain}
-      />
-
-      <TokenSelectorModal
-        isOpen={showToTokenModal}
-        onClose={() => setShowToTokenModal(false)}
-        onSelectToken={(token) => {
-          setToToken(token)
-          setQuote(null)
-        }}
-        tokens={supportedTokens}
-        title="Select Destination Token"
-        selectedChain={toChain}
-      />
-
-      {/* Disclaimer */}
+      {/* Info */}
       <div className="mt-4 text-center">
-        <p className="text-xs text-gray-500 max-w-md mx-auto">
-          Cross-chain bridges transfer assets between blockchains. Please verify recipient addresses and allow sufficient time for transfers to complete.
+        <p className="text-xs" style={{ color: theme.colors.textMuted }}>
+          {bridgeProvider === 'starkgate'
+            ? 'Powered by StarkGate - Official StarkNet Bridge'
+            : 'Powered by NEAR Intents - Private Cross-chain Bridge'
+          }
         </p>
       </div>
+
+      {/* StarkNet Wallet Modal */}
+      <StarknetWalletModal
+        isOpen={showStarknetWalletModal}
+        onClose={() => setShowStarknetWalletModal(false)}
+        onSuccess={() => setShowStarknetWalletModal(false)}
+      />
     </div>
   )
 }

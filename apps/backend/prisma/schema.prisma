@@ -32,7 +32,7 @@ model Swap {
   outputAmount    BigInt?
   feeBps          Int
   privacyMode     Boolean     @default(true)
-  status          SwapStatus  @default(ENCRIPTED_PENDING)
+  status          SwapStatus  @default(ENCRYPTED_PENDING)
   routeId         Int?
   slippageBps     Int
   txHash          String?

@@ -35,7 +35,7 @@ export function NearWalletProvider({ children }: NearWalletProviderProps) {
           projectId: process.env.NEXT_NEAR_WALLETCONNECT_PROJECT_ID || 'default-project-id',
           metadata: {
             name: 'WavePortal',
-            description: 'WaveSwap Cross-chain Bridge',
+            description: 'WavePortal Bridge',
             url: typeof window !== 'undefined' ? window.location.origin : 'https://waveswap.io',
             icons: ['https://waveswap.io/icon.png']
           }
@@ -55,7 +55,7 @@ export function NearWalletProvider({ children }: NearWalletProviderProps) {
       try {
         const wallet = await newConnector.wallet()
         const accounts = await wallet.getAccounts()
-        if (accounts.length > 0) {
+        if (accounts.length > 0 && accounts[0]) {
           setAccountId(accounts[0].accountId)
         }
       } catch (err) {

@@ -16,6 +16,7 @@ import {
   CalendarIcon,
   ChartBarIcon
 } from '@heroicons/react/24/outline'
+import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 
 interface HistoryTabProps {
   privacyMode: boolean
@@ -53,6 +54,7 @@ const getRealTransactions = (): Transaction[] => {
 }
 
 export function HistoryTab({ privacyMode }: HistoryTabProps) {
+  const theme = useThemeConfig()
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'pending' | 'failed'>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | 'swap' | 'send' | 'receive'>('all')
@@ -91,11 +93,11 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
   const getStatusIcon = (status: Transaction['status']) => {
     switch (status) {
       case 'success':
-        return <CheckCircleIcon className="h-4 w-4 text-green-400" />
+        return <CheckCircleIcon className="h-4 w-4" style={{ color: theme.colors.success }} />
       case 'pending':
-        return <ArrowPathIcon className="h-4 w-4 text-yellow-400 animate-spin" />
+        return <ArrowPathIcon className="h-4 w-4 animate-spin" style={{ color: theme.colors.warning }} />
       case 'failed':
-        return <XCircleIcon className="h-4 w-4 text-red-400" />
+        return <XCircleIcon className="h-4 w-4" style={{ color: theme.colors.error }} />
       default:
         return null
     }
@@ -104,13 +106,13 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
   const getStatusColor = (status: Transaction['status']) => {
     switch (status) {
       case 'success':
-        return 'text-green-400'
+        return theme.colors.success
       case 'pending':
-        return 'text-yellow-400'
+        return theme.colors.warning
       case 'failed':
-        return 'text-red-400'
+        return theme.colors.error
       default:
-        return 'var(--wave-text-muted)'
+        return theme.colors.textMuted
     }
   }
 
@@ -120,22 +122,22 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
       <div
         className="relative p-6 rounded-2xl mb-6 overflow-hidden"
         style={{
+          ...createGlassStyles(theme),
           background: `
             linear-gradient(135deg,
-              rgba(30, 30, 45, 0.9) 0%,
-              rgba(45, 45, 65, 0.8) 50%,
-              rgba(30, 30, 45, 0.9) 100%
+              ${theme.colors.surface}ee 0%,
+              ${theme.colors.surfaceHover}cc 50%,
+              ${theme.colors.surface}ee 100%
             ),
             radial-gradient(circle at 25% 25%,
-              rgba(59, 130, 246, 0.05) 0%,
+              ${theme.colors.primary}10 0%,
               transparent 50%
             )
           `,
-          border: '1px solid rgba(59, 130, 246, 0.15)',
-          backdropFilter: 'blur(20px) saturate(1.8)',
+          border: `1px solid ${theme.colors.primary}20`,
           boxShadow: `
-            0 16px 48px rgba(0, 0, 0, 0.3),
-            0 6px 18px rgba(59, 130, 246, 0.08),
+            0 16px 48px ${theme.colors.shadow},
+            0 6px 18px ${theme.colors.primary}15,
             inset 0 1px 0 rgba(255, 255, 255, 0.1)
           `
         }}
@@ -152,26 +154,32 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="rounded-lg p-2" style={{
-              background: privacyMode ? 'var(--wave-emerald-light)' : 'var(--wave-primary-light)',
-              border: privacyMode ? '1px solid var(--wave-emerald)' : '1px solid var(--wave-primary)'
+              background: privacyMode ? `${theme.colors.success}20` : `${theme.colors.primary}20`,
+              border: privacyMode ? `1px solid ${theme.colors.success}40` : `1px solid ${theme.colors.primary}40`
             }}>
-              <ClockIcon className={`h-6 w-6 ${privacyMode ? 'text-emerald-400' : 'text-blue-400'}`} />
+              <ClockIcon className="h-6 w-6" style={{
+                color: privacyMode ? theme.colors.success : theme.colors.primary
+              }} />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white flex items-center gap-2" style={{
+              <h1 className="text-2xl font-bold flex items-center gap-2" style={{
+                color: theme.colors.textPrimary,
                 fontFamily: 'var(--font-helvetica)',
                 fontWeight: 600,
                 letterSpacing: '0.025em'
               }}>
                 {privacyMode ? 'Private' : 'Transaction'} History
                 {privacyMode && (
-                  <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                    <ShieldCheckIcon className="h-3 w-3 text-emerald-400" />
-                    <span className="text-xs font-medium text-emerald-400">Private</span>
+                  <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full" style={{
+                    background: `${theme.colors.success}10`,
+                    border: `1px solid ${theme.colors.success}20`
+                  }}>
+                    <ShieldCheckIcon className="h-3 w-3" style={{ color: theme.colors.success }} />
+                    <span className="text-xs font-medium" style={{ color: theme.colors.success }}>Private</span>
                   </div>
                 )}
               </h1>
-              <p className="text-sm" style={{ color: 'var(--wave-text-muted)' }}>
+              <p className="text-sm" style={{ color: theme.colors.textMuted }}>
                 {privacyMode
                   ? 'Your confidential swap history with enhanced privacy protection'
                   : 'Complete transaction history and trading activity'
@@ -184,32 +192,32 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
             <button
               className="p-2 rounded-lg transition-all duration-200"
               style={{
-                background: 'var(--wave-glass-bg)',
-                border: '1px solid var(--wave-glass-border)'
+                ...createGlassStyles(theme),
+                border: `1px solid ${theme.colors.border}`
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--wave-glass-border)'
+                e.currentTarget.style.background = theme.colors.surfaceHover
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--wave-glass-bg)'
+                e.currentTarget.style.background = createGlassStyles(theme).background as string
               }}
             >
-              <ChartBarIcon className="h-4 w-4" style={{ color: 'var(--wave-text-muted)' }} />
+              <ChartBarIcon className="h-4 w-4" style={{ color: theme.colors.textMuted }} />
             </button>
             <button
               className="p-2 rounded-lg transition-all duration-200"
               style={{
-                background: 'var(--wave-glass-bg)',
-                border: '1px solid var(--wave-glass-border)'
+                ...createGlassStyles(theme),
+                border: `1px solid ${theme.colors.border}`
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--wave-glass-border)'
+                e.currentTarget.style.background = theme.colors.surfaceHover
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--wave-glass-bg)'
+                e.currentTarget.style.background = createGlassStyles(theme).background as string
               }}
             >
-              <CalendarIcon className="h-4 w-4" style={{ color: 'var(--wave-text-muted)' }} />
+              <CalendarIcon className="h-4 w-4" style={{ color: theme.colors.textMuted }} />
             </button>
           </div>
         </div>
@@ -219,13 +227,9 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
       <div
         className="relative p-4 rounded-xl mb-6 overflow-hidden"
         style={{
-          background: `
-            linear-gradient(135deg,
-              rgba(30, 30, 45, 0.8) 0%,
-              rgba(45, 45, 65, 0.7) 100%
-            )
-          `,
-          border: '1px solid rgba(156, 163, 175, 0.15)',
+          ...createGlassStyles(theme),
+          background: `${theme.colors.surface}cc`,
+          border: `1px solid ${theme.colors.border}`,
           backdropFilter: 'blur(16px) saturate(1.5)'
         }}
       >
@@ -241,16 +245,17 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
         <div className="relative z-10 flex flex-col sm:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4" style={{ color: theme.colors.textMuted }} />
             <input
               type="text"
               placeholder="Search transactions..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-white text-sm placeholder-gray-500"
+              className="w-full pl-10 pr-4 py-2 rounded-lg text-sm"
               style={{
-                border: '1px solid rgba(156, 163, 175, 0.2)',
-                background: 'rgba(30, 30, 45, 0.6)',
+                border: `1px solid ${theme.colors.border}`,
+                background: `${theme.colors.surface}99`,
+                color: theme.colors.textPrimary,
                 backdropFilter: 'blur(8px) saturate(1.2)',
                 fontFamily: 'var(--font-helvetica)'
               }}
@@ -262,10 +267,11 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as 'all' | 'success' | 'pending' | 'failed')}
-              className="px-4 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-white text-sm"
+              className="px-4 py-2 rounded-lg text-sm"
               style={{
-                border: '1px solid rgba(156, 163, 175, 0.2)',
-                background: 'rgba(30, 30, 45, 0.6)',
+                border: `1px solid ${theme.colors.border}`,
+                background: `${theme.colors.surface}99`,
+                color: theme.colors.textPrimary,
                 backdropFilter: 'blur(8px) saturate(1.2)',
                 fontFamily: 'var(--font-helvetica)'
               }}
@@ -279,10 +285,11 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as 'all' | 'swap' | 'send' | 'receive')}
-              className="px-4 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-white text-sm"
+              className="px-4 py-2 rounded-lg text-sm"
               style={{
-                border: '1px solid rgba(156, 163, 175, 0.2)',
-                background: 'rgba(30, 30, 45, 0.6)',
+                border: `1px solid ${theme.colors.border}`,
+                background: `${theme.colors.surface}99`,
+                color: theme.colors.textPrimary,
                 backdropFilter: 'blur(8px) saturate(1.2)',
                 fontFamily: 'var(--font-helvetica)'
               }}
@@ -302,13 +309,9 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
           <div
             className="relative p-12 rounded-2xl text-center overflow-hidden"
             style={{
-              background: `
-                linear-gradient(135deg,
-                  rgba(30, 30, 45, 0.8) 0%,
-                  rgba(45, 45, 65, 0.7) 100%
-                )
-              `,
-              border: '1px solid rgba(156, 163, 175, 0.15)',
+              ...createGlassStyles(theme),
+              background: `${theme.colors.surface}cc`,
+              border: `1px solid ${theme.colors.border}`,
               backdropFilter: 'blur(16px) saturate(1.5)'
             }}
           >
@@ -323,23 +326,27 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
 
             <div className="relative z-10">
               <div className="flex justify-center mb-4">
-                <ClockIcon className="h-16 w-16 text-gray-600" />
+                <ClockIcon className="h-16 w-16" style={{ color: theme.colors.textMuted }} />
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2" style={{
+              <h3 className="text-xl font-semibold mb-2" style={{
+                color: theme.colors.textPrimary,
                 fontFamily: 'var(--font-helvetica)'
               }}>
                 {privacyMode ? 'Private Transaction History' : 'Transaction History'}
               </h3>
-              <p className="text-gray-400 text-sm mb-4">
+              <p className="text-sm mb-4" style={{ color: theme.colors.textMuted }}>
                 {privacyMode
                   ? 'Your confidential swap history will appear here once you start trading.'
                   : 'Your swap history will appear here once you start trading.'
                 }
               </p>
               {privacyMode && (
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                  <ShieldCheckIcon className="h-4 w-4 text-emerald-400" />
-                  <span className="text-sm font-medium text-emerald-400">Amounts Hidden</span>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full" style={{
+                  background: `${theme.colors.success}10`,
+                  border: `1px solid ${theme.colors.success}20`
+                }}>
+                  <ShieldCheckIcon className="h-4 w-4" style={{ color: theme.colors.success }} />
+                  <span className="text-sm font-medium" style={{ color: theme.colors.success }}>Amounts Hidden</span>
                 </div>
               )}
             </div>
@@ -350,14 +357,9 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
               key={transaction.id}
               className="relative p-4 rounded-xl overflow-hidden transition-all duration-200 hover:scale-[1.01] group"
               style={{
-                background: `
-                  linear-gradient(135deg,
-                    rgba(30, 30, 45, 0.9) 0%,
-                    rgba(45, 45, 65, 0.8) 50%,
-                    rgba(30, 30, 45, 0.9) 100%
-                  )
-                `,
-                border: '1px solid rgba(156, 163, 175, 0.15)',
+                ...createGlassStyles(theme),
+                background: `${theme.colors.surface}dd`,
+                border: `1px solid ${theme.colors.border}`,
                 backdropFilter: 'blur(16px) saturate(1.5)'
               }}
             >
@@ -377,7 +379,8 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                     {/* Status */}
                     <div className="flex items-center gap-2">
                       {getStatusIcon(transaction.status)}
-                      <span className={`text-sm font-medium ${getStatusColor(transaction.status)}`} style={{
+                      <span className="text-sm font-medium" style={{
+                        color: getStatusColor(transaction.status),
                         fontFamily: 'var(--font-helvetica)'
                       }}>
                         {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
@@ -387,25 +390,27 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                     {/* Tokens */}
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-white" style={{
+                        <p className="text-sm font-semibold" style={{
+                          color: theme.colors.textPrimary,
                           fontFamily: 'var(--font-helvetica)'
                         }}>
                           {privacyMode && transaction.privacyLevel === 'private' ? '***' : transaction.fromToken.amount}
                         </p>
-                        <p className="text-xs text-gray-400">{transaction.fromToken.symbol}</p>
+                        <p className="text-xs" style={{ color: theme.colors.textMuted }}>{transaction.fromToken.symbol}</p>
                       </div>
 
                       <div className="flex flex-col items-center">
-                        <ArrowPathIcon className="h-4 w-4 text-gray-400" />
+                        <ArrowPathIcon className="h-4 w-4" style={{ color: theme.colors.textMuted }} />
                       </div>
 
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-white" style={{
+                        <p className="text-sm font-semibold" style={{
+                          color: theme.colors.textPrimary,
                           fontFamily: 'var(--font-helvetica)'
                         }}>
                           {privacyMode && transaction.privacyLevel === 'private' ? '***' : transaction.toToken.amount}
                         </p>
-                        <p className="text-xs text-gray-400">{transaction.toToken.symbol}</p>
+                        <p className="text-xs" style={{ color: theme.colors.textMuted }}>{transaction.toToken.symbol}</p>
                       </div>
                     </div>
                   </div>
@@ -414,21 +419,25 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                   <div className="flex items-center gap-4">
                     {/* Privacy indicator */}
                     {transaction.privacyLevel === 'private' && (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                        <ShieldCheckIcon className="h-3 w-3 text-emerald-400" />
-                        <span className="text-xs font-medium text-emerald-400">Private</span>
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{
+                        background: `${theme.colors.success}10`,
+                        border: `1px solid ${theme.colors.success}20`
+                      }}>
+                        <ShieldCheckIcon className="h-3 w-3" style={{ color: theme.colors.success }} />
+                        <span className="text-xs font-medium" style={{ color: theme.colors.success }}>Private</span>
                       </div>
                     )}
 
                     {/* Timestamp */}
                     <div className="text-right">
-                      <p className="text-xs text-gray-400" style={{
+                      <p className="text-xs" style={{
+                        color: theme.colors.textMuted,
                         fontFamily: 'var(--font-helvetica)'
                       }}>
                         {formatTimestamp(transaction.timestamp)}
                       </p>
                       {transaction.txHash && (
-                        <p className="text-xs text-gray-500 font-mono">{transaction.txHash}</p>
+                        <p className="text-xs font-mono" style={{ color: theme.colors.textMuted }}>{transaction.txHash}</p>
                       )}
                     </div>
 
@@ -438,17 +447,17 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                         <button
                           className="p-1.5 rounded-lg transition-all duration-200"
                           style={{
-                            background: 'rgba(156, 163, 175, 0.1)',
-                            border: '1px solid rgba(156, 163, 175, 0.2)'
+                            background: `${theme.colors.border}20`,
+                            border: `1px solid ${theme.colors.border}40`
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(156, 163, 175, 0.2)'
+                            e.currentTarget.style.background = `${theme.colors.border}30`
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'rgba(156, 163, 175, 0.1)'
+                            e.currentTarget.style.background = `${theme.colors.border}20`
                           }}
                         >
-                          <ArrowTopRightOnSquareIcon className="h-3 w-3 text-gray-400" />
+                          <ArrowTopRightOnSquareIcon className="h-3 w-3" style={{ color: theme.colors.textMuted }} />
                         </button>
                       )}
                     </div>
@@ -457,13 +466,15 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
 
                 {/* Additional details */}
                 {transaction.type === 'swap' && transaction.priceImpact && (
-                  <div className="mt-3 pt-3 border-t border-gray-700/50">
+                  <div className="mt-3 pt-3" style={{
+                    borderTop: `1px solid ${theme.colors.border}30`
+                  }}>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-gray-400">Price Impact</span>
-                      <span className={`font-medium font-jetbrains ${
-                        transaction.priceImpact > 1 ? 'text-red-400' :
-                        transaction.priceImpact > 0.5 ? 'text-yellow-400' : 'text-green-400'
-                      }`}>
+                      <span style={{ color: theme.colors.textMuted }}>Price Impact</span>
+                      <span className="font-medium font-jetbrains" style={{
+                        color: transaction.priceImpact > 1 ? theme.colors.error :
+                              transaction.priceImpact > 0.5 ? theme.colors.warning : theme.colors.success
+                      }}>
                         {transaction.priceImpact.toFixed(2)}%
                       </span>
                     </div>
@@ -481,32 +492,18 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
           <button
             className="px-6 py-3 rounded-xl transition-all duration-200 font-medium"
             style={{
-              background: `
-                linear-gradient(135deg,
-                  rgba(59, 130, 246, 0.8) 0%,
-                  rgba(147, 51, 234, 0.8) 100%
-                )
-              `,
-              border: '1px solid rgba(59, 130, 246, 0.3)',
+              background: `linear-gradient(135deg, ${theme.colors.primary}cc 0%, ${theme.colors.secondary}cc 100%)`,
+              border: `1px solid ${theme.colors.primary}40`,
               backdropFilter: 'blur(16px) saturate(1.8)',
               fontFamily: 'var(--font-helvetica)',
-              fontWeight: 500
+              fontWeight: 500,
+              color: theme.colors.textPrimary
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = `
-                linear-gradient(135deg,
-                  rgba(59, 130, 246, 0.9) 0%,
-                  rgba(147, 51, 234, 0.9) 100%
-                )
-              `
+              e.currentTarget.style.background = `linear-gradient(135deg, ${theme.colors.primary}dd 0%, ${theme.colors.secondary}dd 100%)`
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = `
-                linear-gradient(135deg,
-                  rgba(59, 130, 246, 0.8) 0%,
-                  rgba(147, 51, 234, 0.8) 100%
-                )
-              `
+              e.currentTarget.style.background = `linear-gradient(135deg, ${theme.colors.primary}cc 0%, ${theme.colors.secondary}cc 100%)`
             }}
           >
             Load More Transactions

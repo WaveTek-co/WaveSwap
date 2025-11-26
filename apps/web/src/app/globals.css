@@ -768,7 +768,7 @@
 
   /* Theme Overrides */
 
-  /* Light Theme - Azul Accents */
+  /* Light Theme - WaveSwap Azul Accents */
   .light-theme {
     --wave-bg-gradient-start: #f8fafc;
     --wave-bg-gradient-mid: #f0f9ff;
@@ -791,28 +791,28 @@
     --input: 214 32% 91%;
     --ring: 199 89% 48%;
 
-    /* Light theme specific colors */
-    --wave-glass-bg: rgba(255, 255, 255, 0.8);
-    --wave-glass-border: rgba(33, 188, 255, 0.2);
-    --wave-glass-border-hover: rgba(33, 188, 255, 0.3);
+    /* Light theme specific colors - WaveSwap Azul Theme */
+    --wave-glass-bg: rgba(255, 255, 255, 0.85);
+    --wave-glass-border: rgba(33, 188, 255, 0.25);
+    --wave-glass-border-hover: rgba(33, 188, 255, 0.35);
     --wave-text-primary: #1e293b;
     --wave-text-secondary: #334155;
     --wave-text-muted: #64748b;
 
-    /* Comprehensive Light Theme Variables */
+    /* Comprehensive Light Theme Variables - WaveSwap Azul */
     --theme-background: #ffffff;
     --theme-surface: #f8fafc;
     --theme-surface-hover: #f1f5f9;
-    --theme-glass: rgba(255, 255, 255, 0.8);
-    --theme-glass-border: rgba(0, 0, 0, 0.1);
+    --theme-glass: rgba(255, 255, 255, 0.85);
+    --theme-glass-border: rgba(33, 188, 255, 0.2);
     --theme-text-primary: #1e293b;
     --theme-text-secondary: #475569;
     --theme-text-muted: #64748b;
     --theme-text-inverse: #ffffff;
-    --theme-primary: #3b82f6;
-    --theme-primary-hover: #2563eb;
+    --theme-primary: var(--wave-azul); /* #21bcff */
+    --theme-primary-hover: var(--wave-azul-dark); /* #1999d4 */
     --theme-secondary: #10b981;
-    --theme-accent: #8b5cf6;
+    --theme-accent: var(--wave-deep-blue-light); /* #4a4aff */
     --theme-success: #10b981;
     --theme-warning: #f59e0b;
     --theme-error: #ef4444;
@@ -838,6 +838,17 @@
 
   .light-theme .min-h-screen {
     background: transparent !important;
+  }
+
+  /* Override body pseudo-elements for light theme */
+  .light-theme body::before {
+    opacity: 0.02;
+    mix-blend-mode: soft-light;
+  }
+
+  .light-theme body::after {
+    opacity: 0.01;
+    mix-blend-mode: soft-light;
   }
 
   /* Light mode component visibility fixes */
@@ -1107,6 +1118,22 @@
     background-color: rgba(31, 41, 55, 0.6);
   }
 
+  /* Floating gradient animation */
+  @keyframes gradientFloat {
+    0%, 100% {
+      transform: translate(0px, 0px) scale(1);
+    }
+    25% {
+      transform: translate(20px, -30px) scale(1.05);
+    }
+    50% {
+      transform: translate(-10px, 20px) scale(0.95);
+    }
+    75% {
+      transform: translate(30px, 10px) scale(1.02);
+    }
+  }
+
   .privacy-mode .border-gray-700\/60 {
     border-color: rgba(55, 65, 81, 0.6);
   }
@@ -1213,21 +1240,20 @@
 .light-theme .theme-background {
   background:
     linear-gradient(135deg,
-      #f8fafc 0%,
-      #e2e8f0 15%,
-      #cbd5e1 25%,
-      #94a3b8 35%,
-      #64748b 45%,
-      #475569 55%,
-      #334155 65%,
-      #1e293b 75%,
-      #0f172a 85%,
-      #f8fafc 100%
+      #ffffff 0%,
+      rgba(33, 188, 255, 0.02) 12%,
+      rgba(248, 250, 252, 0.95) 25%,
+      rgba(33, 188, 255, 0.04) 38%,
+      rgba(241, 245, 249, 0.9) 50%,
+      rgba(33, 188, 255, 0.03) 62%,
+      rgba(248, 250, 252, 0.95) 75%,
+      rgba(33, 188, 255, 0.01) 88%,
+      #ffffff 100%
     ),
-    radial-gradient(circle at 25% 25%, rgba(33, 188, 255, 0.20) 0%, transparent 60%),
-    radial-gradient(circle at 75% 75%, rgba(125, 211, 252, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 50% 10%, rgba(14, 165, 233, 0.12) 0%, transparent 70%),
-    radial-gradient(circle at 20% 80%, rgba(56, 189, 248, 0.10) 0%, transparent 60%) !important;
+    radial-gradient(circle at 20% 50%, rgba(33, 188, 255, 0.08) 0%, rgba(33, 188, 255, 0.02) 30%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(74, 74, 255, 0.06) 0%, rgba(74, 74, 255, 0.01) 35%, transparent 50%),
+    radial-gradient(circle at 40% 80%, rgba(6, 182, 212, 0.05) 0%, rgba(6, 182, 212, 0.01) 40%, transparent 50%),
+    radial-gradient(circle at 60% 30%, rgba(33, 188, 255, 0.04) 0%, transparent 40%) !important;
 }
 
 .dark-theme .theme-background {

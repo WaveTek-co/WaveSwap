@@ -172,19 +172,19 @@ export function CleanWalletButton() {
           <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
         ) : publicKey ? (
           <Check className="w-4 h-4" style={{
-            color: 'rgba(34, 197, 94, 0.9)',
-            filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))'
+            color: `${theme.colors.success}e6`,
+            filter: `drop-shadow(0 0 8px ${theme.colors.success}40)`
           }} />
         ) : (
           <Wallet className="w-4 h-4" style={{
-            color: 'rgba(33, 188, 255, 0.9)',
-            filter: 'drop-shadow(0 0 8px rgba(33, 188, 255, 0.4))'
+            color: `${theme.colors.primary}e6`,
+            filter: `drop-shadow(0 0 8px ${theme.colors.primary}40)`
           }} />
         )}
 
         <span style={{
-          color: publicKey ? 'rgba(255, 255, 255, 0.95)' : 'rgba(156, 163, 175, 0.9)',
-          textShadow: publicKey ? '0 0 10px rgba(34, 197, 94, 0.3)' : '0 0 10px rgba(33, 188, 255, 0.3)',
+          color: publicKey ? theme.colors.textPrimary : theme.colors.textMuted,
+          textShadow: publicKey ? `0 0 10px ${theme.colors.success}30` : `0 0 10px ${theme.colors.primary}30`,
           fontFamily: 'var(--font-helvetica)'
         }}>
           {getButtonText()}
@@ -194,7 +194,7 @@ export function CleanWalletButton() {
           <ChevronDown
             className="w-3 h-3"
             style={{
-              color: 'rgba(156, 163, 175, 0.8)',
+              color: `${theme.colors.textMuted}cc`,
               transition: 'all 0.3s ease'
             }}
           />
@@ -206,7 +206,7 @@ export function CleanWalletButton() {
         <div
           className="absolute inset-0 rounded-xl opacity-20 pointer-events-none"
           style={{
-            background: 'radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.3) 0%, transparent 70%)',
+            background: `radial-gradient(circle at 50% 50%, ${theme.colors.success}30 0%, transparent 70%)`,
             filter: 'blur(8px)'
           }}
         />
@@ -218,39 +218,52 @@ export function CleanWalletButton() {
       <div
         className="absolute top-full left-0 mt-2 w-64 rounded-xl z-50"
         style={{
+          ...createGlassStyles(theme),
           background: `
             linear-gradient(135deg,
-              rgba(30, 30, 45, 0.85) 0%,
-              rgba(45, 45, 65, 0.8) 25%,
-              rgba(30, 30, 45, 0.85) 50%,
-              rgba(45, 45, 65, 0.8) 75%,
-              rgba(30, 30, 45, 0.85) 100%
+              ${theme.colors.surface}ee 0%,
+              ${theme.colors.surfaceHover}cc 25%,
+              ${theme.colors.surface}ee 50%,
+              ${theme.colors.surfaceHover}cc 75%,
+              ${theme.colors.surface}ee 100%
             ),
             radial-gradient(circle at 25% 25%,
-              rgba(33, 188, 255, 0.05) 0%,
+              ${theme.colors.primary}05 0%,
               transparent 50%
             )
           `,
-          border: '1px solid rgba(33, 188, 255, 0.15)',
+          border: `1px solid ${theme.colors.primary}15`,
           backdropFilter: 'blur(24px) saturate(1.8)',
           boxShadow: `
-            0 20px 40px rgba(0, 0, 0, 0.3),
+            0 20px 40px ${theme.colors.shadow},
             inset 0 1px 0 rgba(255, 255, 255, 0.1),
-            0 0 0 1px rgba(33, 188, 255, 0.05)
+            0 0 0 1px ${theme.colors.primary}05
           `
         }}
       >
         {/* Wallet Address Section */}
-        <div className="p-4 border-b border-gray-700/50">
+        <div
+          className="p-4 border-b"
+          style={{ borderColor: `${theme.colors.border}50` }}
+        >
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
-              <Check className="w-4 h-4 text-green-400" />
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: `${theme.colors.success}20` }}
+            >
+              <Check className="w-4 h-4" style={{ color: theme.colors.success }} />
             </div>
             <div className="flex-1">
-              <div className="text-xs font-medium" style={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+              <div
+                className="text-xs font-medium"
+                style={{ color: theme.colors.textSecondary }}
+              >
                 Connected
               </div>
-              <div className="text-sm font-medium" style={{ color: 'rgba(255, 255, 255, 0.95)' }}>
+              <div
+                className="text-sm font-medium"
+                style={{ color: theme.colors.textPrimary }}
+              >
                 {getTruncatedAddress()}
               </div>
             </div>
@@ -264,18 +277,18 @@ export function CleanWalletButton() {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200"
             style={{
               fontFamily: 'var(--font-helvetica)',
-              color: 'rgba(255, 255, 255, 0.8)',
+              color: theme.colors.textSecondary,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(33, 188, 255, 0.1)'
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.95)'
+              e.currentTarget.style.background = `${theme.colors.primary}10`
+              e.currentTarget.style.color = theme.colors.textPrimary
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)'
+              e.currentTarget.style.color = theme.colors.textSecondary
             }}
           >
-            <Copy className="w-4 h-4" style={{ color: 'rgba(33, 188, 255, 0.8)' }} />
+            <Copy className="w-4 h-4" style={{ color: theme.colors.primary }} />
             <span className="text-sm font-medium">Copy Address</span>
           </button>
 
@@ -284,18 +297,18 @@ export function CleanWalletButton() {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200"
             style={{
               fontFamily: 'var(--font-helvetica)',
-              color: 'rgba(255, 255, 255, 0.8)',
+              color: theme.colors.textSecondary,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'
-              e.currentTarget.style.color = 'rgba(239, 68, 68, 0.9)'
+              e.currentTarget.style.background = `${theme.colors.error}10`
+              e.currentTarget.style.color = theme.colors.error
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)'
+              e.currentTarget.style.color = theme.colors.textSecondary
             }}
           >
-            <LogOut className="w-4 h-4" style={{ color: 'rgba(239, 68, 68, 0.8)' }} />
+            <LogOut className="w-4 h-4" style={{ color: theme.colors.error }} />
             <span className="text-sm font-medium">Disconnect</span>
           </button>
         </div>

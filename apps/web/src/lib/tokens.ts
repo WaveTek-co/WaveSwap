@@ -463,12 +463,15 @@ export async function getTokenBalance(
   mint: string
 ): Promise<string> {
   try {
+    console.log(`[getTokenBalance] Fetching balance for ${mint} for wallet ${walletAddress.toString()}`)
+
     // Create cache key
     const cacheKey = `${walletAddress.toString()}-${mint}`
 
     // Check cache first
     const cached = balanceCache.get(cacheKey)
     if (cached && (Date.now() - cached.timestamp < BALANCE_CACHE_DURATION)) {
+      console.log(`[getTokenBalance] Using cached balance for ${mint}: ${cached.balance}`)
       return cached.balance
     }
 
@@ -476,38 +479,48 @@ export async function getTokenBalance(
 
     // Handle SOL balance
     if (mint === 'So11111111111111111111111111111111111111112') {
+      console.log(`[getTokenBalance] Fetching SOL balance from RPC: ${connection.rpcEndpoint}`)
       const lamports = await connection.getBalance(walletAddress)
       balance = lamports.toString()
+      console.log(`[getTokenBalance] SOL balance fetched: ${balance} lamports`)
     }
     // Handle confidential tokens (they have different mint formats)
     else if (mint.startsWith('c') || !isBase58(mint)) {
+      console.log(`[getTokenBalance] Confidential token ${mint}, setting balance to 0`)
             balance = '0'
     }
     // Validate that mint is a valid public key before creating PublicKey
     else {
       try {
+        console.log(`[getTokenBalance] Fetching SPL token balance for ${mint}`)
         const mintPubkey = new PublicKey(mint)
 
         // Handle SPL token balance using proper SPL token methods
         const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletAddress)
+        console.log(`[getTokenBalance] Token account address: ${tokenAccount.toString()}`)
 
         try {
           const account = await getAccount(connection, tokenAccount)
           balance = account.amount.toString()
+          console.log(`[getTokenBalance] SPL token balance fetched: ${balance}`)
         } catch (accountError) {
+          console.log(`[getTokenBalance] Token account doesn't exist for ${mint}, setting balance to 0`)
           // Token account doesn't exist
           balance = '0'
         }
       } catch (pubkeyError) {
+        console.error(`[getTokenBalance] Invalid mint address ${mint}:`, pubkeyError)
                 balance = '0'
       }
     }
 
     // Cache the result
     balanceCache.set(cacheKey, { balance, timestamp: Date.now() })
+    console.log(`[getTokenBalance] Final balance for ${mint}: ${balance}`)
 
     return balance
   } catch (error) {
+    console.error(`[getTokenBalance] Error fetching balance for ${mint}:`, error)
         return '0'
   }
 }

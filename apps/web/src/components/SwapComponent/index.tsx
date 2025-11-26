@@ -133,6 +133,19 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const inputBalance = safeInputToken?.address ? (balances.get(safeInputToken.address) || '0') : '0'
   const outputBalance = safeOutputToken?.address ? (balances.get(safeOutputToken.address) || '0') : '0'
 
+  // Debug logging
+  console.log('[SwapComponent] Balance Debug:', {
+    publicKey: publicKey?.toString(),
+    inputToken: safeInputToken?.symbol,
+    inputTokenAddress: safeInputToken?.address,
+    outputToken: safeOutputToken?.symbol,
+    outputTokenAddress: safeOutputToken?.address,
+    inputBalance,
+    outputBalance,
+    balancesMapSize: balances.size,
+    allBalances: Object.fromEntries(balances)
+  })
+
   const inputBalanceFormatted = safeInputToken ? (() => {
     const amount = parseFloat(inputBalance) / Math.pow(10, safeInputToken.decimals || 9)
     if (amount === 0) return '0'
@@ -155,8 +168,25 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const displayInputBalance = inputBalanceFormatted
   const displayOutputBalance = outputBalanceFormatted
 
+  // Check if user has sufficient balance
+  const hasInsufficientBalance = safeInputToken && inputAmount && publicKey ? (() => {
+    const inputAmountNum = parseFloat(inputAmount)
+    if (isNaN(inputAmountNum) || inputAmountNum <= 0) return false
+
+    const balanceNum = parseFloat(inputBalance) / Math.pow(10, safeInputToken.decimals || 9)
+    return inputAmountNum > balanceNum
+  })() : false
+
   // Check if swap is possible
-  const canSwap = !!(publicKey && safeInputToken && safeOutputToken && inputAmount && parseFloat(inputAmount) > 0 && !isLoading)
+  const canSwap = !!(
+    publicKey &&
+    safeInputToken &&
+    safeOutputToken &&
+    inputAmount &&
+    parseFloat(inputAmount) > 0 &&
+    !isLoading &&
+    !hasInsufficientBalance
+  )
   const isProgressActive = !!(progress && progress.status !== SwapStatus.IDLE && progress.status !== SwapStatus.COMPLETED)
 
   // Calculate price impact with safe fallback
@@ -323,34 +353,55 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
               You Send
             </label>
             <div className="flex items-center gap-2">
-              {publicKey && parseFloat(inputBalance) > 0 && safeInputToken && (
-                <button
-                  onClick={() => {
-                    const maxAmount = parseFloat(inputBalance) / Math.pow(10, safeInputToken.decimals || 9)
-                    // Use 95% of balance to account for fees
-                    const amountWithFees = maxAmount * 0.95
-                    setInputAmount(amountWithFees.toString())
-                    clearQuote()
-                  }}
-                  className="text-xs font-medium transition-colors px-2 py-1 rounded-md"
-                  style={{
-                    color: theme.colors.primary,
-                    '&:hover': {
-                      color: theme.colors.primaryHover,
-                      backgroundColor: `${theme.colors.primary}10`
-                    }
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = theme.colors.primaryHover
-                    e.currentTarget.style.backgroundColor = `${theme.colors.primary}10`
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = theme.colors.primary
-                    e.currentTarget.style.backgroundColor = 'transparent'
-                  }}
-                >
-                  MAX
-                </button>
+              {publicKey && safeInputToken && (
+                <div className="flex items-center gap-1">
+                  {[
+                    { label: '25%', value: 0.25 },
+                    { label: '50%', value: 0.5 },
+                    { label: '75%', value: 0.75 },
+                    { label: 'MAX', value: 0.95 }
+                  ].map(({ label, value }) => (
+                    <button
+                      key={label}
+                      onClick={() => {
+                        const balanceNum = parseFloat(inputBalance)
+                        if (balanceNum > 0) {
+                          const maxAmount = balanceNum / Math.pow(10, safeInputToken.decimals || 9)
+                          // Use percentage of balance (MAX uses 95% to account for fees)
+                          const amountWithFees = maxAmount * value
+                          setInputAmount(amountWithFees.toString())
+                        } else {
+                          setInputAmount('0')
+                        }
+                        clearQuote()
+                      }}
+                      className="text-xs font-medium transition-all duration-200 px-2 py-1 rounded-md hover:scale-105 active:scale-95"
+                      style={{
+                        color: label === 'MAX' ? theme.colors.success : theme.colors.primary,
+                        backgroundColor: label === 'MAX' ? `${theme.colors.success}08` : `${theme.colors.primary}05`,
+                        border: `1px solid ${label === 'MAX' ? theme.colors.success + '20' : theme.colors.primary + '15'}`,
+                        fontWeight: label === 'MAX' ? 700 : 500,
+                        opacity: value === 0.95 ? 1 : 0.9
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = label === 'MAX'
+                          ? `${theme.colors.success}15`
+                          : `${theme.colors.primary}10`
+                        e.currentTarget.style.opacity = '1'
+                        e.currentTarget.style.transform = 'scale(1.05)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = label === 'MAX'
+                          ? `${theme.colors.success}08`
+                          : `${theme.colors.primary}05`
+                        e.currentTarget.style.opacity = value === 0.95 ? '1' : '0.9'
+                        e.currentTarget.style.transform = 'scale(1)'
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               )}
               <span
                 className="text-xs"
@@ -362,17 +413,38 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           </div>
 
           <div className="relative">
-            <div className="flex gap-2">
-              <div className="flex-1">
+            <div className="flex gap-3 items-stretch">
+              <div className="flex-1 min-w-0">
                 <AmountInput
                   value={inputAmount}
                   onChange={handleInputChange}
                   disabled={isLoading || isProgressActive}
                   placeholder="0.00"
-                  className="text-lg font-medium"
+                  className="text-xl font-bold"
                 />
+                {/* Fiat conversion display */}
+                {inputAmount && safeInputToken && (
+                  <div className="mt-2 text-xs font-medium" style={{ color: theme.colors.textMuted }}>
+                    ≈ ${(parseFloat(inputAmount || '0') * ((safeInputToken as any)?.price || 0)).toFixed(2)}
+                  </div>
+                )}
+
+                {/* Insufficient balance error */}
+                {hasInsufficientBalance && (
+                  <div
+                    className="mt-2 flex items-center gap-1.5 p-2 rounded-lg text-xs font-medium"
+                    style={{
+                      background: `${theme.colors.error}08`,
+                      border: `1px solid ${theme.colors.error}20`,
+                      color: theme.colors.error
+                    }}
+                  >
+                    <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>Insufficient balance. You have {displayInputBalance} {safeInputToken?.symbol} available.</span>
+                  </div>
+                )}
               </div>
-              <div className="w-32">
+              <div className="flex-shrink-0">
                 <TokenSelector
                   selectedToken={safeInputToken}
                   onTokenChange={handleInputTokenChange}
@@ -433,18 +505,24 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           </div>
 
           <div className="relative">
-            <div className="flex gap-2">
-              <div className="flex-1">
+            <div className="flex gap-3 items-stretch">
+              <div className="flex-1 min-w-0">
                 <AmountInput
                   value={outputAmount}
                   onChange={() => {}} // Output is read-only
                   disabled={true}
                   placeholder="0.00"
                   readOnly={true}
-                  className="text-lg font-medium opacity-75"
+                  className="text-xl font-bold opacity-75"
                 />
+                {/* Fiat conversion display */}
+                {outputAmount && safeOutputToken && (
+                  <div className="mt-2 text-xs font-medium" style={{ color: theme.colors.textMuted }}>
+                    ≈ ${(parseFloat(outputAmount || '0') * ((safeOutputToken as any)?.price || 0)).toFixed(2)}
+                  </div>
+                )}
               </div>
-              <div className="w-32">
+              <div className="flex-shrink-0">
                 <TokenSelector
                   selectedToken={safeOutputToken}
                   onTokenChange={handleOutputTokenChange}
@@ -459,158 +537,185 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           </div>
         </div>
 
-        {/* Advanced Swap Details */}
+        {/* Professional Swap Details */}
         {quote && (
           <div
-            className="relative z-10 space-y-3 p-4 rounded-xl"
-            style={{
-              background: `
-                linear-gradient(135deg,
-                  ${theme.colors.success}08 0%,
-                  ${theme.colors.success}04 50%,
-                  ${theme.colors.success}08 100%
-                ),
-                radial-gradient(circle at 50% 0%,
-                  ${theme.colors.success}02 0%,
-                  transparent 50%
-                )
-              `,
-              border: `1px solid ${theme.colors.success}15`,
-              backdropFilter: 'blur(20px) saturate(1.6)',
-              boxShadow: `
-                0 12px 40px ${theme.colors.shadow},
-                inset 0 1px 0 rgba(255, 255, 255, 0.08),
-                0 0 0 1px ${theme.colors.success}05
-              `
-            }}
+            className="relative z-10"
           >
-            <div className="flex items-center justify-between">
-              <span
-                className="text-xs font-medium"
-                style={{ color: theme.colors.textMuted }}
-              >
-                Rate
-              </span>
-              <span
-                className="text-sm font-semibold"
-                style={{ color: theme.colors.textPrimary }}
-              >
-                {displayInputToken && displayOutputToken && displayOutputTokenConfidential && quote ? (() => {
-                  try {
-                    const inputDecimals = displayInputToken.decimals || 6
-                    const outputDecimals = displayOutputToken.decimals || 9
-
-                    // Use direct property access with fallbacks
-                    const quoteAny = quote as any
-                    const inputAmount = parseFloat(quoteAny.inAmount || quoteAny.inputAmount || quoteAny.amountIn || '0')
-                    const outputAmount = parseFloat(quoteAny.outAmount || quoteAny.outputAmount || quoteAny.amountOut || quoteAny.expectedOutAmount || '0')
-
-                    // If we still have zero amounts, return placeholder
-                    if (inputAmount === 0 || outputAmount === 0) {
-                      return `1 ${displayInputToken.symbol} = --- ${displayOutputTokenConfidential.symbol}`
-                    }
-
-                    // Normalize amounts to their proper decimal places
-                    const normalizedInput = inputAmount / Math.pow(10, inputDecimals)
-                    const normalizedOutput = outputAmount / Math.pow(10, outputDecimals)
-
-                    // Calculate exchange rate: 1 input token = X output tokens
-                    const exchangeRate = normalizedInput > 0 ? normalizedOutput / normalizedInput : 0
-
-                    if (isNaN(exchangeRate) || !isFinite(exchangeRate) || exchangeRate === 0) {
-                      return `1 ${displayInputToken.symbol} = --- ${displayOutputTokenConfidential.symbol}`
-                    }
-
-                    return `1 ${displayInputToken.symbol} = ${exchangeRate.toFixed(6)} ${displayOutputTokenConfidential.symbol}`
-                  } catch (error) {
-                    // Price calculation failed - fallback to placeholder
-                    return `1 ${displayInputToken.symbol} = --- ${displayOutputTokenConfidential.symbol}`
-                  }
-                })() : '---'
-                }
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span
-                className="text-xs font-medium"
-                style={{ color: theme.colors.textMuted }}
-              >
-                Price Impact
-              </span>
-              <span
-                className="text-sm font-semibold"
-                style={{
-                  color: priceImpact > 5 ? theme.colors.error :
-                         priceImpact > 2 ? theme.colors.warning :
-                         theme.colors.success
-                }}
-              >
-                {typeof priceImpact === 'number' && !isNaN(priceImpact) ? priceImpact.toFixed(2) : '0.00'}%
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span
-                className="text-xs font-medium"
-                style={{ color: theme.colors.textMuted }}
-              >
-                Minimum Received
-              </span>
-              <span
-                className="text-sm font-semibold"
-                style={{ color: theme.colors.textPrimary }}
-              >
-                {displayOutputTokenConfidential && outputAmount && quote ? (() => {
-                  try {
-                    const outputDecimals = displayOutputToken?.decimals || 9
-                    const rawOutputAmount = parseFloat(quote.outputAmount) || 0
-                    const normalizedOutput = rawOutputAmount / Math.pow(10, outputDecimals)
-                    const minimumReceived = normalizedOutput * 0.98 // 2% slippage
-
-                    if (isNaN(minimumReceived) || !isFinite(minimumReceived)) {
-                      return '---'
-                    }
-
-                    return minimumReceived.toFixed(6)
-                  } catch (error) {
-                    return '---'
-                  }
-                })() : '---'
-                } {displayOutputTokenConfidential?.symbol}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span
-                className="text-xs font-medium"
-                style={{ color: theme.colors.textMuted }}
-              >
-                Network Fee
-              </span>
-              <span
-                className="text-sm font-semibold"
-                style={{ color: theme.colors.textPrimary }}
-              >
-                ~0.000005 SOL
-              </span>
-            </div>
-            {privacyMode && (
-              <div
-                className="flex items-center justify-between pt-2"
-                style={{ borderTop: `1px solid ${theme.colors.border}` }}
-              >
-                <span
-                  className="text-xs font-medium"
-                  style={{ color: theme.colors.success }}
+            <div
+              className="p-6 rounded-2xl"
+              style={{
+                background: `
+                  linear-gradient(135deg,
+                    ${theme.colors.surface}f0 0%,
+                    ${theme.colors.surfaceHover}dd 50%,
+                    ${theme.colors.surface}f0 100%
+                  ),
+                  radial-gradient(circle at 25% 25%,
+                    ${theme.colors.primary}08 0%,
+                    transparent 50%
+                  )
+                `,
+                border: `1px solid ${theme.colors.primary}15`,
+                backdropFilter: 'blur(24px) saturate(1.8)',
+                boxShadow: `
+                  0 20px 60px ${theme.colors.shadowHeavy},
+                  0 8px 24px ${theme.colors.primary}08,
+                  inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                `
+              }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: theme.colors.success }}
+                  />
+                  <span
+                    className="text-sm font-bold tracking-wide"
+                    style={{ color: theme.colors.textSecondary }}
+                  >
+                    SWAP DETAILS
+                  </span>
+                </div>
+                <div
+                  className="px-2 py-1 rounded-full text-xs font-medium"
+                  style={{
+                    background: `${theme.colors.success}10`,
+                    color: theme.colors.success,
+                    border: `1px solid ${theme.colors.success}20`
+                  }}
                 >
-                  Privacy Fee
-                </span>
-                <span
-                  className="text-sm font-semibold"
-                  style={{ color: theme.colors.success }}
-                >
-                  ~0.1%
-                </span>
+                  LIVE RATE
+                </div>
               </div>
-            )}
+
+              {/* Details Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <span className="text-xs font-medium" style={{ color: theme.colors.textMuted }}>
+                    Exchange Rate
+                  </span>
+                  <div className="text-sm font-bold" style={{ color: theme.colors.textPrimary }}>
+                    {displayInputToken && displayOutputToken && displayOutputTokenConfidential && quote ? (() => {
+                      try {
+                        const inputDecimals = displayInputToken.decimals || 6
+                        const outputDecimals = displayOutputToken.decimals || 9
+
+                        // Use direct property access with fallbacks
+                        const quoteAny = quote as any
+                        const inputAmount = parseFloat(quoteAny.inAmount || quoteAny.inputAmount || quoteAny.amountIn || '0')
+                        const outputAmount = parseFloat(quoteAny.outAmount || quoteAny.outputAmount || quoteAny.amountOut || quoteAny.expectedOutAmount || '0')
+
+                        // If we still have zero amounts, return placeholder
+                        if (inputAmount === 0 || outputAmount === 0) {
+                          return `1 ${displayInputToken.symbol} = --- ${displayOutputTokenConfidential.symbol}`
+                        }
+
+                        // Normalize amounts to their proper decimal places
+                        const normalizedInput = inputAmount / Math.pow(10, inputDecimals)
+                        const normalizedOutput = outputAmount / Math.pow(10, outputDecimals)
+
+                        // Calculate exchange rate: 1 input token = X output tokens
+                        const exchangeRate = normalizedInput > 0 ? normalizedOutput / normalizedInput : 0
+
+                        if (isNaN(exchangeRate) || !isFinite(exchangeRate) || exchangeRate === 0) {
+                          return `1 ${displayInputToken.symbol} = --- ${displayOutputTokenConfidential.symbol}`
+                        }
+
+                        return `1 ${displayInputToken.symbol} = ${exchangeRate.toFixed(6)} ${displayOutputTokenConfidential.symbol}`
+                      } catch (error) {
+                        // Price calculation failed - fallback to placeholder
+                        return `1 ${displayInputToken.symbol} = --- ${displayOutputTokenConfidential.symbol}`
+                      }
+                    })() : '---'}
+                  </div>
+                </div>
+
+                {/* Price Impact */}
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: theme.colors.textMuted }}
+                  >
+                    Price Impact
+                  </span>
+                  <span
+                    className="text-sm font-semibold"
+                    style={{
+                      color: priceImpact > 5 ? theme.colors.error :
+                             priceImpact > 2 ? theme.colors.warning :
+                             theme.colors.success
+                    }}
+                  >
+                    {typeof priceImpact === 'number' && !isNaN(priceImpact) ? priceImpact.toFixed(2) : '0.00'}%
+                  </span>
+                </div>
+
+                {/* Second Column - Additional Info */}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium" style={{ color: theme.colors.textMuted }}>
+                    Minimum Received
+                  </span>
+                  <div className="text-sm font-bold" style={{ color: theme.colors.textPrimary }}>
+                    {displayOutputTokenConfidential && outputAmount && quote ? (() => {
+                      try {
+                        const outputDecimals = displayOutputToken?.decimals || 9
+                        const rawOutputAmount = parseFloat(quote.outputAmount) || 0
+                        const normalizedOutput = rawOutputAmount / Math.pow(10, outputDecimals)
+                        const minimumReceived = normalizedOutput * 0.98 // 2% slippage
+
+                        if (isNaN(minimumReceived) || !isFinite(minimumReceived)) {
+                          return '---'
+                        }
+
+                        return `${minimumReceived.toFixed(6)} ${displayOutputTokenConfidential?.symbol}`
+                      } catch (error) {
+                        return '---'
+                      }
+                    })() : '---'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Full Width Sections */}
+              <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${theme.colors.border}20` }}>
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: theme.colors.textMuted }}
+                  >
+                    Network Fee
+                  </span>
+                  <span
+                    className="text-sm font-semibold"
+                    style={{ color: theme.colors.textPrimary }}
+                  >
+                    ~0.000005 SOL
+                  </span>
+                </div>
+                {privacyMode && (
+                  <div
+                    className="flex items-center justify-between pt-2"
+                    style={{ borderTop: `1px solid ${theme.colors.border}` }}
+                  >
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: theme.colors.success }}
+                    >
+                      Privacy Fee
+                    </span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: theme.colors.success }}
+                    >
+                      ~0.1%
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -711,13 +816,6 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
             className="flex items-center justify-center gap-6 text-xs"
             style={{ color: theme.colors.textMuted }}
           >
-            <div className="flex items-center gap-1">
-              <div
-                className="w-3 h-3 rounded-full animate-pulse"
-                style={{ backgroundColor: theme.colors.success }}
-              />
-              <span>Audited</span>
-            </div>
             <div className="flex items-center gap-1">
               <div
                 className="w-3 h-3 rounded-full"

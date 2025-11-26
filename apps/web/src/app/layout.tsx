@@ -7,6 +7,7 @@ import PrivacyReminder from '@/components/PrivacyReminder'
 import { PrivacyProvider } from '@/contexts/PrivacyContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { NearWalletProvider } from '@/providers/NearWalletProvider'
+import { StarknetWalletProvider } from '@/providers/StarknetWalletProvider'
 import { WalletModalProvider } from '@/contexts/WalletModalContext'
 import { GlobalWalletModal } from '@/components/Wallets/GlobalWalletModal'
 
@@ -63,15 +64,17 @@ export default function RootLayout({
             <WalletModalProvider>
               <NoSSRProvider>
                 <NearWalletProvider>
-                  <SolanaWalletProvider>
-                    <WaveSwapProvider>
-                      <div className="min-h-screen text-foreground theme-background">
-                        {children}
-                        <PrivacyReminder />
-                        <GlobalWalletModal />
-                      </div>
+                  <StarknetWalletProvider>
+                    <SolanaWalletProvider>
+                      <WaveSwapProvider>
+                        <div className="min-h-screen text-foreground theme-background">
+                          {children}
+                          <PrivacyReminder />
+                          <GlobalWalletModal />
+                        </div>
                       </WaveSwapProvider>
-                  </SolanaWalletProvider>
+                    </SolanaWalletProvider>
+                  </StarknetWalletProvider>
                 </NearWalletProvider>
               </NoSSRProvider>
             </WalletModalProvider>

@@ -9,7 +9,6 @@ import {
   CoinbaseWalletAdapter,
   TrustWalletAdapter,
   LedgerWalletAdapter,
-  BackpackWalletAdapter,
 } from '@solana/wallet-adapter-wallets'
 import { useMemo } from 'react'
 import { config } from '@/lib/config'
@@ -25,7 +24,6 @@ export function CustomWalletProvider({ children }: { children: React.ReactNode }
     () => [
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
-      new BackpackWalletAdapter(),
       new CoinbaseWalletAdapter(),
       new TrustWalletAdapter(),
       new LedgerWalletAdapter(),

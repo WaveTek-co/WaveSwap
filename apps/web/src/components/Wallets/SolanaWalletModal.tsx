@@ -313,7 +313,7 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
                     color: theme.colors.textMuted
                   }}
                 >
-                  Secure • Fast • Easy to use
+                  Fast • Easy to use
                 </span>
                 <a
                   href="https://phantom.app/"

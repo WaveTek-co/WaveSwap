@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useThemeConfig } from '@/lib/theme'
 
 interface TokenIconProps {
   symbol: string
@@ -22,6 +23,7 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
   const [showFallback, setShowFallback] = useState(false)
   const [imageError, setImageError] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const theme = useThemeConfig()
 
   // Create sources array in order of preference
   const sources = [
@@ -49,23 +51,32 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
   if (showFallback || !sources[0] || imageError) {
     return (
       <div
-        className={`rounded-full flex items-center justify-center bg-gradient-to-br from-primary-500/20 to-blue-500/20 ${className}`}
+        className={`rounded-full flex items-center justify-center ${className}`}
         style={{
           width: size,
           height: size,
-          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.1))',
-          border: '2px solid rgba(59, 130, 246, 0.3)',
-          backdropFilter: 'blur(10px)'
+          background: theme.name === 'light'
+            ? 'linear-gradient(135deg, rgba(33, 188, 255, 0.08), rgba(74, 74, 255, 0.05))'
+            : 'linear-gradient(135deg, rgba(33, 188, 255, 0.15), rgba(74, 74, 255, 0.1))',
+          border: theme.name === 'light'
+            ? '2px solid rgba(33, 188, 255, 0.3)'
+            : '2px solid rgba(33, 188, 255, 0.4)',
+          backdropFilter: 'blur(12px) saturate(1.8)',
+          WebkitBackdropFilter: 'blur(12px) saturate(1.8)',
+          boxShadow: theme.name === 'light'
+            ? '0 4px 12px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
+            : '0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
         }}
       >
         <span
           className="font-bold"
           style={{
-            color: 'var(--wave-primary)',
+            color: theme.name === 'light' ? '#0ea5e9' : '#21bcff',
             fontFamily: 'var(--font-helvetica)',
             fontSize: `${size * 0.4}px`,
             textTransform: 'uppercase',
-            letterSpacing: '0.05em'
+            letterSpacing: '0.05em',
+            textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
           }}
         >
           {symbol.slice(0, 2)}
@@ -81,10 +92,18 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
       style={{
         width: size,
         height: size,
-        background: 'var(--wave-glass-bg)',
-        border: '2px solid var(--wave-glass-border)',
-        backdropFilter: 'blur(10px)',
-        overflow: 'hidden'
+        background: theme.name === 'light'
+          ? 'rgba(255, 255, 255, 0.9)'
+          : 'rgba(255, 255, 255, 0.1)',
+        border: theme.name === 'light'
+          ? '2px solid rgba(33, 188, 255, 0.25)'
+          : '2px solid rgba(33, 188, 255, 0.3)',
+        backdropFilter: 'blur(12px) saturate(1.8)',
+        WebkitBackdropFilter: 'blur(12px) saturate(1.8)',
+        overflow: 'hidden',
+        boxShadow: theme.name === 'light'
+          ? '0 4px 12px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5)'
+          : '0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
       }}
     >
       <img

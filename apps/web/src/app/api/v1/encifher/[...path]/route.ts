@@ -7,30 +7,34 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  return proxyRequest('GET', request, params.path)
+  const { path } = await params
+  return proxyRequest('GET', request, path)
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  return proxyRequest('POST', request, params.path)
+  const { path } = await params
+  return proxyRequest('POST', request, path)
 }
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  return proxyRequest('PUT', request, params.path)
+  const { path } = await params
+  return proxyRequest('PUT', request, path)
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  return proxyRequest('DELETE', request, params.path)
+  const { path } = await params
+  return proxyRequest('DELETE', request, path)
 }
 
 async function proxyRequest(
@@ -63,12 +67,12 @@ async function proxyRequest(
       }
     }
 
-    // Also forward X-API-Key header if present
-    let apiKeyHeader = request.headers.get('x-api-key')
+    // Get API key from environment or request
+    let apiKeyHeader = request.headers.get('authorization') || request.headers.get('x-api-key')
 
     // If no API key in request, try to get from environment
     if (!apiKeyHeader) {
-      apiKeyHeader = process.env.ENCIFHER_API_KEY || process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY || null
+      apiKeyHeader = process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY || process.env.ENCIFHER_API_KEY || null
     }
 
     // If still no API key, use the configured key from the client
@@ -77,11 +81,14 @@ async function proxyRequest(
     }
 
     if (apiKeyHeader) {
+      // Format as Bearer token if not already formatted
+      const authHeader = apiKeyHeader.startsWith('Bearer ') ? apiKeyHeader : `Bearer ${apiKeyHeader}`
+
       requestOptions.headers = {
         ...requestOptions.headers,
-        'X-API-Key': apiKeyHeader
+        'Authorization': authHeader
       }
-      console.log('[Encifher Proxy API] Using API key:', apiKeyHeader.substring(0, 8) + '...')
+      console.log('[Encifher Proxy API] Using API key:', authHeader.substring(0, 12) + '...')
     }
 
     // Add request body for POST/PUT requests

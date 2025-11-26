@@ -146,11 +146,11 @@ export function NearWalletModal({ modal, onClose, onWalletConnected }: NearWalle
       }
     }
 
-    modal.on('hide', handleHide)
+    modal.on('onHide', handleHide)
 
     // Cleanup
     return () => {
-      modal.off('hide', handleHide)
+      modal.off('onHide', handleHide)
       if (document.head.contains(style)) {
         document.head.removeChild(style)
       }

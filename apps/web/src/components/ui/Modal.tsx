@@ -164,11 +164,7 @@ export function Modal({
                     color: theme.colors.textSecondary,
                     backgroundColor: 'transparent',
                     border: 'none',
-                    cursor: 'pointer',
-                    '&:hover': {
-                      backgroundColor: theme.colors.surfaceHover,
-                      color: theme.colors.textPrimary
-                    }
+                    cursor: 'pointer'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = theme.colors.surfaceHover

@@ -107,6 +107,34 @@ export class EncifherClient {
     }
   }
 
+  // Enhanced retry logic with exponential backoff
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let lastError: Error
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation()
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+
+        if (attempt === maxRetries) {
+          console.error(`Encifher ${operationName} failed after ${maxRetries} attempts:`, lastError)
+          throw new Error(`Encifher ${operationName} failed after ${maxRetries} attempts: ${lastError.message}`)
+        }
+
+        const delay = 1000 * Math.pow(2, attempt - 1) // Exponential backoff
+        console.warn(`Encifher ${operationName} attempt ${attempt} failed, retrying in ${delay}ms:`, lastError)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+
+    throw lastError!
+  }
+
   /**
    * Initialize Encifher SDK client
    */
@@ -399,13 +427,17 @@ export class EncifherClient {
       throw new Error('Encifher client not initialized')
     }
 
-    try {
+    return this.retryWithBackoff(async () => {
       // Note: amountIn should already be in base units as per SDK documentation
       console.log('[Encifher] Getting swap quote:', {
         inMint: params.inMint,
         outMint: params.outMint,
         amountIn: params.amountIn
       })
+
+      if (!this.client) {
+        throw new Error('Encifher client not initialized in retry context')
+      }
 
       const quote = await this.client.getSwapQuote({
         inMint: params.inMint,
@@ -434,10 +466,7 @@ export class EncifherClient {
         route: route,
         priceImpact: priceImpact.toString()
       }
-    } catch (error) {
-      console.error('Error getting private swap quote:', error)
-      throw new Error(`Private swap quote failed: ${error}`)
-    }
+    }, 'getPrivateSwapQuote')
   }
 
   /**
@@ -671,16 +700,23 @@ export const EncifherUtils = {
     const encifherKey = process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
     const rpcUrl = process.env.NEXT_PUBLIC_ENCIFHER_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
-    // Encifher SDK works without API key according to user confirmation
-    return { encifherKey: encifherKey || 'default-key', rpcUrl }
+    // Use the provided API key if available, otherwise use default
+    if (encifherKey && encifherKey !== 'your-api-key-here') {
+      console.log('[Encifher] Using configured API key')
+      return { encifherKey, rpcUrl }
+    } else {
+      console.log('[Encifher] Using default configuration')
+      return { encifherKey: 'default-key', rpcUrl }
+    }
   },
 
   /**
    * Check if Encifher is properly configured
    */
   isConfigured(): boolean {
-    // Encifher SDK works without API key - always return true
-    return true
+    const encifherKey = process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
+    // Check if we have a valid API key or can use default
+    return true // Always allow usage with fallback to default
   },
 
   /**

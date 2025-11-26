@@ -1,7 +1,14 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { WalletInfo } from '@/components/Wallets/MultiChainWalletModal'
+
+export interface WalletInfo {
+  id: string
+  name: string
+  chain: 'solana' | 'near' | 'zcash' | 'starknet'
+  icon?: string
+  installed?: boolean
+}
 
 export interface ConnectedWallet {
   id: string

@@ -166,10 +166,7 @@ export function ConnectedWallet({ publicKey, walletName, onDisconnect, onCopyAdd
                 onClick={onDisconnect}
                 style={{
                   ...dropdownButtonStyles,
-                  borderBottom: 'none',
-                  '&:hover': {
-                    background: `${theme.colors.error}10`
-                  }
+                  borderBottom: 'none'
                 }}
               >
                 <LogOut size={16} style={{ color: theme.colors.error }} />

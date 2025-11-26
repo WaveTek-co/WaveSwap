@@ -15,7 +15,19 @@ export async function swapRoutes(fastify: FastifyInstance) {
   // Submit swap
   fastify.post('/submit', {
     schema: {
-      body: swapRequestSchema,
+      body: {
+        type: 'object',
+        required: ['userAddress', 'inputToken', 'outputToken', 'inputAmount'],
+        properties: {
+          userAddress: { type: 'string', minLength: 44, maxLength: 44 },
+          inputToken: { type: 'string', minLength: 44, maxLength: 44 },
+          outputToken: { type: 'string', minLength: 44, maxLength: 44 },
+          inputAmount: { type: 'string', pattern: '^[0-9]+$' },
+          slippageBps: { type: 'integer', minimum: 1, maximum: 1000, default: 50 },
+          privacyMode: { type: 'boolean', default: true },
+          signature: { type: 'string' }
+        }
+      },
       response: {
         200: {
           type: 'object',
@@ -67,9 +79,13 @@ export async function swapRoutes(fastify: FastifyInstance) {
   // Get swap status
   fastify.get('/:intentId/status', {
     schema: {
-      params: Joi.object({
-        intentId: Joi.string().required().uuid(),
-      }),
+      params: {
+        type: 'object',
+        required: ['intentId'],
+        properties: {
+          intentId: { type: 'string', format: 'uuid' }
+        }
+      },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -99,12 +115,20 @@ export async function swapRoutes(fastify: FastifyInstance) {
   // Cancel swap
   fastify.post('/:intentId/cancel', {
     schema: {
-      params: Joi.object({
-        intentId: Joi.string().required().uuid(),
-      }),
-      body: Joi.object({
-        authToken: Joi.string().required(),
-      }),
+      params: {
+        type: 'object',
+        required: ['intentId'],
+        properties: {
+          intentId: { type: 'string', format: 'uuid' }
+        }
+      },
+      body: {
+        type: 'object',
+        required: ['authToken'],
+        properties: {
+          authToken: { type: 'string' }
+        }
+      },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -141,14 +165,21 @@ export async function swapRoutes(fastify: FastifyInstance) {
   // Get user's swap history
   fastify.get('/history/:userAddress', {
     schema: {
-      params: Joi.object({
-        userAddress: Joi.string().required().length(44),
-      }),
-      querystring: Joi.object({
-        limit: Joi.number().integer().min(1).max(100).default(20),
-        offset: Joi.number().integer().min(0).default(0),
-        status: Joi.string().optional(),
-      }),
+      params: {
+        type: 'object',
+        required: ['userAddress'],
+        properties: {
+          userAddress: { type: 'string', minLength: 44, maxLength: 44 }
+        }
+      },
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          offset: { type: 'integer', minimum: 0, default: 0 },
+          status: { type: 'string' }
+        }
+      },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -195,9 +226,13 @@ export async function swapRoutes(fastify: FastifyInstance) {
   // Get swap details
   fastify.get('/:intentId', {
     schema: {
-      params: Joi.object({
-        intentId: Joi.string().required().uuid(),
-      }),
+      params: {
+        type: 'object',
+        required: ['intentId'],
+        properties: {
+          intentId: { type: 'string', format: 'uuid' }
+        }
+      },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {

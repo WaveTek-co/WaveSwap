@@ -25,7 +25,7 @@ export function WalletMultiButton() {
   const handleConnect = async (walletName: string) => {
     try {
       setIsOpen(false)
-      await select(walletName)
+      await select(walletName as any)
       await connect()
     } catch (error) {
       console.error('Failed to connect wallet:', error)
@@ -156,14 +156,14 @@ export function WalletMultiButton() {
                     <button
                       key={wallet.adapter.name}
                       onClick={() => handleConnect(wallet.adapter.name)}
-                      disabled={wallet.readyState !== 'Ready'}
+                      disabled={wallet.readyState !== 'Ready' as any}
                       className="w-full p-3 rounded-lg flex items-center justify-between transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
                         background: 'var(--wave-glass-bg)',
                         border: '1px solid var(--wave-glass-border)'
                       }}
                       onMouseEnter={(e) => {
-                        if (wallet.readyState === 'Ready') {
+                        if (wallet.readyState === 'Ready' as any) {
                           e.currentTarget.style.background = 'rgba(33, 188, 255, 0.05)'
                           e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.2)'
                         }

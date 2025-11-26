@@ -62,7 +62,7 @@ export function ChainIcon({ chainId, size = 24, className = '' }: ChainIconProps
       case 'zec':
         return '/static/icons/network/zcash.svg'
       case 'starknet':
-        return '/static/icons/network/ethereum.svg' // Use Ethereum icon for StarkNet
+        return '/static/icons/network/starknet.svg' // Starknet icon
       case 'eth':
       case 'ethereum':
         return '/static/icons/network/ethereum.svg'
@@ -127,7 +127,7 @@ export function TokenIcon({ token, size = 24, className = '', symbol }: TokenIco
         case 'zec':
           return 'https://z.cash/wp-content/uploads/2021/03/zcash-logo-fullcolor-512x512.png'
         case 'starknet':
-          return 'https://starknet.io/wp-content/uploads/2022/06/starknet-logo-dark.png'
+          return '/static/icons/network/starknet.svg'
       }
     }
 
@@ -179,9 +179,11 @@ export function TokenIcon({ token, size = 24, className = '', symbol }: TokenIco
     )
   }
 
+  const tokenIconSrc = getTokenIcon() || '/icons/default-token.svg'
+
   return (
     <IconWithFallback
-      src={getTokenIcon()}
+      src={tokenIconSrc}
       size={size}
       className={`${className} rounded-full`}
       alt={`${tokenSymbol || 'token'} icon`}

@@ -67,8 +67,8 @@ const lightTheme: ThemeConfig = {
     background: '#ffffff',
     surface: '#f8fafc',
     surfaceHover: '#f1f5f9',
-    glass: 'rgba(255, 255, 255, 0.8)',
-    glassBorder: 'rgba(0, 0, 0, 0.1)',
+    glass: 'rgba(255, 255, 255, 0.85)',
+    glassBorder: 'rgba(33, 188, 255, 0.2)',
 
     // Text colors
     textPrimary: '#1e293b',
@@ -76,11 +76,11 @@ const lightTheme: ThemeConfig = {
     textMuted: '#64748b',
     textInverse: '#ffffff',
 
-    // Brand colors
-    primary: '#3b82f6',
-    primaryHover: '#2563eb',
+    // Brand colors - WaveSwap Azul Theme
+    primary: '#21bcff', // WaveSwap azul
+    primaryHover: '#1999d4', // Azul dark
     secondary: '#10b981',
-    accent: '#8b5cf6',
+    accent: '#4a4aff', // Deep blue light
 
     // Status colors
     success: '#10b981',
@@ -99,15 +99,16 @@ const lightTheme: ThemeConfig = {
     shadowLight: 'rgba(0, 0, 0, 0.05)',
     shadowHeavy: 'rgba(0, 0, 0, 0.25)',
 
-    // Special colors
-    gradientStart: '#3b82f6',
-    gradientEnd: '#8b5cf6',
-    overlay: 'rgba(0, 0, 0, 0.5)'
+    // Special colors - WaveSwap Azul Theme
+    gradientStart: '#21bcff', // WaveSwap azul
+    gradientEnd: '#4a4aff', // Deep blue light
+    overlay: 'rgba(0, 0, 0, 0.3)'
   },
   glassStyles: {
     backdrop: 'blur(20px) saturate(1.8)',
-    border: '1px solid rgba(0, 0, 0, 0.1)',
-    background: 'rgba(255, 255, 255, 0.8)'
+    blur: '20px',
+    border: '1px solid rgba(33, 188, 255, 0.2)',
+    background: 'rgba(255, 255, 255, 0.85)'
   },
   animations: {
     duration: '0.2s',
@@ -161,6 +162,7 @@ const darkTheme: ThemeConfig = {
   },
   glassStyles: {
     backdrop: 'blur(24px) saturate(1.8)',
+    blur: '24px',
     border: '1px solid rgba(255, 255, 255, 0.1)',
     background: 'rgba(30, 41, 59, 0.8)'
   },
@@ -216,6 +218,7 @@ const orcaTheme: ThemeConfig = {
   },
   glassStyles: {
     backdrop: 'blur(24px) saturate(1.6)',
+    blur: '24px',
     border: '1px solid rgba(74, 222, 128, 0.2)',
     background: 'rgba(26, 31, 46, 0.9)'
   },

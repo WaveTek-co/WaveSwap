@@ -13,7 +13,17 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Get quote endpoint
   fastify.post('/', {
     schema: {
-      body: quoteRequestSchema,
+      body: {
+        type: 'object',
+        required: ['inputToken', 'outputToken', 'inputAmount'],
+        properties: {
+          inputToken: { type: 'string', minLength: 44, maxLength: 44 },
+          outputToken: { type: 'string', minLength: 44, maxLength: 44 },
+          inputAmount: { type: 'string', pattern: '^[0-9]+$' },
+          slippageBps: { type: 'integer', minimum: 1, maximum: 1000, default: 50 },
+          privacyMode: { type: 'boolean', default: true }
+        }
+      },
       response: {
         200: {
           type: 'object',
@@ -111,10 +121,14 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Validate token pair
   fastify.post('/validate', {
     schema: {
-      body: Joi.object({
-        inputToken: Joi.string().required().length(44),
-        outputToken: Joi.string().required().length(44),
-      }),
+      body: {
+        type: 'object',
+        required: ['inputToken', 'outputToken'],
+        properties: {
+          inputToken: { type: 'string', minLength: 44, maxLength: 44 },
+          outputToken: { type: 'string', minLength: 44, maxLength: 44 }
+        }
+      },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -140,10 +154,14 @@ export async function quoteRoutes(fastify: FastifyInstance) {
   // Invalidate quote cache
   fastify.post('/invalidate', {
     schema: {
-      body: Joi.object({
-        inputToken: Joi.string().required().length(44),
-        outputToken: Joi.string().required().length(44),
-      }),
+      body: {
+        type: 'object',
+        required: ['inputToken', 'outputToken'],
+        properties: {
+          inputToken: { type: 'string', minLength: 44, maxLength: 44 },
+          outputToken: { type: 'string', minLength: 44, maxLength: 44 }
+        }
+      },
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
