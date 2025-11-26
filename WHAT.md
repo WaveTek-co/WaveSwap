@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-WaveTek is a cutting-edge, privacy-preserving decentralized exchange (DEX) aggregator built on Solana that enables confidential token swaps, cross-chain bridging, and staking. Our platform combines institutional-grade privacy with user-friendly interfaces to provide secure, fast, and private DeFi transactions.
+WaveTek is a privacy-preserving decentralized exchange (DEX) aggregator built on Solana that enables confidential token swaps, cross-chain bridging, and staking. Our platform combines institutional-grade privacy with user-friendly interfaces to provide secure, fast, and private DeFi transactions.
 
 ### Platform Overview
 
@@ -396,25 +396,6 @@ graph TD
 - **Balance Tracking**: Multi-chain balance aggregation
 - **Privacy Support**: Confidential token balances
 
-## Performance & Scalability
-
-### Optimization Strategies
-
-| Area | Implementation | Benefit |
-|------|----------------|---------|
-| **Frontend** | Code splitting, lazy loading | Faster page loads |
-| **API** | Response caching, rate limiting | Better throughput |
-| **Blockchain** | RPC optimization, batch requests | Reduced latency |
-| **Database** | Indexing, connection pooling | Query efficiency |
-| **CDN** | Asset distribution, edge caching | Global performance |
-
-### Monitoring & Analytics
-
-- **Performance Metrics**: Real-time application monitoring
-- **Error Tracking**: Comprehensive error logging and alerting
-- **User Analytics**: Privacy-preserving usage statistics
-- **Health Checks**: Automated system health monitoring
-
 ## Roadmap & Future Development
 
 ### Planned Features
@@ -438,13 +419,6 @@ graph TD
    - React Native mobile app
    - Native privacy features
    - Biometric authentication
-
-### Technical Milestones
-
-- **Q1 2024**: Enhanced privacy features and UI improvements
-- **Q2 2024**: Mobile app launch and additional chains
-- **Q3 2024**: Institutional features and advanced analytics
-- **Q4 2024**: DeFi composability and protocol integrations
 
 ## Conclusion
 
