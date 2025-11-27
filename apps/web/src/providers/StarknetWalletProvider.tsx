@@ -282,11 +282,12 @@ export function StarknetWalletModal({ isOpen, onClose, onSuccess }: StarknetWall
               key={wallet.id}
               onClick={() => handleWalletSelect(wallet.id)}
               disabled={isConnecting}
-              className="w-full flex items-center gap-4 p-4 rounded-xl border transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center gap-4 p-4 rounded-xl transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 ...createGlassStyles(theme),
                 borderColor: theme.colors.border,
-                borderWidth: '1px'
+                borderWidth: '1px',
+                borderStyle: 'solid'
               }}
             >
               {/* Wallet Icon */}
@@ -339,10 +340,12 @@ export function StarknetWalletModal({ isOpen, onClose, onSuccess }: StarknetWall
               <button
                 key={wallet.id}
                 onClick={() => handleDownloadWallet(wallet.url)}
-                className="text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors"
+                className="text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
                 style={{
                   color: theme.colors.primary,
                   borderColor: theme.colors.primary,
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
                   backgroundColor: 'transparent'
                 }}
                 onMouseEnter={(e) => {

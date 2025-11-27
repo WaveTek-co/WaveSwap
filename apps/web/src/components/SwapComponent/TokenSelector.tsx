@@ -14,6 +14,25 @@ import { TokenIcon } from '@/components/TokenIcon'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 import { JupiterTokenService, JupiterToken } from '@/lib/jupiterTokens'
 
+// Helper function to get local fallback icon path
+function getLocalFallbackIcon(symbol: string, address: string): string | null {
+  const tokenIcons: { [key: string]: string | null } = {
+    'WAVE': '/icons/fallback/token/wave.png',
+    'SOL': '/icons/fallback/token/sol.png',
+    'USDC': '/icons/fallback/token/usdc.png',
+    'USDT': '/icons/fallback/token/usdt.png',
+    'ZEC': '/icons/fallback/token/zec.png',
+    'PUMP': '/icons/fallback/token/pump.png',
+    'WEALTH': '/icons/fallback/token/wealth.png',
+    'FTP': '/icons/fallback/token/ftp.jpg',
+    'AURA': '/icons/fallback/token/aura.png',
+    'MEW': '/icons/fallback/token/mew.png',
+    'STORE': '/icons/fallback/token/store.png'
+  }
+
+  return tokenIcons[symbol.toUpperCase()] || tokenIcons[address] || null
+}
+
 interface TokenSelectorProps {
   selectedToken: Token | null
   onTokenChange: (token: Token) => void
@@ -29,7 +48,7 @@ const jupiterToToken = (jupiterToken: JupiterToken): Token => ({
   decimals: jupiterToken.decimals || 9,
   name: jupiterToken.name || 'Unknown',
   symbol: jupiterToken.symbol || 'UNKNOWN',
-  logoURI: jupiterToken.icon || `https://ui-avatars.com/api/?name=${jupiterToken.symbol || 'UNKNOWN'}&background=14F195&color=fff`,
+  logoURI: jupiterToken.icon || getLocalFallbackIcon(jupiterToken.symbol || '', jupiterToken.id) || '/icons/default-token.svg',
   tags: jupiterToken.tags || [],
   isConfidentialSupported: false,
   isNative: jupiterToken.id === 'So11111111111111111111111111111111111111112',

@@ -6,6 +6,30 @@
 
 import { JupiterTokenService, POPULAR_TOKEN_ADDRESSES, OTHER_TOKEN_ADDRESSES } from '@/lib/jupiterTokens'
 
+// Helper function to get local fallback icon path
+function getLocalFallbackIcon(symbol: string, address: string): string | null {
+  const tokenIcons: { [key: string]: string | null } = {
+    // Popular tokens with local fallback icons
+    'WAVE': '/icons/fallback/token/wave.png',
+    'SOL': '/icons/fallback/token/sol.png',
+    'USDC': '/icons/fallback/token/usdc.png',
+    'USDT': '/icons/fallback/token/usdt.png',
+    'ZEC': '/icons/fallback/token/zec.png',
+    'PUMP': '/icons/fallback/token/pump.png',
+    // Other tokens with local fallback icons
+    'WEALTH': '/icons/fallback/token/wealth.png',
+    'FTP': '/icons/fallback/token/ftp.jpg',
+    'AURA': '/icons/fallback/token/aura.png',
+    'MEW': '/icons/fallback/token/mew.png',
+    'STORE': '/icons/fallback/token/store.png',
+    // Additional tokens from fallback icons
+    'XBTC': '/icons/fallback/token/xbtc.png',
+    'GOLD': '/icons/fallback/token/gold.png'
+  }
+
+  return tokenIcons[symbol.toUpperCase()] || tokenIcons[address] || null
+}
+
 export interface Token {
   address: string
   chainId: number
@@ -385,22 +409,25 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
     ])
 
     // Convert JupiterToken to Token format
-    const convertJupiterToToken = (jupiterToken: any): Token => ({
+    const convertJupiterToToken = (jupiterToken: any): Token => {
+      console.log(`[getAvailableTokens] Converting token: ${jupiterToken.symbol} (${jupiterToken.id}), isConfidentialSupported=${jupiterToken.isConfidentialSupported}`)
+      return ({
       address: jupiterToken.id, // Use id from Jupiter API
       chainId: 101, // Solana mainnet
       decimals: jupiterToken.decimals || 9,
       name: jupiterToken.name || 'Unknown',
       symbol: jupiterToken.symbol || 'UNKNOWN',
-      logoURI: jupiterToken.icon || 'https://ui-avatars.com/api/?name=' + (jupiterToken.symbol || 'UNKNOWN') + '&background=14F195&color=fff', // Use Jupiter API icon with fallback
+      logoURI: jupiterToken.icon || getLocalFallbackIcon(jupiterToken.symbol || '', jupiterToken.id) || '/icons/default-token.svg', // Use Jupiter API icon with local fallback
       tags: jupiterToken.tags || [],
-      isConfidentialSupported: false, // Will be determined by privacy mode
+          isConfidentialSupported: jupiterToken.isConfidentialSupported || false, // Use value from JupiterTokenService
       isNative: jupiterToken.id === 'So11111111111111111111111111111111111111112',
       addressable: true,
       // Add privacy support if token is in COMMON_TOKENS
       encifherSupported: COMMON_TOKENS.find(ct => ct.address === jupiterToken.id)?.encifherSupported || false,
       privacyProviders: COMMON_TOKENS.find(ct => ct.address === jupiterToken.id)?.privacyProviders || [],
       minPrivateAmount: COMMON_TOKENS.find(ct => ct.address === jupiterToken.id)?.minPrivateAmount
-    })
+      })
+    }
 
     const allJupiterTokens = [...popularTokens, ...otherTokens].map(convertJupiterToToken)
 
@@ -434,7 +461,7 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
           decimals: commonToken?.decimals || 9,
           name: commonToken?.name || todoToken.name,
           symbol: commonToken?.symbol || todoToken.symbol,
-          logoURI: 'https://ui-avatars.com/api/?name=' + todoToken.symbol + '&background=14F195&color=fff', // Fallback
+          logoURI: getLocalFallbackIcon(todoToken.symbol, todoToken.address) || '/icons/default-token.svg', // Local fallback
           tags: commonToken?.tags || [],
           isConfidentialSupported: commonToken?.isConfidentialSupported || false,
           isNative: todoToken.address === 'So11111111111111111111111111111111111111112',
@@ -529,7 +556,7 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
         decimals: commonToken?.decimals || 9,
         name: commonToken?.name || todoToken.name,
         symbol: commonToken?.symbol || todoToken.symbol,
-        logoURI: 'https://ui-avatars.com/api/?name=' + todoToken.symbol + '&background=14F195&color=fff', // Fallback
+        logoURI: getLocalFallbackIcon(todoToken.symbol, todoToken.address) || '/icons/default-token.svg', // Local fallback
         tags: commonToken?.tags || [],
         isConfidentialSupported: commonToken?.isConfidentialSupported || false,
         isNative: todoToken.address === 'So11111111111111111111111111111111111111112',

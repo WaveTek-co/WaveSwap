@@ -17,6 +17,25 @@ import { COMMON_TOKENS, CONFIDENTIAL_TOKENS } from '@/types/token'
 import { getUserTokens, getDefaultTokens, getTokenBalance, enrichTokenIcons, clearBalanceCache } from '@/lib/tokens'
 import { parseError, WaveSwapError } from '@/lib/errors'
 
+// Helper function to get local fallback icon path
+function getLocalFallbackIcon(symbol: string, address: string): string | null {
+  const tokenIcons: { [key: string]: string | null } = {
+    'WAVE': '/icons/fallback/token/wave.png',
+    'SOL': '/icons/fallback/token/sol.png',
+    'USDC': '/icons/fallback/token/usdc.png',
+    'USDT': '/icons/fallback/token/usdt.png',
+    'ZEC': '/icons/fallback/token/zec.png',
+    'PUMP': '/icons/fallback/token/pump.png',
+    'WEALTH': '/icons/fallback/token/wealth.png',
+    'FTP': '/icons/fallback/token/ftp.jpg',
+    'AURA': '/icons/fallback/token/aura.png',
+    'MEW': '/icons/fallback/token/mew.png',
+    'STORE': '/icons/fallback/token/store.png'
+  }
+
+  return tokenIcons[symbol.toUpperCase()] || tokenIcons[address] || null
+}
+
 export interface SwapState {
   inputToken: Token | null
   outputToken: Token | null
@@ -94,7 +113,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         decimals: 9,
         name: 'Solana',
         symbol: 'SOL',
-        logoURI: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // SOL fallback
+        logoURI: getLocalFallbackIcon('SOL', 'So11111111111111111111111111111111111111112') || '/icons/default-token.svg', // SOL fallback
         tags: ['native', 'solana'],
         isConfidentialSupported: true,
         isNative: true,
@@ -107,7 +126,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         decimals: 9,
         name: 'Wave',
         symbol: 'WAVE',
-        logoURI: 'https://ui-avatars.com/api/?name=WAVE&background=14F195&color=fff', // WAVE fallback
+        logoURI: getLocalFallbackIcon('WAVE', '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump') || '/icons/default-token.svg', // WAVE fallback
         tags: ['defi', 'dex'],
         isConfidentialSupported: false,
         isNative: false,

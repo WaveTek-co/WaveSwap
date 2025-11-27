@@ -6,6 +6,25 @@ import { cn } from '@/lib/utils'
 import { Button } from './Button'
 import { Input } from './Input'
 
+// Helper function to get local fallback icon path
+function getLocalFallbackIcon(symbol: string): string | null {
+  const tokenIcons: { [key: string]: string | null } = {
+    'WAVE': '/icons/fallback/token/wave.png',
+    'SOL': '/icons/fallback/token/sol.png',
+    'USDC': '/icons/fallback/token/usdc.png',
+    'USDT': '/icons/fallback/token/usdt.png',
+    'ZEC': '/icons/fallback/token/zec.png',
+    'PUMP': '/icons/fallback/token/pump.png',
+    'WEALTH': '/icons/fallback/token/wealth.png',
+    'FTP': '/icons/fallback/token/ftp.jpg',
+    'AURA': '/icons/fallback/token/aura.png',
+    'MEW': '/icons/fallback/token/mew.png',
+    'STORE': '/icons/fallback/token/store.png'
+  }
+
+  return tokenIcons[symbol.toUpperCase()] || null
+}
+
 export interface Token {
   symbol: string
   name: string
@@ -63,7 +82,21 @@ export function TokenSelector({
             className="w-8 h-8 rounded-full object-cover"
             onError={(e) => {
               const target = e.target as HTMLImageElement
-              target.src = `https://ui-avatars.com/api/?name=${selectedToken.symbol}&background=random&color=fff`
+              const fallbackIcon = getLocalFallbackIcon(selectedToken.symbol)
+              if (fallbackIcon) {
+                target.src = fallbackIcon
+              } else {
+                // If no local fallback, hide image and show gradient background
+                target.style.display = 'none'
+                const parent = target.parentElement
+                if (parent) {
+                  parent.classList.add('bg-gradient-to-br', 'from-primary', 'to-primary-hover')
+                  const textSpan = parent.querySelector('span')
+                  if (textSpan) {
+                    textSpan.style.display = 'block'
+                  }
+                }
+              }
             }}
           />
         ) : (
@@ -172,7 +205,21 @@ export function TokenSelector({
                             className="w-10 h-10 rounded-full object-cover group-hover:scale-105 transition-transform"
                             onError={(e) => {
                               const target = e.target as HTMLImageElement
-                              target.src = `https://ui-avatars.com/api/?name=${token.symbol}&background=random&color=fff`
+                              const fallbackIcon = getLocalFallbackIcon(token.symbol)
+                              if (fallbackIcon) {
+                                target.src = fallbackIcon
+                              } else {
+                                // If no local fallback, hide image and show gradient background
+                                target.style.display = 'none'
+                                const parent = target.parentElement
+                                if (parent) {
+                                  parent.classList.add('bg-gradient-to-br', 'from-primary', 'to-primary-hover')
+                                  const textSpan = parent.querySelector('span')
+                                  if (textSpan) {
+                                    textSpan.style.display = 'block'
+                                  }
+                                }
+                              }
                             }}
                           />
                         ) : (

@@ -62,7 +62,9 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
                 ${theme.colors.surface}f0 100%
               )
             `,
-            border: `2px solid ${theme.colors.border}`,
+            borderWidth: '2px',
+            borderStyle: 'solid',
+            borderColor: theme.colors.border,
             color: theme.colors.textPrimary,
             cursor: readOnly ? 'default' : 'text',
             boxShadow: `

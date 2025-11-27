@@ -56,36 +56,48 @@ export function ChainIcon({ chainId, size = 24, className = '' }: ChainIconProps
   const getChainIcon = (id: string) => {
     switch (id) {
       case 'solana':
-        return '/static/icons/network/solana.svg'
+        return '/icons/fallback/network/solana.svg'
       case 'near':
-        return '/static/icons/network/near.svg'
+        return '/icons/fallback/network/near.svg'
       case 'zec':
-        return '/static/icons/network/zcash.svg'
+      case 'zcash':
+        return '/icons/fallback/network/zcash.svg'
       case 'starknet':
-        return '/static/icons/network/starknet.svg' // Starknet icon
+        return '/icons/fallback/network/starknet.svg' // Starknet icon
       case 'eth':
       case 'ethereum':
-        return '/static/icons/network/ethereum.svg'
+        return '/icons/fallback/network/ethereum.svg'
       case 'polygon':
-        return '/static/icons/network/polygon.svg'
+        return '/icons/fallback/network/polygon.svg'
       case 'bsc':
-        return '/static/icons/network/bsc.svg'
+        return '/icons/fallback/network/bsc.svg'
       case 'arbitrum':
-        return '/static/icons/network/arbitrum.svg'
+        return '/icons/fallback/network/arbitrum.svg'
       case 'optimism':
-        return '/static/icons/network/optimism.svg'
+        return '/icons/fallback/network/optimism.svg'
       case 'avalanche':
-        return '/static/icons/network/avalanche.svg'
+        return '/icons/fallback/network/avalanche.svg'
       case 'base':
-        return '/static/icons/network/base.svg'
+        return '/icons/fallback/network/base.svg'
       case 'aptos':
-        return '/static/icons/network/aptos.svg'
+        return '/icons/fallback/network/aptos.svg'
       case 'sui':
-        return '/static/icons/network/sui.svg'
+        return '/icons/fallback/network/sui.svg'
       case 'intents':
-        return '/static/icons/network/intents.svg'
+        return '/icons/fallback/network/intents.svg'
+      case 'dogecoin':
+        return '/icons/fallback/network/dogecoin.svg'
+      case 'ton':
+        return '/icons/fallback/network/ton.svg'
+      case 'cardano':
+        return '/icons/fallback/network/cardano.svg'
+      case 'litecoin':
+        return '/icons/fallback/network/litecoin.svg'
+      case 'xrpl':
+      case 'xrpledger':
+        return '/icons/fallback/network/xrpledger.svg'
       default:
-        return '/static/icons/network/ethereum.svg'
+        return '/icons/fallback/network/ethereum.svg'
     }
   }
 
@@ -95,7 +107,7 @@ export function ChainIcon({ chainId, size = 24, className = '' }: ChainIconProps
       size={size}
       className={`${className} rounded-full`}
       alt={`${chainId} icon`}
-      fallback="/static/icons/network/ethereum.svg"
+      fallback="/icons/fallback/network/ethereum.svg"
     />
   )
 }
@@ -121,13 +133,13 @@ export function TokenIcon({ token, size = 24, className = '', symbol }: TokenIco
     if (token?.chain) {
       switch (token.chain) {
         case 'solana':
-          return 'https://img-cdn.jup.ag/tokens/SOL.svg'
+          return '/icons/fallback/network/solana.svg'
         case 'near':
-          return 'https://near.org/wp-content/uploads/2021/03/near_icon.svg'
+          return '/icons/fallback/network/near.svg'
         case 'zec':
-          return 'https://z.cash/wp-content/uploads/2021/03/zcash-logo-fullcolor-512x512.png'
+          return '/icons/fallback/network/zcash.svg'
         case 'starknet':
-          return '/static/icons/network/starknet.svg'
+          return '/icons/fallback/network/starknet.svg'
       }
     }
 

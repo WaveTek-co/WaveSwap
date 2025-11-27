@@ -240,10 +240,12 @@ export function Settings() {
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={setLightTheme}
-                  className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
+                  className={`relative flex flex-col items-center gap-2 p-3 rounded-xl transition-all duration-200 ${
                     theme === 'light' ? '' : ''
                   }`}
                   style={{
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
                     borderColor: theme === 'light' ? `${themeConfig.colors.warning}50` : `${themeConfig.colors.border}50`,
                     background: theme === 'light'
                       ? `${themeConfig.colors.warning}10`
@@ -277,10 +279,12 @@ export function Settings() {
 
                 <button
                   onClick={setDarkTheme}
-                  className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
+                  className={`relative flex flex-col items-center gap-2 p-3 rounded-xl transition-all duration-200 ${
                     theme === 'dark' ? '' : ''
                   }`}
                   style={{
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
                     borderColor: theme === 'dark' ? `${themeConfig.colors.primary}50` : `${themeConfig.colors.border}50`,
                     background: theme === 'dark'
                       ? `${themeConfig.colors.primary}10`
@@ -314,10 +318,12 @@ export function Settings() {
 
                 <button
                   onClick={setOrcaTheme}
-                  className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
+                  className={`relative flex flex-col items-center gap-2 p-3 rounded-xl transition-all duration-200 ${
                     theme === 'orca' ? '' : ''
                   }`}
                   style={{
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
                     borderColor: theme === 'orca' ? `${themeConfig.colors.textMuted}50` : `${themeConfig.colors.border}50`,
                     background: theme === 'orca'
                       ? `${themeConfig.colors.textMuted}10`

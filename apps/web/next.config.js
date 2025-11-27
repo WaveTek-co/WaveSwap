@@ -36,6 +36,36 @@ const nextConfig = {
         },
       ],
     },
+    {
+      // Fix CSS MIME type issue
+      source: '/_next/static/css/(.*)',
+      headers: [
+        {
+          key: 'Content-Type',
+          value: 'text/css',
+        },
+      ],
+    },
+    {
+      // Fix JS MIME type issue
+      source: '/_next/static/chunks/(.*).js',
+      headers: [
+        {
+          key: 'Content-Type',
+          value: 'application/javascript',
+        },
+      ],
+    },
+    {
+      // Fix app JS MIME type issue
+      source: '/_next/static/(.*).js',
+      headers: [
+        {
+          key: 'Content-Type',
+          value: 'application/javascript',
+        },
+      ],
+    },
   ],
 
   // Image optimization

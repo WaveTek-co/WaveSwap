@@ -73,7 +73,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
   const stakePools: StakePool[] = [
     {
       id: 'WAVE',
-      name: 'WaveSwap',
+      name: 'WAVE',
       symbol: 'WAVE',
       mintAddress: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
       apr: 15.8,
@@ -104,10 +104,10 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       userSecureBag: privacyMode ? '****' : '0'
     },
     {
-      id: 'SOL',
-      name: 'Solana',
-      symbol: 'SOL',
-      mintAddress: 'So11111111111111111111111111111111111111112',
+      id: 'GOLD',
+      name: 'GOLD',
+      symbol: 'GOLD',
+      mintAddress: 'GoLDppdjB1vDTPSGxyMJFqdnj134yH6Prg9eqsGDiw6A',
       apr: 0,
       bonus30days: 0,
       totalStaked: null,
@@ -115,7 +115,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       lockPeriod: 0,
       isSecureBagAvailable: false,
       isComingSoon: true,
-      description: 'Native Solana token staking - coming soon',
+      description: 'Gold, but better - coming soon',
       userStaked: privacyMode ? '****' : '0',
       userRewards: privacyMode ? '****' : '0',
       userSecureBag: privacyMode ? '****' : '0'
@@ -239,8 +239,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                   {currentPool?.isComingSoon ? (
                     <span className="px-2 py-0.5 rounded-full text-xs"
                           style={{
-                            background: `${theme.colors.warning}15`,
-                            color: theme.colors.warning
+                            background: `${theme.colors.primary}15`,
+                            color: theme.colors.primary
                           }}>
                       Coming Soon
                     </span>
@@ -250,8 +250,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                       {currentPool && currentPool.bonus30days > 0 && (
                         <span className="ml-2 px-2 py-0.5 rounded-full text-xs"
                               style={{
-                                background: `${theme.colors.warning}15`,
-                                color: theme.colors.warning
+                                background: `${theme.colors.success}15`,
+                                color: theme.colors.success
                               }}>
                           +{currentPool.bonus30days}% bonus
                         </span>
@@ -352,8 +352,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                     {pool.isComingSoon ? (
                       <div className="text-xs font-medium px-2 py-0.5 rounded-full"
                            style={{
-                             background: `${theme.colors.warning}15`,
-                             color: theme.colors.warning
+                             background: `${theme.colors.success}15`,
+                             color: theme.colors.success
                            }}>
                         Coming Soon
                       </div>
@@ -363,7 +363,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                           {pool.apr}%
                         </div>
                         {pool.bonus30days > 0 && (
-                          <div className="text-xs font-medium" style={{ color: theme.colors.warning }}>
+                          <div className="text-xs font-medium" style={{ color: theme.colors.success }}>
                             +{pool.bonus30days}% 30d
                           </div>
                         )}
@@ -463,12 +463,12 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                 backdropFilter: 'blur(12px) saturate(1.5)'
               }}>
                 <div className="flex items-center gap-2 mb-2">
-                  <LockClosedIcon className="w-4 h-4" style={{ color: theme.colors.warning }} />
+                  <LockClosedIcon className="w-4 h-4" style={{ color: theme.name === 'orca' ? '#00cc88' : theme.colors.success }} />
                   <span className="text-xs font-medium" style={{ color: theme.colors.textSecondary }}>
                     30 Day Bonus
                   </span>
                 </div>
-                <div className="text-2xl font-bold" style={{ color: theme.colors.warning }}>
+                <div className="text-2xl font-bold" style={{ color: theme.colors.success }}>
                   +{currentPool.bonus30days}%
                 </div>
               </div>
@@ -516,10 +516,10 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
             <div className="grid grid-cols-2 gap-4">
               {currentPool.isComingSoon ? (
                 <div className="col-span-2 p-6 rounded-xl text-center" style={{
-                  background: `${theme.colors.warning}10`,
-                  border: `1px solid ${theme.colors.warning}20`
+                  background: `${theme.colors.primary}10`,
+                  border: `1px solid ${theme.colors.primary}20`
                 }}>
-                  <div className="text-lg font-bold mb-2" style={{ color: theme.colors.warning }}>
+                  <div className="text-lg font-bold mb-2" style={{ color: theme.colors.primary }}>
                     Coming Soon
                   </div>
                   <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
@@ -546,7 +546,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                       `
                     }}
                   >
-                    Stake
+                    Lock In. &#40;Stake&#41; 
                   </button>
 
                   {currentPool.isSecureBagAvailable && (
@@ -556,21 +556,21 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                       style={{
                         background: `
                           linear-gradient(135deg,
-                            ${theme.colors.warning} 0%,
-                            ${theme.colors.warning}dd 100%
+                            ${theme.colors.success} 0%,
+                            ${theme.name === 'orca' ? '#00cc88' : theme.colors.successHover} 100%
                           )
                         `,
-                        border: `1px solid ${theme.colors.warning}30`,
+                        border: `1px solid ${theme.colors.success}30`,
                         backdropFilter: 'blur(12px) saturate(1.5)',
                         boxShadow: `
-                          0 8px 24px ${theme.colors.warning}30,
+                          0 8px 24px ${theme.colors.success}30,
                           inset 0 1px 0 rgba(255, 255, 255, 0.1)
                         `,
                         color: 'white'
                       }}
                     >
                       <LockClosedIcon className="w-4 h-4 mr-2 inline" />
-                      Secure Bag
+                      Secure The Bag
                     </button>
                   )}
                 </>
@@ -742,7 +742,9 @@ function StakeModal({
                   className="w-full px-4 py-4 rounded-xl bg-transparent"
                   style={{
                     background: `${theme.colors.surface}40`,
-                    border: `1px solid ${theme.colors.border}`,
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: theme.colors.border,
                     color: theme.colors.textPrimary,
                     outline: 'none'
                   }}
@@ -847,11 +849,11 @@ function SecureBagModal({
               ${theme.colors.surface}ee 100%
             )
           `,
-          border: `1px solid ${theme.colors.warning}15`,
+          border: `1px solid ${theme.colors.success}15`,
           backdropFilter: 'blur(24px) saturate(1.8)',
           boxShadow: `
             0 20px 60px ${theme.colors.shadowHeavy},
-            0 8px 24px ${theme.colors.warning}08
+            0 8px 24px ${theme.colors.success}08
           `
         }}
       >
@@ -859,7 +861,7 @@ function SecureBagModal({
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <LockClosedIcon className="w-6 h-6" style={{ color: theme.colors.warning }} />
+              <LockClosedIcon className="w-6 h-6" style={{ color: theme.name === 'orca' ? '#00cc88' : theme.colors.success }} />
               <h3 className="text-xl font-bold" style={{ color: theme.colors.textPrimary }}>
                 Secure Bag
               </h3>
@@ -880,11 +882,11 @@ function SecureBagModal({
 
           {/* Info */}
           <div className="p-4 rounded-xl" style={{
-            background: `${theme.colors.warning}10`,
-            border: `1px solid ${theme.colors.warning}20`
+            background: `${theme.colors.success}10`,
+            border: `1px solid ${theme.colors.success}20`
           }}>
             <div className="flex items-center gap-2 mb-2">
-              <LockClosedIcon className="w-4 h-4" style={{ color: theme.colors.warning }} />
+              <LockClosedIcon className="w-4 h-4" style={{ color: theme.name === 'orca' ? '#00cc88' : theme.colors.success }} />
               <span className="font-medium" style={{ color: theme.colors.textPrimary }}>
                 30-Day Lock Period
               </span>
@@ -908,7 +910,9 @@ function SecureBagModal({
                 className="w-full px-4 py-4 rounded-xl bg-transparent"
                 style={{
                   background: `${theme.colors.surface}40`,
-                  border: `1px solid ${theme.colors.border}`,
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: theme.colors.border,
                   color: theme.colors.textPrimary,
                   outline: 'none'
                 }}
@@ -954,13 +958,13 @@ function SecureBagModal({
                 </div>
 
                 <div className="p-3 rounded-xl" style={{
-                  background: `${theme.colors.warning}15`,
-                  border: `1px solid ${theme.colors.warning}30`
+                  background: `${theme.colors.success}15`,
+                  border: `1px solid ${theme.colors.success}30`
                 }}>
-                  <div className="text-xs font-medium" style={{ color: theme.colors.warning }}>
+                  <div className="text-xs font-medium" style={{ color: theme.colors.success }}>
                     Secure Bag
                   </div>
-                  <div className="text-lg font-bold" style={{ color: theme.colors.warning }}>
+                  <div className="text-lg font-bold" style={{ color: theme.colors.success }}>
                     {bonusEarnings.toFixed(4)}
                   </div>
                 </div>
@@ -988,12 +992,12 @@ function SecureBagModal({
             style={{
               background: `
                 linear-gradient(135deg,
-                  ${theme.colors.warning} 0%,
-                  ${theme.colors.warning}dd 100%
+                  ${theme.colors.success} 0%,
+                  ${theme.name === 'orca' ? '#00cc88' : theme.colors.successHover} 100%
                 )
               `,
-              border: `1px solid ${theme.colors.warning}30`,
-              boxShadow: `0 8px 24px ${theme.colors.warning}30`,
+              border: `1px solid ${theme.colors.success}30`,
+              boxShadow: `0 8px 24px ${theme.colors.success}30`,
               cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'not-allowed'
             }}
             disabled={!amount || parseFloat(amount) <= 0}
@@ -1091,10 +1095,10 @@ function InfoModal({ onClose, theme }: { onClose: () => void, theme: any }) {
                 </div>
 
                 <div className="p-3 rounded-xl" style={{
-                  background: `${theme.colors.warning}10`,
-                  border: `1px solid ${theme.colors.warning}20`
+                  background: `${theme.colors.success}10`,
+                  border: `1px solid ${theme.colors.success}20`
                 }}>
-                  <h5 className="font-medium text-sm" style={{ color: theme.colors.warning }}>
+                  <h5 className="font-medium text-sm" style={{ color: theme.name === 'orca' ? '#00cc88' : theme.colors.success }}>
                     Secure Bag
                   </h5>
                   <p className="text-xs mt-1" style={{ color: theme.colors.textSecondary }}>

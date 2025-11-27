@@ -109,22 +109,37 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
     setIsLoading(false)
   }
 
-  // Original token URLs for fallback when all sources fail
+  // Local fallback icons from /icons/fallback/token/
+  const getTokenLocalFallback = (tokenSymbol: string, tokenAddress: string): string | null => {
+    const tokenIcons: { [key: string]: string | null } = {
+      // Popular tokens with local fallback icons
+      'WAVE': '/icons/fallback/token/wave.png',
+      'SOL': '/icons/fallback/token/sol.png',
+      'USDC': '/icons/fallback/token/usdc.png',
+      'USDT': '/icons/fallback/token/usdt.png',
+      'ZEC': '/icons/fallback/token/zec.png',
+      'PUMP': '/icons/fallback/token/pump.png',
+      // Other tokens with local fallback icons
+      'WEALTH': '/icons/fallback/token/wealth.png',
+      'FTP': '/icons/fallback/token/ftp.jpg',
+      'AURA': '/icons/fallback/token/aura.png',
+      'MEW': '/icons/fallback/token/mew.png',
+      'STORE': '/icons/fallback/token/store.png',
+      // Additional tokens from fallback icons
+      'XBTC': '/icons/fallback/token/xbtc.png',
+      'GOLD': '/icons/fallback/token/gold.png'
+    }
+
+    return tokenIcons[tokenSymbol.toUpperCase()] || tokenIcons[tokenAddress] || null
+  }
+
+  // Original token URLs for fallback when all sources fail (backup for tokens without local fallback)
   const getTokenOriginalURL = (tokenSymbol: string, tokenAddress: string): string | null => {
     const tokenURLs: { [key: string]: string | null } = {
-      // Popular tokens with known working URLs
-      'WAVE': null, // Skip fallback for WAVE - let Jupiter API handle it
-      'SOL': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
-      'USDC': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
-      'USDT': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
-      'ZEC': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS/logo.png',
-      'PUMP': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn/logo.png',
-      // Other tokens
-      'WEALTH': null, // Skip fallback for WEALTH - let Jupiter API handle it
-      'FTP': null, // Skip fallback for FTP - let Jupiter API handle it
-      'AURA': null, // Skip fallback for AURA - let Jupiter API handle it
+      // All tokens now have local fallback icons, so this is mostly unused
+      // Keeping as emergency backup for specific tokens if needed
       'MEW': 'https://ipfs.io/ipfs/bafkreidlwyr565dxtao2ipsze6bmzpszqzybz7sqi2zaet5fs7k53henju',
-      'STORE': null // Skip fallback for STORE - let Jupiter API handle it
+      'STORE': null // Let Jupiter API handle it
     }
 
     return tokenURLs[tokenSymbol.toUpperCase()] || tokenURLs[tokenAddress] || null
@@ -132,7 +147,53 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
 
   // Fallback display - show if no Jupiter API icon or if all sources fail
   if (showFallback || !logoURI || sources.length === 0) {
-    // Check for original token URL fallback first
+    // Check for local fallback icon first
+    const localFallback = getTokenLocalFallback(symbol, mint)
+
+    if (localFallback) {
+      return (
+        <div
+          className={`rounded-full flex items-center justify-center overflow-hidden ${className}`}
+          style={{
+            width: size,
+            height: size,
+            background: theme.name === 'light'
+              ? theme.colors.background
+              : theme.colors.surface,
+            border: theme.name === 'light'
+              ? `2px solid ${theme.colors.borderLight}`
+              : `2px solid ${theme.colors.borderLight}`,
+            backdropFilter: 'blur(12px) saturate(1.8)',
+            WebkitBackdropFilter: 'blur(12px) saturate(1.8)',
+            boxShadow: theme.name === 'light'
+              ? '0 4px 12px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5)'
+              : '0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <img
+            src={localFallback}
+            alt={symbol}
+            className="w-full h-full object-cover"
+            style={{
+              filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))'
+            }}
+            onError={() => {
+              // If local fallback fails, try original URL
+              console.log(`[TokenIcon] Local fallback failed for ${symbol}, trying original URL`)
+              const originalURL = getTokenOriginalURL(symbol, mint)
+              if (originalURL) {
+                setShowFallback(false) // Reset to try original URL
+                setCurrentSource(sources.length) // Force to original URL path
+              } else {
+                setShowFallback(true) // Show text fallback
+              }
+            }}
+          />
+        </div>
+      )
+    }
+
+    // Check for original token URL fallback second
     const originalURL = getTokenOriginalURL(symbol, mint)
 
     if (originalURL) {

@@ -7,6 +7,25 @@ import { Connection, PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, getAccount } from '@solana/spl-token'
 import { Token } from '@/types/token'
 
+// Helper function to get local fallback icon path
+function getLocalFallbackIcon(symbol: string, address: string): string | null {
+  const tokenIcons: { [key: string]: string | null } = {
+    'WAVE': '/icons/fallback/token/wave.png',
+    'SOL': '/icons/fallback/token/sol.png',
+    'USDC': '/icons/fallback/token/usdc.png',
+    'USDT': '/icons/fallback/token/usdt.png',
+    'ZEC': '/icons/fallback/token/zec.png',
+    'PUMP': '/icons/fallback/token/pump.png',
+    'WEALTH': '/icons/fallback/token/wealth.png',
+    'FTP': '/icons/fallback/token/ftp.jpg',
+    'AURA': '/icons/fallback/token/aura.png',
+    'MEW': '/icons/fallback/token/mew.png',
+    'STORE': '/icons/fallback/token/store.png'
+  }
+
+  return tokenIcons[symbol.toUpperCase()] || tokenIcons[address] || null
+}
+
 const JUPITER_TOKEN_API = 'https://lite-api.jup.ag/tokens/v2'
 const JUPITER_TOKEN_LIST_API = 'https://token.jup.ag/all'
 
@@ -352,7 +371,7 @@ const DEFAULT_TOKENS_METADATA = [
 // Default tokens - logoURI set to fallback URL
 export const DEFAULT_TOKENS: Token[] = DEFAULT_TOKENS_METADATA.map(token => ({
   ...token,
-  logoURI: 'https://ui-avatars.com/api/?name=' + token.symbol + '&background=14F195&color=fff' // Fallback
+  logoURI: getLocalFallbackIcon(token.symbol, token.address) || '/icons/default-token.svg' // Local fallback
 }))
 
 

@@ -12,6 +12,25 @@ import { Token } from '@/types/token'
 import { enhancedBridgeService } from '@/lib/services/enhancedBridgeService'
 import { ComingSoon } from '@/components/ui/ComingSoon'
 
+// Helper function to get local fallback icon path
+function getLocalFallbackIcon(symbol: string, address: string): string | null {
+  const tokenIcons: { [key: string]: string | null } = {
+    'WAVE': '/icons/fallback/token/wave.png',
+    'SOL': '/icons/fallback/token/sol.png',
+    'USDC': '/icons/fallback/token/usdc.png',
+    'USDT': '/icons/fallback/token/usdt.png',
+    'ZEC': '/icons/fallback/token/zec.png',
+    'PUMP': '/icons/fallback/token/pump.png',
+    'WEALTH': '/icons/fallback/token/wealth.png',
+    'FTP': '/icons/fallback/token/ftp.jpg',
+    'AURA': '/icons/fallback/token/aura.png',
+    'MEW': '/icons/fallback/token/mew.png',
+    'STORE': '/icons/fallback/token/store.png'
+  }
+
+  return tokenIcons[symbol.toUpperCase()] || tokenIcons[address] || null
+}
+
 interface WavePortalProps {
   privacyMode: boolean
   comingSoon?: boolean
@@ -23,7 +42,7 @@ const SUPPORTED_CHAINS = [
     id: 'zec',
     name: 'Zcash',
     fullName: 'Zcash Network',
-    icon: '/static/icons/network/zcash.svg',
+    icon: '/icons/fallback/network/zcash.svg',
     color: '#F4B942',
     description: 'Privacy-focused cryptocurrency',
     chainId: 1
@@ -32,7 +51,7 @@ const SUPPORTED_CHAINS = [
     id: 'solana',
     name: 'Solana',
     fullName: 'Solana Network',
-    icon: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // Will be loaded dynamically
+    icon: '/icons/fallback/network/solana.svg',
     color: '#14F195',
     description: 'High-performance blockchain',
     chainId: 101
@@ -41,7 +60,7 @@ const SUPPORTED_CHAINS = [
     id: 'starknet',
     name: 'StarkNet',
     fullName: 'StarkNet Network',
-    icon: '/static/icons/network/starknet.svg',
+    icon: '/icons/fallback/network/starknet.svg',
     color: '#5F8BFF',
     description: 'Layer 2 scaling solution',
     chainId: 1
@@ -65,7 +84,7 @@ const CHAIN_TOKENS = {
       decimals: 8,
       name: 'Zcash',
       symbol: 'ZEC',
-      logoURI: '/static/icons/network/zcash.svg',
+      logoURI: '/icons/fallback/network/zcash.svg',
       tags: [],
       isConfidentialSupported: true,
       isNative: true,
@@ -79,7 +98,7 @@ const CHAIN_TOKENS = {
       decimals: 9,
       name: 'Solana',
       symbol: 'SOL',
-      logoURI: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // Will be loaded dynamically
+      logoURI: getLocalFallbackIcon('SOL', 'So11111111111111111111111111111111111111112') || '/icons/default-token.svg', // Local fallback
       tags: [],
       isConfidentialSupported: true,
       isNative: true,
@@ -91,7 +110,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USD Coin',
       symbol: 'USDC',
-      logoURI: 'https://ui-avatars.com/api/?name=USDC&background=2775CA&color=fff', // Will be loaded dynamically
+      logoURI: getLocalFallbackIcon('USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') || '/icons/default-token.svg', // Local fallback
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -103,7 +122,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USDT',
       symbol: 'USDT',
-      logoURI: 'https://ui-avatars.com/api/?name=USDT&background=26A17B&color=fff', // Will be loaded dynamically
+      logoURI: getLocalFallbackIcon('USDT', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') || '/icons/default-token.svg', // Local fallback
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -115,7 +134,7 @@ const CHAIN_TOKENS = {
       decimals: 9,
       name: 'Wrapped SOL',
       symbol: 'wSOL',
-      logoURI: 'https://ui-avatars.com/api/?name=SOL&background=14F195&color=fff', // Will be loaded dynamically
+      logoURI: getLocalFallbackIcon('SOL', 'So11111111111111111111111111111111111111112') || '/icons/default-token.svg', // Local fallback
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -165,7 +184,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USD Coin',
       symbol: 'USDC',
-      logoURI: 'https://ui-avatars.com/api/?name=USDC&background=2775CA&color=fff', // Will be loaded dynamically
+      logoURI: getLocalFallbackIcon('USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') || '/icons/default-token.svg', // Local fallback
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
@@ -177,7 +196,7 @@ const CHAIN_TOKENS = {
       decimals: 18,
       name: 'StarkNet Token',
       symbol: 'STRK',
-      logoURI: '/static/icons/network/starknet.svg',
+      logoURI: '/icons/fallback/network/starknet.svg',
       tags: [],
       isConfidentialSupported: true,
       isNative: true,
@@ -201,7 +220,7 @@ const CHAIN_TOKENS = {
       decimals: 6,
       name: 'USDT',
       symbol: 'USDT',
-      logoURI: 'https://ui-avatars.com/api/?name=USDT&background=26A17B&color=fff', // Will be loaded dynamically
+      logoURI: getLocalFallbackIcon('USDT', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') || '/icons/default-token.svg', // Local fallback
       tags: [],
       isConfidentialSupported: true,
       isNative: false,
