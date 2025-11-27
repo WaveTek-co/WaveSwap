@@ -46,7 +46,6 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
           readOnly={readOnly}
           className={`w-full text-left disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${className}`}
           style={{
-            ...createInputStyles(theme),
             height: '4rem', // Match token selector height (64px)
             fontSize: '1.5rem',
             fontWeight: 700,
@@ -55,7 +54,6 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
             lineHeight: 1.2,
             borderRadius: '0.875rem',
             fontFamily: 'var(--font-inter), var(--font-helvetica), system-ui, sans-serif',
-            backgroundColor: 'transparent', // Override createInputStyles backgroundColor to prevent conflict
             background: `
               linear-gradient(135deg,
                 ${theme.colors.surface}f0 0%,
@@ -63,9 +61,12 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
                 ${theme.colors.surface}f0 100%
               )
             `,
-            border: '2px solid ' + theme.colors.border, // Use shorthand instead of individual properties
+            borderWidth: '2px',
+            borderStyle: 'solid',
+            borderColor: theme.colors.border,
             color: theme.colors.textPrimary,
             cursor: readOnly ? 'default' : 'text',
+            outline: 'none',
             boxShadow: `
               inset 0 2px 8px ${theme.colors.shadow}15,
               0 1px 0 rgba(255, 255, 255, ${theme.name === 'light' ? '0.8' : '0.1'})
@@ -73,7 +74,9 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
             transition: 'all 0.2s ease'
           }}
           onFocus={(e) => {
-            e.currentTarget.style.border = '2px solid ' + theme.colors.primary
+            e.currentTarget.style.borderWidth = '2px'
+            e.currentTarget.style.borderStyle = 'solid'
+            e.currentTarget.style.borderColor = theme.colors.primary
             e.currentTarget.style.boxShadow = `
               inset 0 2px 8px ${theme.colors.shadow}20,
               0 0 0 3px ${theme.colors.primary}15,
@@ -81,7 +84,9 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
             `
           }}
           onBlur={(e) => {
-            e.currentTarget.style.border = '2px solid ' + theme.colors.border
+            e.currentTarget.style.borderWidth = '2px'
+            e.currentTarget.style.borderStyle = 'solid'
+            e.currentTarget.style.borderColor = theme.colors.border
             e.currentTarget.style.boxShadow = `
               inset 0 2px 8px ${theme.colors.shadow}15,
               0 1px 0 rgba(255, 255, 255, ${theme.name === 'light' ? '0.8' : '0.1'})

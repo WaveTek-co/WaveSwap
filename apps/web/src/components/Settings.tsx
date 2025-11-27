@@ -110,35 +110,62 @@ export function Settings() {
         <div
             className="absolute right-0 top-full mt-2 w-96 rounded-2xl overflow-hidden"
             style={{
-              ...createGlassStyles(themeConfig),
-              background: `
-                linear-gradient(135deg,
-                  ${themeConfig.colors.surface}f0 0%,
-                  ${themeConfig.colors.surfaceHover}e8 25%,
-                  ${themeConfig.colors.surface}f0 50%,
-                  ${themeConfig.colors.surfaceHover}e8 75%,
-                  ${themeConfig.colors.surface}f0 100%
-                ),
-                radial-gradient(circle at 25% 25%,
-                  ${themeConfig.colors.primary}10 0%,
-                  transparent 50%
-                ),
-                radial-gradient(circle at 75% 75%,
-                  ${themeConfig.colors.success}08 0%,
-                  transparent 50%
-                )
-              `,
-              border: `1px solid ${themeConfig.colors.primary}25`,
-              backdropFilter: 'blur(28px) saturate(1.8) contrast(1.05)',
-              WebkitBackdropFilter: 'blur(28px) saturate(1.8) contrast(1.05)', // Safari support
-              boxShadow: `
-                0 25px 70px ${themeConfig.colors.shadow},
-                0 12px 32px ${themeConfig.colors.primary}20,
-                0 8px 24px ${themeConfig.colors.shadow},
-                inset 0 1px 0 rgba(255, 255, 255, 0.2),
-                inset 0 -1px 0 ${themeConfig.colors.shadow},
-                0 0 0 1px ${themeConfig.colors.primary}15
-              `,
+              background: themeConfig.name === 'light'
+                ? `
+                  linear-gradient(135deg,
+                    ${themeConfig.colors.surface}f8 0%,
+                    ${themeConfig.colors.surface}f0 25%,
+                    ${themeConfig.colors.surface}f8 50%,
+                    ${themeConfig.colors.surface}f0 75%,
+                    ${themeConfig.colors.surface}f8 100%
+                  ),
+                  radial-gradient(circle at 25% 25%,
+                    ${themeConfig.colors.primary}12 0%,
+                    transparent 50%
+                  ),
+                  radial-gradient(circle at 75% 75%,
+                    ${themeConfig.colors.success}10 0%,
+                    transparent 50%
+                  )
+                `
+                : `
+                  linear-gradient(135deg,
+                    ${themeConfig.colors.surface}ee 0%,
+                    ${themeConfig.colors.surfaceHover}cc 25%,
+                    ${themeConfig.colors.surface}ee 50%,
+                    ${themeConfig.colors.surfaceHover}cc 75%,
+                    ${themeConfig.colors.surface}ee 100%
+                  ),
+                  radial-gradient(circle at 25% 25%,
+                    ${themeConfig.colors.primary}08 0%,
+                    transparent 50%
+                  ),
+                  radial-gradient(circle at 75% 75%,
+                    ${themeConfig.colors.success}06 0%,
+                    transparent 50%
+                  )
+                `,
+              border: themeConfig.name === 'light'
+                ? `1px solid ${themeConfig.colors.border}`
+                : `1px solid ${themeConfig.colors.primary}20`,
+              backdropFilter: 'blur(24px) saturate(1.8) contrast(1.05)',
+              WebkitBackdropFilter: 'blur(24px) saturate(1.8) contrast(1.05)', // Safari support
+              boxShadow: themeConfig.name === 'light'
+                ? `
+                  0 20px 50px ${themeConfig.colors.shadowLight},
+                  0 8px 24px ${themeConfig.colors.primary}15,
+                  inset 0 1px 0 rgba(255, 255, 255, 0.4),
+                  inset 0 -1px 0 ${themeConfig.colors.shadow},
+                  0 0 0 1px ${themeConfig.colors.primary}10
+                `
+                : `
+                  0 25px 70px ${themeConfig.colors.shadow},
+                  0 12px 32px ${themeConfig.colors.primary}20,
+                  0 8px 24px ${themeConfig.colors.shadow},
+                  inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                  inset 0 -1px 0 ${themeConfig.colors.shadow},
+                  0 0 0 1px ${themeConfig.colors.primary}15
+                `,
               zIndex: 50,
               transform: 'translateZ(0)', // Enable hardware acceleration
               willChange: 'backdrop-filter, transform' // Optimize animations
@@ -146,9 +173,9 @@ export function Settings() {
           >
           {/* Noise grain overlay */}
           <div
-            className="absolute inset-0 opacity-4 pointer-events-none"
+            className="absolute inset-0 opacity-[0.03] pointer-events-none rounded-2xl"
             style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='150' height='150' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='150' height='150' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
               filter: 'contrast(1.3) brightness(1.1)'
             }}
           />

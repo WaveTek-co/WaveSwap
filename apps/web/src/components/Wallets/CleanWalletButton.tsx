@@ -134,26 +134,33 @@ export function CleanWalletButton() {
             `
             : `
               linear-gradient(135deg,
-                rgba(33, 188, 255, 0.25) 0%,
-                rgba(33, 188, 255, 0.18) 50%,
-                rgba(33, 188, 255, 0.25) 100%
+                ${theme.colors.primary}40 0%,
+                ${theme.colors.primary}30 50%,
+                ${theme.colors.primary}40 100%
               ),
               radial-gradient(circle at 30% 30%,
-                rgba(33, 188, 255, 0.2) 0%,
-                transparent 50%
+                ${theme.colors.primary}35 0%,
+                transparent 60%
+              ),
+              linear-gradient(135deg,
+                rgba(255, 255, 255, 0.05) 0%,
+                rgba(255, 255, 255, 0.02) 50%,
+                rgba(255, 255, 255, 0.05) 100%
               )
             `
           e.currentTarget.style.borderColor = theme.name === 'light'
             ? 'rgba(33, 188, 255, 0.4)'
-            : 'rgba(33, 188, 255, 0.4)'
+            : `${theme.colors.primary}60`
           e.currentTarget.style.boxShadow = theme.name === 'light'
             ? `
               0 12px 40px rgba(33, 188, 255, 0.25),
               inset 0 1px 0 rgba(255, 255, 255, 0.25)
             `
             : `
-              0 12px 40px rgba(33, 188, 255, 0.25),
-              inset 0 1px 0 rgba(255, 255, 255, 0.25)
+              0 16px 48px ${theme.colors.primary}35,
+              0 8px 24px ${theme.colors.primary}25,
+              inset 0 1px 0 rgba(255, 255, 255, 0.15),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.1)
             `
         } else {
           e.currentTarget.style.boxShadow = `
@@ -161,7 +168,7 @@ export function CleanWalletButton() {
             inset 0 1px 0 rgba(255, 255, 255, 0.25)
           `
         }
-        e.currentTarget.style.transform = 'translateY(-1px)'
+        e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)'
 
         // Change text and icon colors to primary color on hover
         if (!publicKey) {
@@ -206,7 +213,7 @@ export function CleanWalletButton() {
             inset 0 1px 0 rgba(255, 255, 255, 0.2)
           `
         }
-        e.currentTarget.style.transform = 'translateY(0)'
+        e.currentTarget.style.transform = 'translateY(0) scale(1)'
 
         // Reset text and icon colors to original values
         if (!publicKey) {

@@ -10,6 +10,7 @@ import { NearWalletProvider } from '@/providers/NearWalletProvider'
 import { StarknetWalletProvider } from '@/providers/StarknetWalletProvider'
 import { WalletModalProvider } from '@/contexts/WalletModalContext'
 import { GlobalWalletModal } from '@/components/Wallets/GlobalWalletModal'
+import Footer from '@/components/Footer'
 
 // Using local Helvetica Neue and JetBrains Mono fonts only
 
@@ -77,13 +78,16 @@ export default function RootLayout({
                   <StarknetWalletProvider>
                     <SolanaWalletProvider>
                       <WaveSwapProvider>
-                        <div className="relative min-h-screen text-foreground w-full">
+                        <div className="relative min-h-screen text-foreground w-full flex flex-col">
                           <div className="theme-background fixed inset-0"></div>
-                          <div className="relative z-[1]">
+                          <div className="relative z-[1] flex-1">
                             {children}
-                            <PrivacyReminder />
-                            <GlobalWalletModal />
                           </div>
+                          <div className="relative z-[1]">
+                            <Footer />
+                          </div>
+                          <PrivacyReminder />
+                          <GlobalWalletModal />
                         </div>
                       </WaveSwapProvider>
                     </SolanaWalletProvider>

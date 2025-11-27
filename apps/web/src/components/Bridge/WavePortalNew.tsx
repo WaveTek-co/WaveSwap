@@ -42,7 +42,7 @@ const SUPPORTED_CHAINS = [
     id: 'zec',
     name: 'Zcash',
     fullName: 'Zcash Network',
-    icon: '/icons/fallback/network/zcash.svg',
+    icon: '/icons/fallback/token/zec.png',
     color: '#F4B942',
     description: 'Privacy-focused cryptocurrency',
     chainId: 1
@@ -51,7 +51,7 @@ const SUPPORTED_CHAINS = [
     id: 'solana',
     name: 'Solana',
     fullName: 'Solana Network',
-    icon: '/icons/fallback/network/solana.svg',
+    icon: '/icons/fallback/token/sol.png',
     color: '#14F195',
     description: 'High-performance blockchain',
     chainId: 101
@@ -552,20 +552,61 @@ const handleBridge = async () => {
                       : 'hover:border-opacity-60'
                   }`}
                   style={{
-                    backgroundColor: fromChain === chain.id
-                      ? `${chain.color}15`
-                      : isDisabled
-                      ? `${theme.colors.surface}30`
-                      : `${theme.colors.surface}60`,
+                    background: fromChain === chain.id
+                      ? `
+                        linear-gradient(135deg,
+                          ${chain.color}25 0%,
+                          ${chain.color}15 50%,
+                          ${chain.color}25 100%
+                        ),
+                        radial-gradient(circle at 30% 30%,
+                          ${chain.color}20 0%,
+                          transparent 50%
+                        ),
+                        linear-gradient(135deg,
+                          rgba(255, 255, 255, 0.1) 0%,
+                          rgba(255, 255, 255, 0.05) 50%,
+                          rgba(255, 255, 255, 0.1) 100%
+                        )
+                      `
+                      : `
+                        linear-gradient(135deg,
+                          ${theme.colors.surface}ee 0%,
+                          ${theme.colors.surfaceHover}cc 50%,
+                          ${theme.colors.surface}ee 100%
+                        ),
+                        radial-gradient(circle at 25% 25%,
+                          ${theme.colors.primary}05 0%,
+                          transparent 50%
+                        ),
+                        linear-gradient(135deg,
+                          rgba(255, 255, 255, 0.05) 0%,
+                          rgba(255, 255, 255, 0.02) 50%,
+                          rgba(255, 255, 255, 0.05) 100%
+                        )
+                      `,
                     borderColor: fromChain === chain.id
-                      ? chain.color
+                      ? `${chain.color}60`
                       : isDisabled
-                      ? `${theme.colors.border}50`
-                      : theme.colors.border,
+                      ? `${theme.colors.border}30`
+                      : `${theme.colors.border}60`,
                     borderWidth: '2px',
                     position: 'relative',
                     overflow: 'hidden',
-                    cursor: isDisabled ? 'not-allowed' : 'pointer'
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    backdropFilter: 'blur(20px) saturate(1.8)',
+                    boxShadow: fromChain === chain.id
+                      ? `
+                        0 8px 32px ${chain.color}25,
+                        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                        inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+                      `
+                      : isDisabled
+                      ? 'none'
+                      : `
+                        0 4px 16px ${theme.colors.shadow}20,
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                      `
                   }}
                 >
                   {fromChain === chain.id && (
@@ -578,21 +619,78 @@ const handleBridge = async () => {
                   )}
                   <div className="relative z-10 flex flex-col items-center gap-2">
                     <div
-                      className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden"
+                      className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden transition-all duration-300"
                       style={{
-                        backgroundColor: fromChain === chain.id ? `${chain.color}20` : 'rgba(255, 255, 255, 0.05)'
+                        background: fromChain === chain.id
+                          ? `
+                            linear-gradient(135deg,
+                              ${chain.color}40 0%,
+                              ${chain.color}30 50%,
+                              ${chain.color}40 100%
+                            ),
+                            radial-gradient(circle at 30% 30%,
+                              ${chain.color}25 0%,
+                              transparent 60%
+                            )
+                          `
+                          : `
+                            linear-gradient(135deg,
+                              rgba(255, 255, 255, 0.15) 0%,
+                              rgba(255, 255, 255, 0.08) 50%,
+                              rgba(255, 255, 255, 0.15) 100%
+                            ),
+                            radial-gradient(circle at 30% 30%,
+                              rgba(33, 188, 255, 0.1) 0%,
+                              transparent 60%
+                            )
+                          `,
+                        boxShadow: fromChain === chain.id
+                          ? `
+                            inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                            inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+                            0 4px 12px ${chain.color}30
+                          `
+                          : `
+                            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                            inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+                          `
                       }}
                     >
                       <img
                         src={chain.icon}
                         alt={chain.name}
-                        className="w-8 h-8 rounded-full"
+                        className="w-8 h-8 transition-all duration-300"
                         style={{
-                          filter: fromChain === chain.id ? 'brightness(1.2)' : 'brightness(0.7)',
-                          transition: 'filter 0.2s'
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          filter: fromChain === chain.id
+                            ? `brightness(1.3) saturate(1.2) drop-shadow(0 0 8px ${chain.color}50)`
+                            : theme.name === 'light' && chain.id === 'zec'
+                              ? 'brightness(0.8) contrast(1.1) saturate(1.1)'
+                              : 'brightness(1.0) saturate(1.0)',
+                          transform: fromChain === chain.id ? 'scale(1.1)' : 'scale(1)'
                         }}
                         onError={(e) => {
-                          e.currentTarget.src = '/icons/default-token.svg'
+                          // Fallback to colored circle if icon fails
+                          e.currentTarget.style.display = 'none'
+                          const parent = e.currentTarget.parentElement
+                          if (parent) {
+                            parent.innerHTML = `
+                              <div style="
+                                width: 32px;
+                                height: 32px;
+                                background: ${chain.color};
+                                border-radius: 50%;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-weight: bold;
+                                color: white;
+                                font-size: 12px;
+                                text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+                              ">${chain.name.substring(0, 2).toUpperCase()}</div>
+                            `
+                          }
                         }}
                       />
                     </div>
@@ -655,20 +753,61 @@ const handleBridge = async () => {
                       : 'hover:border-opacity-60'
                   }`}
                   style={{
-                    backgroundColor: toChain === chain.id
-                      ? `${chain.color}15`
-                      : isDisabled
-                      ? `${theme.colors.surface}30`
-                      : `${theme.colors.surface}60`,
+                    background: toChain === chain.id
+                      ? `
+                        linear-gradient(135deg,
+                          ${chain.color}25 0%,
+                          ${chain.color}15 50%,
+                          ${chain.color}25 100%
+                        ),
+                        radial-gradient(circle at 30% 30%,
+                          ${chain.color}20 0%,
+                          transparent 50%
+                        ),
+                        linear-gradient(135deg,
+                          rgba(255, 255, 255, 0.1) 0%,
+                          rgba(255, 255, 255, 0.05) 50%,
+                          rgba(255, 255, 255, 0.1) 100%
+                        )
+                      `
+                      : `
+                        linear-gradient(135deg,
+                          ${theme.colors.surface}ee 0%,
+                          ${theme.colors.surfaceHover}cc 50%,
+                          ${theme.colors.surface}ee 100%
+                        ),
+                        radial-gradient(circle at 25% 25%,
+                          ${theme.colors.primary}05 0%,
+                          transparent 50%
+                        ),
+                        linear-gradient(135deg,
+                          rgba(255, 255, 255, 0.05) 0%,
+                          rgba(255, 255, 255, 0.02) 50%,
+                          rgba(255, 255, 255, 0.05) 100%
+                        )
+                      `,
                     borderColor: toChain === chain.id
-                      ? chain.color
+                      ? `${chain.color}60`
                       : isDisabled
-                      ? `${theme.colors.border}50`
-                      : theme.colors.border,
+                      ? `${theme.colors.border}30`
+                      : `${theme.colors.border}60`,
                     borderWidth: '2px',
                     position: 'relative',
                     overflow: 'hidden',
-                    cursor: isDisabled ? 'not-allowed' : 'pointer'
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    backdropFilter: 'blur(20px) saturate(1.8)',
+                    boxShadow: toChain === chain.id
+                      ? `
+                        0 8px 32px ${chain.color}25,
+                        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                        inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+                      `
+                      : isDisabled
+                      ? 'none'
+                      : `
+                        0 4px 16px ${theme.colors.shadow}20,
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                      `
                   }}
                 >
                   {toChain === chain.id && (
@@ -681,21 +820,78 @@ const handleBridge = async () => {
                   )}
                   <div className="relative z-10 flex flex-col items-center gap-2">
                     <div
-                      className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden"
+                      className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden transition-all duration-300"
                       style={{
-                        backgroundColor: toChain === chain.id ? `${chain.color}20` : 'rgba(255, 255, 255, 0.05)'
+                        background: toChain === chain.id
+                          ? `
+                            linear-gradient(135deg,
+                              ${chain.color}40 0%,
+                              ${chain.color}30 50%,
+                              ${chain.color}40 100%
+                            ),
+                            radial-gradient(circle at 30% 30%,
+                              ${chain.color}25 0%,
+                              transparent 60%
+                            )
+                          `
+                          : `
+                            linear-gradient(135deg,
+                              rgba(255, 255, 255, 0.15) 0%,
+                              rgba(255, 255, 255, 0.08) 50%,
+                              rgba(255, 255, 255, 0.15) 100%
+                            ),
+                            radial-gradient(circle at 30% 30%,
+                              rgba(33, 188, 255, 0.1) 0%,
+                              transparent 60%
+                            )
+                          `,
+                        boxShadow: toChain === chain.id
+                          ? `
+                            inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                            inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+                            0 4px 12px ${chain.color}30
+                          `
+                          : `
+                            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                            inset 0 -1px 0 rgba(0, 0, 0, 0.1)
+                          `
                       }}
                     >
                       <img
                         src={chain.icon}
                         alt={chain.name}
-                        className="w-8 h-8 rounded-full"
+                        className="w-8 h-8 transition-all duration-300"
                         style={{
-                          filter: toChain === chain.id ? 'brightness(1.2)' : 'brightness(0.7)',
-                          transition: 'filter 0.2s'
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          filter: toChain === chain.id
+                            ? `brightness(1.3) saturate(1.2) drop-shadow(0 0 8px ${chain.color}50)`
+                            : theme.name === 'light' && chain.id === 'zec'
+                              ? 'brightness(0.8) contrast(1.1) saturate(1.1)'
+                              : 'brightness(1.0) saturate(1.0)',
+                          transform: toChain === chain.id ? 'scale(1.1)' : 'scale(1)'
                         }}
                         onError={(e) => {
-                          e.currentTarget.src = '/icons/default-token.svg'
+                          // Fallback to colored circle if icon fails
+                          e.currentTarget.style.display = 'none'
+                          const parent = e.currentTarget.parentElement
+                          if (parent) {
+                            parent.innerHTML = `
+                              <div style="
+                                width: 32px;
+                                height: 32px;
+                                background: ${chain.color};
+                                border-radius: 50%;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                font-weight: bold;
+                                color: white;
+                                font-size: 12px;
+                                text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+                              ">${chain.name.substring(0, 2).toUpperCase()}</div>
+                            `
+                          }
                         }}
                       />
                     </div>
