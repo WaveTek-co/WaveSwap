@@ -72,7 +72,7 @@ export async function GET(
     })
 
     const historyResponse = {
-      swaps: swaps.map(swap => ({
+      swaps: swaps.map((swap: any) => ({
         intentId: swap.intentId,
         inputToken: swap.inputToken,
         outputToken: swap.outputToken,
