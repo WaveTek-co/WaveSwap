@@ -804,7 +804,7 @@ const handleBridge = async () => {
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
+                placeholder=""
                 className="w-full bg-transparent border-none outline-none text-2xl font-bold"
                 style={{
                   ...createInputStyles(theme),

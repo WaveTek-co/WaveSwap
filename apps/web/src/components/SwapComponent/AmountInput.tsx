@@ -13,15 +13,15 @@ interface AmountInputProps {
 }
 
 const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
-  ({ value, onChange, placeholder = "0.00", disabled = false, readOnly = false, className = "" }, ref) => {
+  ({ value, onChange, placeholder = "", disabled = false, readOnly = false, className = "" }, ref) => {
     const theme = useThemeConfig()
     // Format the value for display
     const formatDisplayValue = (val: string) => {
-      if (!val || val === '0' || val === '0.00') return ''
+      if (!val || val === '0' || val === '0.00' || val === '0.000000' || val === '$0.00') return ''
 
       // Parse the number and ensure proper formatting
       const num = parseFloat(val)
-      if (isNaN(num)) return val
+      if (isNaN(num) || num === 0) return ''
 
       // Split into integer and decimal parts
       const parts = val.split('.')
@@ -90,22 +90,7 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
           }}
         />
 
-        {/* Balance indicator */}
-        {displayValue && (
-          <div
-            className="absolute top-1/2 right-3 transform -translate-y-1/2 pointer-events-none"
-            style={{ color: theme.colors.textMuted }}
-          >
-            <div className="text-xs font-medium opacity-60">
-              {displayValue && !disabled && !readOnly && (
-                <span className="inline-flex items-center gap-1">
-                  <span>USD</span>
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
     )
   }
 )

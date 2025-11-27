@@ -67,7 +67,7 @@ export function SwapInput({
             type="number"
             value={amount}
             onChange={(e) => onAmountChange(e.target.value)}
-            placeholder="0.0"
+            placeholder=""
             disabled={disabled || readonly}
             className={`input-field pr-36 ${readonly ? 'cursor-not-allowed opacity-75' : ''}`}
             step="any"

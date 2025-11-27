@@ -738,7 +738,7 @@ function StakeModal({
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
+                  placeholder=""
                   className="w-full px-4 py-4 rounded-xl bg-transparent"
                   style={{
                     background: `${theme.colors.surface}40`,
@@ -906,7 +906,7 @@ function SecureBagModal({
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
+                placeholder=""
                 className="w-full px-4 py-4 rounded-xl bg-transparent"
                 style={{
                   background: `${theme.colors.surface}40`,
