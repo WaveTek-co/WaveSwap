@@ -478,7 +478,6 @@ const handleBridge = async () => {
   }
 
   const walletStatus = getWalletConnectionStatus()
-  const bridgeProvider = getBridgeProvider(fromChain, toChain)
 
   // Show Coming Soon if enabled
   if (comingSoon) {
@@ -510,15 +509,6 @@ const handleBridge = async () => {
 
   return (
     <div className="w-full max-w-xl mx-auto">
-      {/* Dynamic Quote Section */}
-      <div className="mb-8 text-center">
-        <div className="relative z-10">
-            <p className="text-center text-sm italic" style={{ color: theme.colors.textMuted }}>
-              {getDynamicQuote(toChain)}
-            </p>
-          </div>
-      </div>
-
       {/* Enhanced Chain Selector */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
@@ -710,23 +700,7 @@ const handleBridge = async () => {
           </div>
         </div>
 
-        {/* Bridge Provider Info */}
-        <div className="mt-4 text-center">
-          <div
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
-            style={{
-              backgroundColor: `${theme.colors.primary}10`,
-              color: theme.colors.primary,
-              border: `1px solid ${theme.colors.primary}30`
-            }}
-          >
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: theme.colors.primary }} />
-            <span>
-              Via {getChainName(toChain)}
-            </span>
-          </div>
-        </div>
-
+  
         {/* Wallet Connection Status */}
         {walletStatus.connected && walletStatus.address && (
           <div className="mt-4 text-center">
@@ -940,16 +914,7 @@ const handleBridge = async () => {
         </div>
       </div>
 
-      {/* Info */}
-      <div className="mt-4 text-center">
-        <p className="text-xs" style={{ color: theme.colors.textMuted }}>
-          {bridgeProvider === 'starkgate'
-            ? 'Powered by StarkGate - Official StarkNet Bridge'
-            : 'Powered by NEAR Intents - Private Cross-chain Bridge'
-          }
-        </p>
-      </div>
-
+  
       {/* StarkNet Wallet Modal */}
       <StarknetWalletModal
         isOpen={showStarknetWalletModal}
