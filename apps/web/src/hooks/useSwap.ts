@@ -201,7 +201,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
       const defaultReceiveSymbol = theme.name === 'ghost' ? 'CASH' : 'WAVE'
       const defaultReceiveName = theme.name === 'ghost' ? 'Cash' : 'Wave'
-      const defaultReceiveDecimals = theme.name === 'ghost' ? 9 : 6
+      const defaultReceiveDecimals = theme.name === 'ghost' ? 6 : 6
 
       const receiveToken = tokens.find(t => t.address === defaultReceiveAddress) || {
         address: defaultReceiveAddress,

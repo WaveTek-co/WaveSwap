@@ -358,7 +358,7 @@ export class JupiterTokenService {
       'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': 8, // ZEC
       'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 6,  // PUMP
       '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': 6, // WAVE
-      'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH': 9, // CASH
+      'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH': 6, // CASH
       'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump': 9, // WEALTH
       'J2eaKn35rp82T6RFEsNK9CLRHEKV9BLXjedFM3q6pump': 9, // FTP
       'DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2': 9, // AURA

@@ -323,6 +323,28 @@ const DEFAULT_TOKENS_METADATA = [
     isNative: false,
     addressable: true,
   },
+  {
+    address: 'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH',
+    chainId: 101,
+    decimals: 6,
+    name: 'CASH',
+    symbol: 'CASH',
+    tags: ['stablecoin'],
+    isConfidentialSupported: true,
+    isNative: false,
+    addressable: true,
+  },
+  {
+    address: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+    chainId: 101,
+    decimals: 6,
+    name: 'Wave Swap',
+    symbol: 'WAVE',
+    tags: ['defi', 'popular'],
+    isConfidentialSupported: true,
+    isNative: false,
+    addressable: true,
+  },
 ]
 
 // Default tokens - logoURI set to fallback URL
