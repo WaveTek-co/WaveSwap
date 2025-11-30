@@ -87,7 +87,8 @@ const getTokenInfo = (address: string) => {
 
 const formatAmount = (amount: string, decimals: number): string => {
   try {
-    const num = parseFloat(amount) / Math.pow(10, decimals)
+    // Amount is already in human-readable format from Jupiter API
+    const num = parseFloat(amount)
     if (num === 0) return '0'
     if (num < 0.001) return '<0.001'
     if (num < 1) return num.toFixed(4)

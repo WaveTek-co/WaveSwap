@@ -16,6 +16,7 @@ function getLocalFallbackIcon(symbol: string, address: string): string | null {
     'USDT': '/icons/fallback/token/usdt.png',
     'ZEC': '/icons/fallback/token/zec.png',
     'PUMP': '/icons/fallback/token/pump.png',
+    'CASH': '/icons/fallback/token/cash.png',
     // Other tokens with local fallback icons
     'WEALTH': '/icons/fallback/token/wealth.png',
     'FTP': '/icons/fallback/token/ftp.jpg',

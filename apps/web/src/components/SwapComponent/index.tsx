@@ -17,6 +17,34 @@ interface SwapComponentProps {
   privacyMode: boolean
 }
 
+// Proper balance formatting function
+const formatBalance = (balance: string, decimals: number = 9): string => {
+  try {
+    // Convert from smallest units (lamports) to human-readable format
+    const num = parseFloat(balance) / Math.pow(10, decimals)
+    if (num === 0) return '0'
+
+    // For very small amounts, show appropriate precision
+    if (num < 0.000001) {
+      return '<0.000001'
+    }
+    if (num < 0.001) {
+      return num.toFixed(6)
+    }
+    if (num < 1) {
+      return num.toFixed(4)
+    }
+    if (num < 1000) {
+      return num.toFixed(2)
+    }
+
+    // For large amounts, use locale with reasonable precision
+    return num.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  } catch {
+    return '0'
+  }
+}
+
 export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const { publicKey, signMessage } = useWallet()
   const theme = useThemeConfig()
@@ -385,8 +413,9 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
         // Sort by balance value (descending) for better UX
         updatedBalances.sort((a: any, b: any) => {
-          const aValue = parseFloat(a.amount) / Math.pow(10, a.decimals)
-          const bValue = parseFloat(b.amount) / Math.pow(10, b.decimals)
+          // Balances are already in human-readable format from Jupiter API
+          const aValue = parseFloat(a.amount)
+          const bValue = parseFloat(b.amount)
           return bValue - aValue
         })
 
@@ -682,7 +711,9 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const hasInsufficientBalance = safeInputToken && inputAmount && publicKey ? (() => {
     const inputAmountNum = parseFloat(inputAmount)
     if (isNaN(inputAmountNum) || inputAmountNum <= 0) return false
-    const balanceNum = parseFloat(inputBalance) / Math.pow(10, safeInputToken.decimals || 9)
+    // Convert balance from lamports to human-readable format for comparison
+    const balanceInLamports = parseFloat(inputBalance)
+    const balanceNum = balanceInLamports / Math.pow(10, safeInputToken.decimals || 9)
     return inputAmountNum > balanceNum
   })() : false
 
@@ -891,9 +922,10 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                             <button
                               key={label}
                               onClick={() => {
-                                const balanceNum = parseFloat(inputBalance)
-                                if (balanceNum > 0) {
-                                  const maxAmount = balanceNum / Math.pow(10, safeInputToken.decimals || 9)
+                                const balanceInLamports = parseFloat(inputBalance)
+                                if (balanceInLamports > 0 && safeInputToken) {
+                                  // Convert from lamports to human-readable format
+                                  const maxAmount = balanceInLamports / Math.pow(10, safeInputToken.decimals || 9)
                                   const amountWithFees = maxAmount * value
                                   setInputAmount(amountWithFees.toString())
                                 } else {
@@ -1210,7 +1242,8 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                           </div>
                           <div className="text-right">
                             <p className="font-bold" style={{ color: theme.colors.textPrimary }}>
-                              {(parseFloat(balance.amount) / Math.pow(10, balance.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                              {/* Balance is already in human-readable format from Jupiter API */}
+                              {formatBalance(balance.amount, balance.decimals)}
                             </p>
                             <p className="text-xs" style={{ color: theme.colors.textMuted }}>
                               ≈ ${balance.usdValue?.toLocaleString() || '0.00'}
@@ -1303,7 +1336,8 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                           </div>
                           <div className="flex justify-between items-center text-xs" style={{ color: theme.colors.textMuted }}>
                             <span>
-                              Available: {(parseFloat(balance.amount) / Math.pow(10, balance.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })} {balance.symbol}
+                              {/* Balance is already in human-readable format from Jupiter API */}
+                              Available: {formatBalance(balance.amount, balance.decimals)} {balance.symbol}
                             </span>
                             <span>
                               {/* No additional info needed since we now show actual balances */}

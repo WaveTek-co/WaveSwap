@@ -185,14 +185,21 @@ const otherWallets = getOtherWallets()
     try {
       console.log('Connecting to wallet:', adapterName)
 
-      // Direct selection without strict validation
-      // The wallet adapter handles selection internally
-      select(adapterName as WalletName)
+      // Check if wallet is already selected
+      if (wallet?.adapter.name !== adapterName) {
+        // Select the wallet first
+        select(adapterName as WalletName)
 
-      // Brief wait for selection to register
-      await new Promise(resolve => setTimeout(resolve, 500))
+        // Wait for selection to register
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
 
-      // Proceed to connect - wallet adapter will handle selection state
+      // Ensure wallet is selected before connecting
+      if (!wallet) {
+        throw new Error('Wallet not selected after selection attempt')
+      }
+
+      // Now connect to the selected wallet
       await connect()
 
       console.log('Wallet connected successfully')
@@ -208,8 +215,23 @@ const otherWallets = getOtherWallets()
       if (error instanceof Error) {
         if (error.message.includes('not installed')) {
           alert(`${adapterName} wallet is not installed. Please install it first and try again.`)
-        } else if (error.message.includes('User rejected')) {
+        } else if (error.message.includes('User rejected') || error.message.includes('User rejected the request')) {
           // User cancelled - no action needed
+          console.log('User cancelled wallet connection')
+        } else if (error.name === 'WalletNotSelectedError' || error.message.includes('WalletNotSelectedError')) {
+          console.log('Wallet not selected, retrying connection...')
+          // Retry connection once after a brief delay
+          setTimeout(async () => {
+            try {
+              if (wallet) {
+                await connect()
+                console.log('Retry connection successful')
+                setTimeout(() => onClose(), 300)
+              }
+            } catch (retryError) {
+              console.error('Retry connection failed:', retryError)
+            }
+          }, 1000)
         } else {
           alert(`Failed to connect to ${adapterName}: ${error.message}`)
         }

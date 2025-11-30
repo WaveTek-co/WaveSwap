@@ -209,16 +209,21 @@ export function AppTabs() {
           style={{
             ...createGlassStyles(theme),
             backdropFilter: 'blur(20px) saturate(180%)',
-            borderBottom: `1px solid ${theme.colors.border}`
+            borderBottom: `1px solid ${theme.name === 'ghost' ? theme.colors.primaryBorder : theme.colors.border}`,
+            background: theme.name === 'ghost'
+              ? 'linear-gradient(135deg, rgba(255, 253, 248, 0.95) 0%, rgba(226, 223, 254, 0.9) 25%, rgba(255, 253, 248, 0.92) 50%, rgba(171, 159, 242, 0.88) 75%, rgba(255, 253, 248, 0.95) 100%)'
+              : createGlassStyles(theme).background
           }}
         >
           {/* Noise overlay for header - theme-aware */}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
-              opacity: theme.name === 'light' ? 0.02 : 0.03,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.1'/%3E%3C/svg%3E")`,
-              mixBlendMode: theme.name === 'light' ? 'soft-light' : 'overlay'
+              opacity: theme.name === 'light' ? 0.02 : theme.name === 'ghost' ? 0.04 : 0.03,
+              backgroundImage: theme.name === 'ghost'
+                ? `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='1.5'/%3E%3CfeColorMatrix type='matrix' values='1 0 0 0 0.67 0 1 0 0 0.63 0 0 1 0 0.95 0 0 0 1 0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.15'/%3E%3C/svg%3E")`
+                : `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.1'/%3E%3C/svg%3E")`,
+              mixBlendMode: theme.name === 'ghost' ? 'soft-light' : theme.name === 'light' ? 'soft-light' : 'overlay'
             }}
           />
           <div className="container mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 relative z-10">
@@ -270,10 +275,12 @@ export function AppTabs() {
                     className="relative flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl overflow-hidden transition-all duration-300 hover:scale-[1.02]"
                     style={{
                       ...createGlassStyles(theme),
-                      border: `1px solid ${privacyMode ? `${theme.colors.success}30` : `${theme.colors.primary}10`}`,
+                      border: `1px solid ${privacyMode ? `${theme.colors.success}30` : theme.name === 'ghost' ? `${theme.colors.primaryBorder}50` : `${theme.colors.primary}10`}`,
                       backdropFilter: 'blur(20px) saturate(1.8)',
                       boxShadow: privacyMode
                         ? `0 8px 24px ${theme.colors.success}15, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
+                        : theme.name === 'ghost'
+                        ? `0 8px 24px ${theme.colors.purpleShadow || theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primaryBorder}20`
                         : `0 8px 32px ${theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primary}05`
                     }}
                   >
@@ -300,10 +307,14 @@ export function AppTabs() {
                       <span
                         className="text-xs mr-2 font-medium transition-all duration-300"
                         style={{
-                          color: privacyMode ? theme.colors.textPrimary : theme.colors.textSecondary,
+                          color: privacyMode ? theme.colors.textPrimary : theme.name === 'ghost' ? theme.colors.primary : theme.colors.textSecondary,
                           fontFamily: 'var(--font-helvetica)',
                           letterSpacing: '0.025em',
-                          textShadow: privacyMode ? `0 0 10px ${theme.colors.success}30` : 'none'
+                          textShadow: privacyMode
+                            ? `0 0 10px ${theme.colors.success}30`
+                            : theme.name === 'ghost'
+                            ? `0 0 8px ${theme.colors.primary}20`
+                            : 'none'
                         }}
                       >
                         Private
@@ -313,9 +324,15 @@ export function AppTabs() {
                         onChange={setPrivacyMode}
                         className="relative inline-flex h-3 w-5 sm:h-4 sm:w-7 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent z-10"
                         style={{
-                          backgroundColor: privacyMode ? `${theme.colors.success}80` : `${theme.colors.error}80`,
+                          backgroundColor: privacyMode
+                            ? `${theme.colors.success}80`
+                            : theme.name === 'ghost'
+                            ? `${theme.colors.primary}60`
+                            : `${theme.colors.error}80`,
                           boxShadow: privacyMode
                             ? `0 0 0 1px ${theme.colors.success}20, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
+                            : theme.name === 'ghost'
+                            ? `0 0 0 1px ${theme.colors.primaryBorder}40, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
                             : `0 0 0 1px ${theme.colors.error}20, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
                         }}
                       >
@@ -325,6 +342,8 @@ export function AppTabs() {
                           style={{
                             boxShadow: privacyMode
                               ? `0 2px 4px rgba(0, 0, 0, 0.2), 0 0 8px ${theme.colors.success}30`
+                              : theme.name === 'ghost'
+                              ? `0 2px 4px rgba(0, 0, 0, 0.15), 0 0 10px ${theme.colors.primary}40`
                               : `0 2px 4px rgba(0, 0, 0, 0.2), 0 0 8px ${theme.colors.error}30`
                           }}
                         />

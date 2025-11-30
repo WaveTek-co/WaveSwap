@@ -8,6 +8,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, Connection, Transaction, VersionedTransaction, Keypair } from '@solana/web3.js'
+import { useThemeConfig } from '@/lib/theme'
 import { createSwapService, SwapServiceConfig, SwapRequest, SwapUtils as ServiceSwapUtils } from '@/services/swap'
 import { JupiterAPI, JupiterUtils } from '@/lib/jupiter'
 import { DefiClient, DefiClientConfig, DepositParams, SignedSwapParams, OrderStatusParams, Token as EncifherToken } from 'encifher-swap-sdk'
@@ -27,6 +28,7 @@ function getLocalFallbackIcon(symbol: string, address: string): string | null {
     'USDT': '/icons/fallback/token/usdt.png',
     'ZEC': '/icons/fallback/token/zec.png',
     'PUMP': '/icons/fallback/token/pump.png',
+    'CASH': '/icons/fallback/token/cash.png',
     'WEALTH': '/icons/fallback/token/wealth.png',
     'FTP': '/icons/fallback/token/ftp.jpg',
     'AURA': '/icons/fallback/token/aura.png',
@@ -137,6 +139,7 @@ async function subtractConfidentialBalance(tokenAddress: string, amount: number,
 export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): SwapState & SwapActions {
   const { connection } = useConnection()
   const { signTransaction, signAllTransactions } = useWallet()
+  const theme = useThemeConfig()
 
   const debugPrivacyMode = privacyMode // Use actual privacy mode without debug override
   const swapServiceRef = useRef<any>(null)
@@ -191,26 +194,35 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         addressable: true
       } as Token
 
-      const waveToken = tokens.find(t => t.address === '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump') || {
-        address: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+      // Use CASH as receive token for ghost mode, otherwise use WAVE
+      const defaultReceiveAddress = theme.name === 'ghost'
+        ? 'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH'
+        : '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump'
+
+      const defaultReceiveSymbol = theme.name === 'ghost' ? 'CASH' : 'WAVE'
+      const defaultReceiveName = theme.name === 'ghost' ? 'Cash' : 'Wave'
+      const defaultReceiveDecimals = theme.name === 'ghost' ? 9 : 6
+
+      const receiveToken = tokens.find(t => t.address === defaultReceiveAddress) || {
+        address: defaultReceiveAddress,
         chainId: 101,
-        decimals: 6, // Most pump.fun tokens use 6 decimals
-        name: 'Wave',
-        symbol: 'WAVE',
-        logoURI: getLocalFallbackIcon('WAVE', '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump') || '/icons/default-token.svg', // WAVE fallback
+        decimals: defaultReceiveDecimals,
+        name: defaultReceiveName,
+        symbol: defaultReceiveSymbol,
+        logoURI: getLocalFallbackIcon(defaultReceiveSymbol, defaultReceiveAddress) || '/icons/default-token.svg',
         tags: ['defi', 'dex'],
-        isConfidentialSupported: false,
+        isConfidentialSupported: true,
         isNative: false,
         addressable: true
       } as Token
 
-      // Always set SOL as Send and WAVE as Receive
+      // Always set SOL as Send and theme-specific token as Receive
       setInputToken(solToken)
-      setOutputToken(waveToken)
+      setOutputToken(receiveToken)
     }
 
     initializeTokens()
-  }, [privacyMode]) // Re-run when privacy mode changes
+  }, [privacyMode, theme.name]) // Re-run when privacy mode or theme changes
 
   // Initialize swap service when wallet is connected
   useEffect(() => {
@@ -376,13 +388,17 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         setInputToken(solToken || filtered[0] || null)
       }
       if (outputToken && !filtered.find((t: Token) => t.address === outputToken.address)) {
-        const waveToken = filtered.find(t => t.address === '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump')
-        setOutputToken(waveToken || filtered[1] || filtered[0] || null)
+        const defaultOutputAddress = theme.name === 'ghost'
+          ? 'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH'
+          : '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump'
+
+        const defaultOutputToken = filtered.find(t => t.address === defaultOutputAddress)
+        setOutputToken(defaultOutputToken || filtered[1] || filtered[0] || null)
       }
     }
 
     loadFilteredTokens()
-  }, [privacyMode])
+  }, [privacyMode, theme.name])
 
   // Load user's tokens when wallet connects or privacy mode changes
   useEffect(() => {
@@ -628,8 +644,9 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         }
         setQuote(privateQuote)
 
-        // Calculate output amount for display
-        const outputAmountHuman = parseFloat(jupiterQuote.outAmount) / Math.pow(10, outputToken.decimals || 9)
+        // Calculate output amount for display - Jupiter returns amounts in smallest units
+        const outputDecimals = outputToken.decimals || 9
+        const outputAmountHuman = parseFloat(jupiterQuote.outAmount) / Math.pow(10, outputDecimals)
         setOutputAmount(outputAmountHuman.toFixed(6))
         return
       }
@@ -646,7 +663,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
       setQuote(newQuote)
 
-      // Calculate output amount with fallback decimals
+      // Calculate output amount with fallback decimals - Jupiter returns amounts in smallest units
       const outputDecimals = outputToken.decimals || 9
       const output = parseFloat(newQuote.outputAmount) / Math.pow(10, outputDecimals)
       setOutputAmount(output.toFixed(outputDecimals).replace(/\.?0+$/, ''))

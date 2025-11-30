@@ -23,6 +23,7 @@ function getLocalFallbackIcon(symbol: string, address: string): string | null {
     'USDT': '/icons/fallback/token/usdt.png',
     'ZEC': '/icons/fallback/token/zec.png',
     'PUMP': '/icons/fallback/token/pump.png',
+    'CASH': '/icons/fallback/token/cash.png',
     'WEALTH': '/icons/fallback/token/wealth.png',
     'FTP': '/icons/fallback/token/ftp.jpg',
     'AURA': '/icons/fallback/token/aura.png',
@@ -71,6 +72,7 @@ export function TokenSelector({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<JupiterToken[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [popularTokens, setPopularTokens] = useState<JupiterToken[]>([])
 
   // Convert Token to display format (use existing tokens from props)
   const convertToDisplayFormat = useCallback((token: Token): Token => ({
@@ -93,6 +95,22 @@ export function TokenSelector({
     tokens.map(convertToDisplayFormat),
     [tokens, convertToDisplayFormat]
   )
+
+  // Load popular tokens when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const loadPopularTokens = async () => {
+        try {
+          const popular = await JupiterTokenService.getPopularTokens()
+          setPopularTokens(popular)
+        } catch (error) {
+          console.error('Error loading popular tokens:', error)
+          setPopularTokens([])
+        }
+      }
+      loadPopularTokens()
+    }
+  }, [isOpen])
 
   // Search tokens using Jupiter API with debouncing
   useEffect(() => {
@@ -126,6 +144,7 @@ export function TokenSelector({
 
   const formatBalance = (balance: string, decimals: number): string => {
     try {
+      // Convert from smallest units (lamports) to human-readable format
       const num = parseFloat(balance) / Math.pow(10, decimals)
       if (num === 0) return '0'
       if (num < 0.001) return '<0.001'
@@ -286,16 +305,14 @@ export function TokenSelector({
                     ...createGlassStyles(theme),
                     background: 'linear-gradient(135deg, ' + theme.colors.surface + 'f8 0%, ' + theme.colors.surfaceHover + 'f2 50%, ' + theme.colors.surface + 'f6 100%)',
                     border: '1px solid ' + theme.colors.primary + '30',
-                    boxShadow: '0 50px 100px -20px ' + theme.colors.shadow + ', 0 25px 50px -12px ' + theme.colors.shadow + 'cc, inset 0 1px 0 rgba(255, 255, 255, ' + ((theme.name === 'light' || theme.name === 'ghost') ? '0.3' : '0.1') + ')',
+                    boxShadow: '0 50px 100px -20px ' + theme.colors.shadow + ', 0 25px 50px -12px ' + theme.colors.shadow + 'cc, inset 0 1px 0 rgba(255, 255, 255, ' + (theme.name === 'light' || theme.name === 'ghost' ? '0.3' : '0.1') + ')',
                     backdropFilter: 'blur(40px) saturate(1.5)'
                   }}
                 >
                   {/* Modal Header */}
                   <div className="relative flex items-center justify-between p-6 border-b" style={{
-                    borderColor: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.primary + '33' : theme.colors.primary + '26',
-                    background: (theme.name === 'light' || theme.name === 'ghost')
-                      ? 'linear-gradient(to bottom, ' + theme.colors.primary + '14, transparent)'
-                      : 'linear-gradient(to bottom, ' + theme.colors.primary + '0D, transparent)'
+                    borderColor: theme.colors.primary + '33',
+                    background: 'linear-gradient(to bottom, ' + theme.colors.primary + '14, transparent)'
                   }}
                   >
                     <div className="flex items-center gap-2">
@@ -307,7 +324,7 @@ export function TokenSelector({
                         style={{
                           fontFamily: 'var(--font-helvetica)',
                           letterSpacing: '0.025em',
-                          color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.95)',
+                          color: theme.colors.textPrimary,
                           textShadow: (theme.name === 'light' || theme.name === 'ghost')
                             ? '0 1px 2px rgba(0, 0, 0, 0.1)'
                             : '0 0 20px rgba(33, 188, 255, 0.3)'
@@ -320,8 +337,8 @@ export function TokenSelector({
                       onClick={() => setIsOpen(false)}
                       className="p-2 rounded-xl transition-all hover:bg-white/10 group"
                       style={{
-                        color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.textMuted : 'rgba(229, 231, 235, 0.7)',
-                        background: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.surfaceHover : 'rgba(255, 255, 255, 0.1)'
+                        color: theme.colors.textMuted,
+                        background: theme.colors.surfaceHover
                       }}
                     >
                       <XMarkIcon className="h-5 w-5 transition-transform group-hover:rotate-90" />
@@ -334,7 +351,7 @@ export function TokenSelector({
                       <MagnifyingGlassIcon
                         className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 transition-colors"
                         style={{
-                          color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.textMuted : 'rgba(147, 197, 253, 0.8)',
+                          color: theme.colors.textMuted,
                         }}
                       />
                       <input
@@ -344,22 +361,18 @@ export function TokenSelector({
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-12 pr-4 py-4 rounded-2xl text-sm font-medium transition-all duration-200"
                         style={{
-                          background: (theme.name === 'light' || theme.name === 'ghost')
-                            ? theme.colors.glass
-                            : 'rgba(10, 10, 20, 0.8)',
-                          border: '1px solid ' + ((theme.name === 'light' || theme.name === 'ghost') ? theme.colors.border : 'rgba(33, 188, 255, 0.3)'),
-                          color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.textPrimary : 'rgba(255, 255, 255, 0.9)',
+                          background: theme.colors.glass,
+                          border: '1px solid ' + theme.colors.border,
+                          color: theme.colors.textPrimary,
                           fontFamily: 'var(--font-helvetica)',
                           outline: 'none'
                         }}
                         onFocus={(e) => {
                           e.currentTarget.style.borderColor = theme.colors.primary
-                          e.currentTarget.style.boxShadow = (theme.name === 'light' || theme.name === 'ghost')
-                            ? '0 0 0 2px ' + theme.colors.primary + '30, 0 4px 12px ' + theme.colors.primary + '20'
-                            : '0 0 0 1px ' + theme.colors.primary + '40, inset 0 0 20px ' + theme.colors.primary + '15'
+                          e.currentTarget.style.boxShadow = '0 0 0 2px ' + theme.colors.primary + '30, 0 4px 12px ' + theme.colors.primary + '20'
                         }}
                         onBlur={(e) => {
-                          e.currentTarget.style.borderColor = (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.border : 'rgba(33, 188, 255, 0.3)'
+                          e.currentTarget.style.borderColor = theme.colors.border
                           e.currentTarget.style.boxShadow = 'none'
                         }}
                         autoFocus
@@ -387,7 +400,7 @@ export function TokenSelector({
                     {searchQuery && searchResults.length === 0 && !isSearching && (
                       <div className="p-8 text-center">
                         <div style={{
-                          color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.textMuted : 'rgba(229, 231, 235, 0.5)'
+                          color: theme.colors.textMuted
                         }}>
                           No tokens found for "{searchQuery}"
                         </div>
@@ -398,7 +411,7 @@ export function TokenSelector({
                     {searchQuery && searchResults.length > 0 && (
                       <div>
                         <div className="px-4 py-2 text-xs font-semibold" style={{
-                          color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
+                          color: theme.colors.primary,
                           fontFamily: 'var(--font-helvetica)'
                         }}>
                           Search Results
@@ -420,11 +433,38 @@ export function TokenSelector({
                       </div>
                     )}
 
+                    {/* Popular Tokens */}
+                    {!searchQuery && popularTokens.length > 0 && (
+                      <div>
+                        <div className="px-4 py-2 text-xs font-semibold" style={{
+                          color: theme.colors.primary,
+                          fontFamily: 'var(--font-helvetica)'
+                        }}>
+                          Popular Tokens
+                        </div>
+                        {popularTokens.map((jupiterToken) => {
+                          const token = jupiterToToken(jupiterToken)
+                          return (
+                            <TokenListItem
+                              key={token.address}
+                              token={token}
+                              balance={getTokenBalance(token)}
+                              onSelect={handleTokenSelect}
+                              isSelected={selectedToken?.address === token.address}
+                              isPopularToken={true}
+                              isPrivacyMode={isPrivacyMode}
+                              isOutputSelector={isOutputSelector}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
+
                     {/* User Tokens (with balance) */}
                     {!searchQuery && userTokens.length > 0 && (
                       <div>
                         <div className="px-4 py-2 text-xs font-semibold" style={{
-                          color: (theme.name === 'light' || theme.name === 'ghost') ? theme.colors.primary : 'rgba(33, 188, 255, 0.8)',
+                          color: theme.colors.primary,
                           fontFamily: 'var(--font-helvetica)'
                         }}>
                           Your Tokens
@@ -487,6 +527,7 @@ function TokenListItem({ token, balance, onSelect, isSelected, isPopularToken = 
 
   const formatBalance = (balance: string, decimals: number): string => {
     try {
+      // Convert from smallest units (lamports) to human-readable format
       const num = parseFloat(balance) / Math.pow(10, decimals)
       if (num === 0) return '0'
       if (num < 0.001) return '<0.001'
@@ -572,9 +613,9 @@ function TokenListItem({ token, balance, onSelect, isSelected, isPopularToken = 
                 fontSize: '0.9rem',
                 fontWeight: 600,
                 letterSpacing: '0.025em',
-                color: theme.name === 'light'
+                color: (theme.name === 'light' || theme.name === 'ghost')
                   ? (isSelected ? theme.colors.primary : theme.colors.textPrimary)
-                  : (isSelected ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.95)'),
+                  : (isSelected ? theme.colors.primary : theme.colors.textPrimary),
                 opacity: 1
               }}
             >
@@ -620,7 +661,7 @@ function TokenListItem({ token, balance, onSelect, isSelected, isPopularToken = 
               letterSpacing: '0.025em',
               color: (theme.name === 'light' || theme.name === 'ghost')
                 ? (isSelected ? theme.colors.primary : theme.colors.textSecondary)
-                : (isSelected ? 'rgba(33, 188, 255, 0.6)' : 'rgba(156, 163, 175, 0.8)')
+                : (isSelected ? theme.colors.primary : theme.colors.textSecondary)
             }}
           >
             {token.name}
@@ -637,7 +678,7 @@ function TokenListItem({ token, balance, onSelect, isSelected, isPopularToken = 
             letterSpacing: '0.01em',
             color: (theme.name === 'light' || theme.name === 'ghost')
               ? (isSelected ? theme.colors.primary : theme.colors.textSecondary)
-              : (isSelected ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)')
+              : (isSelected ? theme.colors.primary : theme.colors.textSecondary)
           }}
         >
           {formatBalance(balance, token.decimals)}
