@@ -619,7 +619,7 @@ function TokenListItem({ token, balance, onSelect, isSelected, isPopularToken = 
                 opacity: 1
               }}
             >
-              {isOutputSelector && token.isConfidentialSupported ? 'c' + token.symbol : token.symbol}
+              {token.symbol}
             </span>
             {/* Confidential token badge */}
             {token.isConfidentialToken && (
