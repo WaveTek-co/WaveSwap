@@ -103,9 +103,19 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
       if (result.confidentialBalances && Array.isArray(result.confidentialBalances)) {
         result.confidentialBalances.forEach((balance: any) => {
           if (balance.tokenAddress) {
+            // Handle special status values for confidential balances
+            let balanceAmount: string
+            if (balance.amount === 'AUTH_REQUIRED') {
+              balanceAmount = 'AUTH_REQUIRED'
+            } else if (balance.amount === 'DEPOSITED') {
+              balanceAmount = 'DEPOSITED'
+            } else {
+              balanceAmount = balance.amount.toString()
+            }
+
             // Include balance even if amount is '0' or requires authentication
             // This ensures users know they have tracked confidential tokens
-            confidentialBalances.set(balance.tokenAddress, balance.amount.toString())
+            confidentialBalances.set(balance.tokenAddress, balanceAmount)
           }
         })
       }

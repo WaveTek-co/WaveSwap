@@ -595,7 +595,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                 <button
                   onClick={() => {
                     if (currentPool.isComingSoon) {
-                      setComingSoonAction(`${currentPool.name} Secure The Bag locking`)
+                      setComingSoonAction(`${currentPool.name} Secure The Soon`)
                       setShowComingSoonModal(true)
                     } else {
                       setActiveModal('secureBag')
@@ -1085,7 +1085,7 @@ function SecureBagModal({
             disabled={pool.isComingSoon ? false : !amount || parseFloat(amount) <= 0}
             onClick={() => {
               if (pool.isComingSoon) {
-                setComingSoonAction && setComingSoonAction(`${pool.name} Secure The Bag locking`)
+                setComingSoonAction && setComingSoonAction(`${pool.name} Secure The Bag`)
                 setShowComingSoonModal && setShowComingSoonModal(true)
               }
             }}

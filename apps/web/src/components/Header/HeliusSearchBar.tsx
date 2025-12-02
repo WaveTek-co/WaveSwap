@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react'
-import { Search, ExternalLink, X, Sparkles, Wallet, Activity, DollarSign, Code } from 'lucide-react'
+import { Search, ExternalLink, X, Sparkles, Globe, Wallet, Activity, DollarSign, Code } from 'lucide-react'
 import { useThemeConfig, createGlassStyles, createInputStyles } from '@/lib/theme'
 
 interface SearchSuggestion {
@@ -58,7 +58,7 @@ export function HeliusSearchBar() {
       label: 'Block',
       value: query,
       description: 'Search for block number or hash',
-      icon: Code,
+      icon: Globe,
       orbUrl: `https://orb.helius.dev/block/${query}?cluster=mainnet-beta`
     },
     {
@@ -188,7 +188,7 @@ export function HeliusSearchBar() {
 
   return (
     <div ref={searchRef} className="relative hidden md:block w-full max-w-xs lg:max-w-sm">
-      {/* Main input container */}
+      {/* Main input container - matching history tab design */}
       <div
         className="relative p-1.5 rounded-lg overflow-hidden"
         style={{
@@ -198,7 +198,7 @@ export function HeliusSearchBar() {
           backdropFilter: 'blur(16px) saturate(1.5)'
         }}
       >
-        {/* Noise grain overlay */}
+        {/* Noise grain overlay - matching history tab */}
         <div
           className="absolute inset-0 opacity-3 pointer-events-none"
           style={{
@@ -217,6 +217,14 @@ export function HeliusSearchBar() {
                 setIsOpen(true)
               }}
               onFocus={() => setIsOpen(true)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = theme.colors.primary
+                e.currentTarget.style.background = `${theme.colors.surface}cc`
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = theme.colors.border
+                e.currentTarget.style.background = `${theme.colors.surface}99`
+              }}
               onKeyDown={handleKeyPress}
               placeholder="Explore in the Orb..."
               className="w-full pl-3 pr-12 py-1 rounded-md text-xs"
@@ -231,23 +239,28 @@ export function HeliusSearchBar() {
               }}
             />
 
-            {/* Enhanced Orb Icon on the right */}
+            {/* Orb Icon on the right */}
             <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center justify-center pointer-events-none z-20">
-              <img
-                src="/orb-logo-orange.svg"
-                alt="Helius Orb"
-                className="w-6 h-6 min-w-[24px] min-h-[24px]"
+              <div
+                className="w-6 h-6 rounded-full flex items-center justify-center"
                 style={{
-                  filter: theme.name === 'dark'
-                    ? 'brightness(1.4) saturate(1.3) drop-shadow(0 0 8px rgba(251, 146, 60, 0.6))'
-                    : 'brightness(1.2) saturate(1.2) drop-shadow(0 0 6px rgba(251, 146, 60, 0.4))',
-                  objectFit: 'contain',
-                  transition: 'all 0.2s ease'
+                  background: 'linear-gradient(135deg, #fb923c 0%, #f97316 50%, #ea580c 100%)',
+                  boxShadow: theme.name === 'dark'
+                    ? '0 0 12px rgba(251, 146, 60, 0.6), 0 2px 4px rgba(0, 0, 0, 0.3)'
+                    : '0 0 8px rgba(251, 146, 60, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2)',
+                  filter: 'brightness(1.1) saturate(1.2) drop-shadow(0 0 4px rgba(251, 146, 60, 0.5))'
                 }}
-              />
+              >
+                <Globe
+                  className="w-3.5 h-3.5 text-white"
+                  style={{
+                    filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
+                  }}
+                />
+              </div>
             </div>
 
-            {/* Clear button */}
+            {/* Clear button - adjust position for orb icon */}
             <button
               onClick={() => setQuery('')}
               className="absolute right-10 top-1/2 transform -translate-y-1/2 flex items-center opacity-60 hover:opacity-100 transition-opacity z-10"

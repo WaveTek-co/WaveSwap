@@ -466,7 +466,15 @@ export async function getTokenBalance(
       try {
         const lamports = await connection.getBalance(walletAddress)
         balance = lamports.toString()
-        console.log(`[getTokenBalance] SOL balance fetched: ${balance} lamports (${parseFloat(lamports.toString()) / 1e9} SOL)`)
+        const solAmount = parseFloat(lamports.toString()) / 1e9
+        console.log(`[getTokenBalance] SOL balance fetched: ${balance} lamports (${solAmount} SOL)`)
+
+        // Log for debugging the actual values
+        if (solAmount > 0) {
+          console.log(`[getTokenBalance] ✅ User has SOL balance: ${solAmount} SOL (${balance} lamports)`)
+        } else {
+          console.log(`[getTokenBalance] ⚠️ SOL balance is 0 or less`)
+        }
 
         // If SOL balance is 0, also check for wrapped SOL
         if (balance === '0') {
@@ -478,9 +486,11 @@ export async function getTokenBalance(
 
             const account = await getAccount(connection, tokenAccount)
             const wsolBalance = account.amount.toString()
-            console.log(`[getTokenBalance] WSOL balance found: ${wsolBalance}`)
+            const wsolAmount = parseFloat(wsolBalance) / 1e9
+            console.log(`[getTokenBalance] WSOL balance found: ${wsolBalance} lamports (${wsolAmount} SOL)`)
             if (wsolBalance !== '0') {
               balance = wsolBalance
+              console.log(`[getTokenBalance] Using WSOL balance instead of SOL balance`)
             }
           } catch (wsolError) {
             console.log(`[getTokenBalance] No WSOL account found: ${wsolError}`)

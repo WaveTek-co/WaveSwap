@@ -5,11 +5,34 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { Connection, PublicKey } from '@solana/web3.js'
-import { DefiClient, DefiClientConfig } from 'encifher-swap-sdk'
+
+// Cache for Encifher client to avoid repeated imports
+let encifherClientCache: any = null
+
+// Dynamic import to avoid webpack bundling issues
+const getEncifherClient = async () => {
+  try {
+    // Use cached client if available
+    if (encifherClientCache) {
+      return encifherClientCache
+    }
+
+    const encifherModule = await import('encifher-swap-sdk')
+    encifherClientCache = { DefiClient: encifherModule.DefiClient }
+    return encifherClientCache
+  } catch (error) {
+    console.error('[Confidential Balance API] Failed to import encifher-swap-sdk:', error)
+    return null
+  }
+}
 
 // In-memory storage for manually added confidential balances (for demo purposes)
 // In production, this should be replaced with a proper database
 const manualBalances = new Map<string, Array<any>>()
+
+// Simple cache for API responses to improve performance
+const responseCache = new Map<string, { data: any; timestamp: number }>()
+const CACHE_DURATION = 30000 // 30 seconds
 
 function addManualBalance(userPublicKey: string, tokenInfo: any) {
   const key = userPublicKey.toLowerCase()
@@ -60,6 +83,23 @@ export async function GET(
       )
     }
 
+    // Check cache first for performance
+    const cacheKey = `balances-${userPublicKey}`
+    const cached = responseCache.get(cacheKey)
+    if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+      console.log('[Confidential Balance API] Using cached response for:', userPublicKey)
+      return NextResponse.json(cached.data, {
+        status: 200,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, x-api-key',
+          'Access-Control-Allow-Credentials': 'true',
+          'Cache-Control': 'public, max-age=30'
+        }
+      })
+    }
+
     // Get environment variables
     const encifherKey = process.env.ENCIFHER_SDK_KEY || process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
     const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
@@ -76,13 +116,19 @@ export async function GET(
 
     console.log('[Confidential Balance API] Initializing Encifher SDK client')
 
+    // Get Encifher client dynamically
+    const encifherImports = await getEncifherClient()
+    if (!encifherImports) {
+      throw new Error('Failed to import Encifher SDK')
+    }
+
     // Initialize Encifher SDK client
-    const config: DefiClientConfig = {
+    const config = {
       encifherKey,
       rpcUrl,
       mode: 'Mainnet' as const
     }
-    const defiClient = new DefiClient(config)
+    const defiClient = new encifherImports.DefiClient(config)
 
     // Create user public key
     const userPubkey = new PublicKey(userPublicKey)
@@ -97,23 +143,64 @@ export async function GET(
     try {
       console.log('[Confidential Balance API] Attempting to fetch user balances for:', userPublicKey)
 
-      // Initialize Encifher client
-      const config: DefiClientConfig = {
-        encifherKey,
-        rpcUrl,
-        mode: 'Mainnet' as const
-      }
-      const defiClient = new DefiClient(config)
-
       console.log('[Confidential Balance API] Encifher SDK methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(defiClient)))
 
-      // According to documentation, getBalance requires user authentication (signature)
-      // We need to implement this properly with client-side signing
-      // For now, we'll show a message explaining the requirement
+      // Try to get authenticated balances using getUserTokenMints first (less sensitive)
       try {
-        console.log('[Confidential Balance API] Balance checking requires user authentication')
+        console.log('[Confidential Balance API] Attempting to get user token mints')
 
-        // Check if this is a known user with previous deposits for demo purposes
+        // The getUserTokenMints method can show which confidential tokens the user has
+        // without revealing actual amounts (more privacy-preserving)
+        const userTokenMints = await defiClient.getUserTokenMints(userPublicKey)
+        console.log('[Confidential Balance API] User token mints:', userTokenMints)
+
+        if (userTokenMints && userTokenMints.length > 0) {
+          // User has confidential tokens, create entries showing they exist but amounts require auth
+          confidentialBalances = userTokenMints.map((tokenMint: any, index: number) => {
+            // Handle both string and object formats
+            const mintAddress = typeof tokenMint === 'string' ? tokenMint : tokenMint.mint || tokenMint.tokenMint || tokenMint.address
+
+            // Map known mints to token info
+            let tokenInfo = {
+              tokenAddress: mintAddress,
+              tokenSymbol: `cTOKEN${index + 1}`,
+              tokenName: `Confidential Token ${index + 1}`,
+              decimals: 9,
+              amount: 'AUTH_REQUIRED',
+              isVisible: true,
+              lastUpdated: new Date().toISOString(),
+              source: 'confidential_encifher',
+              requiresAuth: true,
+              note: 'Confidential balance requires wallet signature to view amount'
+            }
+
+            // Known token mappings
+            if (mintAddress === 'So11111111111111111111111111111111111111112') {
+              tokenInfo.tokenSymbol = 'cSOL'
+              tokenInfo.tokenName = 'Confidential SOL'
+            } else if (mintAddress === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') {
+              tokenInfo.tokenSymbol = 'cUSDC'
+              tokenInfo.tokenName = 'Confidential USDC'
+              tokenInfo.decimals = 6
+            } else if (mintAddress === 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') {
+              tokenInfo.tokenSymbol = 'cUSDT'
+              tokenInfo.tokenName = 'Confidential USDT'
+              tokenInfo.decimals = 6
+            }
+
+            return tokenInfo
+          })
+
+          console.log('[Confidential Balance API] Found confidential tokens for user:', confidentialBalances.length)
+        } else {
+          console.log('[Confidential Balance API] No confidential tokens found for user')
+          confidentialBalances = []
+        }
+
+      } catch (mintError: any) {
+        console.log('[Confidential Balance API] getUserTokenMints failed:', mintError.message)
+
+        // Fallback: Check if this is a known user with previous deposits for demo purposes
         if (userPublicKey === 'vivgdu332GMEk3FaupQa92gQjYd9LX6TMgjMVsLaCu4') {
           console.log('[Confidential Balance API] Known user detected - showing demo balance')
 
@@ -124,22 +211,18 @@ export async function GET(
               tokenSymbol: 'cSOL',
               tokenName: 'Confidential SOL',
               decimals: 9,
-              amount: '0', // Actual amount requires user signature
+              amount: 'DEPOSITED', // Indicates user has deposited but amount is private
               isVisible: true,
               lastUpdated: new Date().toISOString(),
-              source: 'requires_authentication',
-              note: 'Balance requires wallet signature to view. Please use the wallet connect button to authenticate.',
-              requiresAuth: true
+              source: 'deposit_history',
+              note: 'You have confidential SOL deposits. View exact amounts in the Withdraw tab.',
+              requiresAuth: false
             }
           ]
         } else {
           // For other users, show empty with explanation
           confidentialBalances = []
         }
-
-      } catch (balanceError: any) {
-        console.log('[Confidential Balance API] Balance check failed:', balanceError.message)
-        confidentialBalances = []
       }
 
     } catch (sdkError: any) {
@@ -166,6 +249,12 @@ export async function GET(
     }
 
     console.log('[Confidential Balance API] Balance response prepared successfully')
+
+    // Cache the response for future requests
+    responseCache.set(cacheKey, {
+      data: responseData,
+      timestamp: Date.now()
+    })
 
     // Return successful response
     return NextResponse.json(responseData, {

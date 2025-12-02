@@ -144,14 +144,37 @@ export function TokenSelector({
 
   const formatBalance = (balance: string, decimals: number): string => {
     try {
+      // Handle special confidential balance statuses
+      if (balance === 'AUTH_REQUIRED') {
+        return '🔒 Private'
+      }
+      if (balance === 'DEPOSITED') {
+        return '📊 Available'
+      }
+      if (balance === '00' || balance === '0') {
+        return '0'
+      }
+
+      // Log for debugging SOL balance display
+      if (balance && parseFloat(balance) > 0) {
+        console.log(`[formatBalance] Converting balance: ${balance} with ${decimals} decimals`)
+      }
+
       // Convert from smallest units (lamports) to human-readable format
       const num = parseFloat(balance) / Math.pow(10, decimals)
+
+      // Log the conversion result for debugging
+      if (balance && parseFloat(balance) > 0) {
+        console.log(`[formatBalance] Result: ${num} (from ${balance} / 10^${decimals})`)
+      }
+
       if (num === 0) return '0'
       if (num < 0.001) return '<0.001'
       if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M'
       if (num >= 1000) return (num / 1000).toFixed(2) + 'K'
       return num.toFixed(Math.max(0, 6 - Math.floor(num).toString().length))
     } catch {
+      console.log(`[formatBalance] Error formatting balance: ${balance} with ${decimals} decimals`)
       return '0'
     }
   }
@@ -527,19 +550,42 @@ function TokenListItem({ token, balance, onSelect, isSelected, isPopularToken = 
 
   const formatBalance = (balance: string, decimals: number): string => {
     try {
+      // Handle special confidential balance statuses
+      if (balance === 'AUTH_REQUIRED') {
+        return '🔒 Private'
+      }
+      if (balance === 'DEPOSITED') {
+        return '📊 Available'
+      }
+      if (balance === '00' || balance === '0') {
+        return '0'
+      }
+
+      // Log for debugging SOL balance display in TokenListItem
+      if (balance && parseFloat(balance) > 0) {
+        console.log(`[TokenListItem.formatBalance] Converting balance: ${balance} with ${decimals} decimals for token ${token.symbol}`)
+      }
+
       // Convert from smallest units (lamports) to human-readable format
       const num = parseFloat(balance) / Math.pow(10, decimals)
+
+      // Log the conversion result for debugging
+      if (balance && parseFloat(balance) > 0) {
+        console.log(`[TokenListItem.formatBalance] Result: ${num} (from ${balance} / 10^${decimals})`)
+      }
+
       if (num === 0) return '0'
       if (num < 0.001) return '<0.001'
       if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M'
       if (num >= 1000) return (num / 1000).toFixed(2) + 'K'
       return num.toFixed(Math.max(0, 6 - Math.floor(num).toString().length))
     } catch {
+      console.log('[TokenListItem.formatBalance] Error formatting balance: ' + balance + ' with ' + decimals + ' decimals for token ' + token.symbol)
       return '0'
     }
   }
 
-  const hasBalance = parseFloat(balance) > 0
+  const hasBalance = parseFloat(balance) > 0 || balance === 'AUTH_REQUIRED' || balance === 'DEPOSITED'
 
   return (
     <button

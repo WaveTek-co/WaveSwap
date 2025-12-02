@@ -93,6 +93,8 @@ export function TermsModal({ isOpen, onClose, onAccept, onDecline }: TermsModalP
             <p><strong>Risk Acknowledgment:</strong> Cryptocurrency prices are volatile and losses can occur.</p>
             <p><strong>Legal Compliance:</strong> You must comply with local laws and regulations.</p>
             <p><strong>Privacy:</strong> Transactions are visible on blockchain; we don't store private keys.</p>
+            <p><strong>Non-Custodial & Open-Source:</strong> WaveTek is non-custodial and open-source. Users retain full control of their assets.</p>
+            <p><strong>Compliance:</strong> WaveTek does not permit the use of the protocol for illicit activity or sanctioned addresses.</p>
           </div>
 
           <div

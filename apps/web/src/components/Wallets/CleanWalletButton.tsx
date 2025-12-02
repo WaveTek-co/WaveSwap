@@ -1,13 +1,33 @@
 'use client'
 
-import { Wallet, ChevronDown, Copy, LogOut, Settings } from 'lucide-react'
+import { Wallet, ChevronDown, Copy, LogOut, Settings, ChartBar } from 'lucide-react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletModal } from '@/contexts/WalletModalContext'
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useThemeConfig, createGlassStyles, createButtonStyles } from '@/lib/theme'
 
 export function CleanWalletButton() {
-  const { publicKey, disconnect, connecting, wallet } = useWallet()
+  const router = useRouter()
+
+  // Safely get wallet context with error handling
+  let walletContext
+  try {
+    walletContext = useWallet()
+  } catch (error) {
+    console.error('[CleanWalletButton] Wallet context error:', error)
+    // Fallback wallet context for error cases
+    walletContext = {
+      publicKey: null,
+      disconnect: async () => {},
+      connecting: false,
+      wallet: null,
+      connected: false,
+      wallets: []
+    }
+  }
+
+  const { publicKey, disconnect, connecting, wallet } = walletContext
   const { openModal } = useWalletModal()
   const theme = useThemeConfig()
   const [showDropdown, setShowDropdown] = useState(false)
@@ -20,6 +40,12 @@ export function CleanWalletButton() {
     } catch (error) {
       console.error('Disconnect failed:', error)
     }
+  }
+
+  const handleDashboard = () => {
+    // Navigate to dashboard using Next.js router
+    router.push('/dashboard')
+    setShowDropdown(false)
   }
 
   const copyAddress = async () => {
@@ -403,6 +429,26 @@ export function CleanWalletButton() {
           >
             <Copy className="w-4 h-4" style={{ color: theme.colors.primary }} />
             <span className="text-sm font-medium">Copy Address</span>
+          </button>
+
+          <button
+            onClick={() => handleDropdownClick(handleDashboard)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200"
+            style={{
+              fontFamily: 'var(--font-helvetica)',
+              color: theme.colors.textSecondary,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = `${theme.colors.primary}10`
+              e.currentTarget.style.color = theme.colors.primary
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = theme.colors.textSecondary
+            }}
+          >
+            <ChartBar className="w-4 h-4" style={{ color: theme.colors.primary }} />
+            <span className="text-sm font-medium">Dashboard</span>
           </button>
 
           <button
