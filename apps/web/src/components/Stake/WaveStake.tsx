@@ -53,6 +53,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
   const [activeModal, setActiveModal] = useState<'stake' | 'secureBag' | null>(null)
   const [activeAction, setActiveAction] = useState<'deposit' | 'withdraw' | 'claim'>('deposit')
   const [showInfoModal, setShowInfoModal] = useState(false)
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false)
+  const [comingSoonAction, setComingSoonAction] = useState<string>('')
   const [isPoolDropdownOpen, setIsPoolDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -77,13 +79,13 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       name: 'WAVE',
       symbol: 'WAVE',
       mintAddress: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
-      apr: 15.8,
-      bonus30days: 5.2,
+      apr: 28,
+      bonus30days: 8.88,
       totalStaked: '12.5M',
       tvl: '$8.9M',
       lockPeriod: 0,
       isSecureBagAvailable: true,
-      isComingSoon: true, 
+      isComingSoon: true,
       description: 'Native governance token with competitive yields',
       userStaked: privacyMode ? '****' : '0',
       userRewards: privacyMode ? '****' : '0',
@@ -94,8 +96,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       name: 'WEALTH',
       symbol: 'WEALTH',
       mintAddress: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump',
-      apr: 22.4,
-      bonus30days: 8.7,
+      apr: 28,
+      bonus30days: 8.88,
       totalStaked: '3.8M',
       tvl: '$4.2M',
       lockPeriod: 0,
@@ -111,12 +113,12 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
       name: 'GOLD',
       symbol: 'GOLD',
       mintAddress: 'GoLDppdjB1vDTPSGxyMJFqdnj134yH6Prg9eqsGDiw6A',
-      apr: 0,
-      bonus30days: 0,
-      totalStaked: null,
-      tvl: null,
+      apr: 8,
+      bonus30days: 2.80,
+      totalStaked: '1.2M',
+      tvl: '$2.1M',
       lockPeriod: 0,
-      isSecureBagAvailable: false,
+      isSecureBagAvailable: true,
       isComingSoon: true,
       description: 'Gold, but better with oro.finance',
       oroFinanceUrl: 'https://oro.finance',
@@ -241,13 +243,25 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                 </div>
                 <div className="text-sm font-medium" style={{ color: theme.colors.success }}>
                   {currentPool?.isComingSoon ? (
-                    <span className="px-2 py-0.5 rounded-full text-xs"
-                          style={{
-                            background: `${theme.colors.primary}15`,
-                            color: theme.colors.primary
-                          }}>
-                      Coming Soon
-                    </span>
+                    <>
+                      <span className="px-2 py-0.5 rounded-full text-xs mr-2"
+                            style={{
+                              background: `${theme.colors.primary}15`,
+                              color: theme.colors.primary
+                            }}>
+                        Coming Soon
+                      </span>
+                      {currentPool?.apr}% APR
+                      {currentPool && currentPool.bonus30days > 0 && (
+                        <span className="ml-2 px-2 py-0.5 rounded-full text-xs"
+                              style={{
+                                background: `${theme.colors.success}15`,
+                                color: theme.colors.success
+                              }}>
+                          +{currentPool.bonus30days}% bonus
+                        </span>
+                      )}
+                    </>
                   ) : (
                     <>
                       {currentPool?.apr}% APR
@@ -545,68 +559,79 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
 
             {/* Action Buttons */}
             <div className="grid grid-cols-2 gap-4">
-              {currentPool.isComingSoon ? (
-                <div className="col-span-2 p-6 rounded-xl text-center" style={{
-                  background: `${theme.colors.primary}10`,
-                  border: `1px solid ${theme.colors.primary}20`
-                }}>
-                  <div className="text-lg font-bold mb-2" style={{ color: theme.colors.primary }}>
-                    Coming Soon
-                  </div>
-                  <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
-                    {currentPool.name} staking will be available shortly
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setActiveModal('stake')}
-                    className="py-3 px-4 rounded-xl font-bold text-white transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
-                    style={{
-                      background: `
-                        linear-gradient(135deg,
-                          ${theme.colors.primary} 0%,
-                          ${theme.colors.primaryHover} 100%
-                        )
-                      `,
-                      border: `1px solid ${theme.colors.primary}30`,
-                      backdropFilter: 'blur(12px) saturate(1.5)',
-                      boxShadow: `
-                        0 8px 24px ${theme.colors.primary}30,
-                        inset 0 1px 0 rgba(255, 255, 255, 0.1)
-                      `
-                    }}
-                  >
-                    Stake
-                  </button>
+              <button
+                onClick={() => {
+                  if (currentPool.isComingSoon) {
+                    setComingSoonAction(`${currentPool.name} staking`)
+                    setShowComingSoonModal(true)
+                  } else {
+                    setActiveModal('stake')
+                    setActiveAction('deposit')
+                  }
+                }}
+                className="py-3 px-4 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: `
+                    linear-gradient(135deg,
+                      ${theme.colors.primary} 0%,
+                      ${theme.colors.primaryHover} 100%
+                    )
+                  `,
+                  border: `1px solid ${theme.colors.primary}30`,
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  boxShadow: `
+                    0 8px 24px ${theme.colors.primary}30,
+                    inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                  `,
+                  color: theme.name === 'stealth' ? '#000000' : 'white',
+                  opacity: currentPool.isComingSoon ? 0.7 : 1,
+                  cursor: 'pointer'
+                }}
+              >
+                Stake
+              </button>
 
-                  {currentPool.isSecureBagAvailable && (
-                    <button
-                      onClick={() => setActiveModal('secureBag')}
-                      className="py-3 px-4 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] relative"
-                      style={{
-                        background: `
-                          linear-gradient(135deg,
-                            ${theme.colors.success} 0%,
-                            ${theme.name === 'stealth' ? '#00cc88' : theme.colors.primaryHover} 100%
-                          )
-                        `,
-                        border: `1px solid ${theme.colors.success}30`,
-                        backdropFilter: 'blur(12px) saturate(1.5)',
-                        boxShadow: `
-                          0 8px 24px ${theme.colors.success}30,
-                          inset 0 1px 0 rgba(255, 255, 255, 0.1)
-                        `,
-                        color: 'white'
-                      }}
-                    >
-                      Secure The Bag
-                      <LockClosedIcon className="w-4 h-4 mr-2 inline" />
-                    </button>
-                  )}
-                </>
+              {currentPool.isSecureBagAvailable && (
+                <button
+                  onClick={() => {
+                    if (currentPool.isComingSoon) {
+                      setComingSoonAction(`${currentPool.name} Secure The Bag locking`)
+                      setShowComingSoonModal(true)
+                    } else {
+                      setActiveModal('secureBag')
+                    }
+                  }}
+                  className="py-3 px-4 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] relative"
+                  style={{
+                    background: `
+                      linear-gradient(135deg,
+                        ${theme.colors.success} 0%,
+                        ${theme.name === 'stealth' ? '#00cc88' : theme.colors.primaryHover} 100%
+                      )
+                    `,
+                    border: `1px solid ${theme.colors.success}30`,
+                    backdropFilter: 'blur(12px) saturate(1.5)',
+                    boxShadow: `
+                      0 8px 24px ${theme.colors.success}30,
+                      inset 0 1px 0 rgba(255, 255, 255, 0.1)
+                    `,
+                    color: 'white',
+                    opacity: currentPool.isComingSoon ? 0.7 : 1,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Secure The Bag
+                  <LockClosedIcon className="w-4 h-4 mr-2 inline" />
+                </button>
               )}
             </div>
+            {/* Placeholder Notice */}
+        <div
+          className="text-center text-xs"
+          style={{ color: theme.colors.textMuted, opacity: 0.7 }}
+        >
+          <span>Yield numbers are placeholders</span>
+        </div>
           </div>
         </div>
       )}
@@ -618,6 +643,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
           onClose={() => setActiveModal(null)}
           theme={theme}
           privacyMode={privacyMode}
+          setComingSoonAction={setComingSoonAction}
+          setShowComingSoonModal={setShowComingSoonModal}
         />
       )}
 
@@ -628,6 +655,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
           theme={theme}
           calculateEarnings={calculateEarnings}
           calculateSecureBagEarnings={calculateSecureBagEarnings}
+          setComingSoonAction={setComingSoonAction}
+          setShowComingSoonModal={setShowComingSoonModal}
         />
       )}
 
@@ -638,13 +667,21 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
         />
       )}
 
+      {showComingSoonModal && (
+        <ComingSoonModal
+          action={comingSoonAction}
+          onClose={() => setShowComingSoonModal(false)}
+          theme={theme}
+        />
+      )}
+
       {/* Security & Info Footer - Matching Swap component */}
       <div
         className="pt-4"
         style={{ borderTop: `1px solid ${theme.colors.border}` }}
       >
         <div
-          className="flex items-center justify-center gap-6 text-xs"
+          className="flex items-center justify-center gap-6 text-xs mb-3"
           style={{ color: theme.colors.textMuted }}
         >
           <div className="flex items-center gap-1">
@@ -676,12 +713,16 @@ function StakeModal({
   pool,
   onClose,
   theme,
-  privacyMode
+  privacyMode,
+  setComingSoonAction,
+  setShowComingSoonModal
 }: {
   pool: StakePool
   onClose: () => void
   theme: any
   privacyMode: boolean
+  setComingSoonAction?: (action: string) => void
+  setShowComingSoonModal?: (show: boolean) => void
 }) {
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw' | 'claim'>('deposit')
   const [amount, setAmount] = useState('')
@@ -827,11 +868,17 @@ function StakeModal({
               `,
               border: `1px solid ${theme.colors.primary}30`,
               boxShadow: `0 8px 24px ${theme.colors.primary}30`,
-              cursor: activeTab === 'claim' ? 'pointer' : (amount && parseFloat(amount) > 0) ? 'pointer' : 'not-allowed'
+              cursor: pool.isComingSoon ? 'pointer' : activeTab === 'claim' ? 'pointer' : (amount && parseFloat(amount) > 0) ? 'pointer' : 'not-allowed'
             }}
-            disabled={activeTab !== 'claim' && (!amount || parseFloat(amount) <= 0)}
+            disabled={pool.isComingSoon ? false : activeTab !== 'claim' && (!amount || parseFloat(amount) <= 0)}
+            onClick={() => {
+              if (pool.isComingSoon) {
+                setComingSoonAction && setComingSoonAction(`${pool.name} ${activeTab === 'deposit' ? 'staking' : activeTab === 'withdraw' ? 'unstaking' : 'rewards claiming'}`)
+                setShowComingSoonModal && setShowComingSoonModal(true)
+              }
+            }}
           >
-            {activeTab === 'deposit' ? 'Deposit' : activeTab === 'withdraw' ? 'Withdraw' : 'Claim Rewards'}
+            {activeTab === 'deposit' ? 'Stake' : activeTab === 'withdraw' ? 'Withdraw' : 'Claim Rewards'}
           </button>
         </div>
       </div>
@@ -845,13 +892,17 @@ function SecureBagModal({
   onClose,
   theme,
   calculateEarnings,
-  calculateSecureBagEarnings
+  calculateSecureBagEarnings,
+  setComingSoonAction,
+  setShowComingSoonModal
 }: {
   pool: StakePool
   onClose: () => void
   theme: any
   calculateEarnings: (amount: string, apr: number, days?: number) => number
   calculateSecureBagEarnings: (amount: string) => number
+  setComingSoonAction?: (action: string) => void
+  setShowComingSoonModal?: (show: boolean) => void
 }) {
   const [amount, setAmount] = useState('')
 
@@ -1029,11 +1080,17 @@ function SecureBagModal({
               `,
               border: `1px solid ${theme.colors.success}30`,
               boxShadow: `0 8px 24px ${theme.colors.success}30`,
-              cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'not-allowed'
+              cursor: pool.isComingSoon ? 'pointer' : amount && parseFloat(amount) > 0 ? 'pointer' : 'not-allowed'
             }}
-            disabled={!amount || parseFloat(amount) <= 0}
+            disabled={pool.isComingSoon ? false : !amount || parseFloat(amount) <= 0}
+            onClick={() => {
+              if (pool.isComingSoon) {
+                setComingSoonAction && setComingSoonAction(`${pool.name} Secure The Bag locking`)
+                setShowComingSoonModal && setShowComingSoonModal(true)
+              }
+            }}
           >
-            Lock for 30 Days
+            Secure The Bag
           </button>
         </div>
       </div>
@@ -1179,7 +1236,7 @@ function InfoModal({ onClose, theme }: { onClose: () => void, theme: any }) {
           {/* Close Button */}
           <button
             onClick={onClose}
-            className="w-full py-3 rounded-xl font-bold text-white transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+            className="w-full py-3 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             style={{
               background: `
                 linear-gradient(135deg,
@@ -1188,10 +1245,188 @@ function InfoModal({ onClose, theme }: { onClose: () => void, theme: any }) {
                 )
               `,
               border: `1px solid ${theme.colors.primary}30`,
-              boxShadow: `0 8px 24px ${theme.colors.primary}30`
+              boxShadow: `0 8px 24px ${theme.colors.primary}30`,
+              color: theme.name === 'stealth' ? '#000000' : 'white'
             }}
           >
             Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+// Coming Soon Modal Component
+function ComingSoonModal({ action, onClose, theme }: {
+  action: string,
+  onClose: () => void,
+  theme: any
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal Content */}
+      <div
+        className="relative w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden"
+        style={{
+          background: `
+            linear-gradient(135deg,
+              ${theme.colors.surface}ee 0%,
+              ${theme.colors.surfaceHover}cc 25%,
+              ${theme.colors.surface}ee 50%,
+              ${theme.colors.surfaceHover}cc 75%,
+              ${theme.colors.surface}ee 100%
+            )
+          `,
+          border: `1px solid ${theme.colors.primary}15`,
+          backdropFilter: 'blur(24px) saturate(1.8)',
+          boxShadow: `
+            0 20px 60px ${theme.colors.shadowHeavy},
+            0 8px 24px ${theme.colors.primary}08
+          `
+        }}
+      >
+        {/* Noise grain overlay */}
+        <div
+          className="absolute inset-0 opacity-3 pointer-events-none"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='200' height='200' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
+            filter: 'contrast(1.2) brightness(1.1)'
+          }}
+        />
+
+        <div className="p-6 space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center"
+                style={{
+                  background: `${theme.colors.primary}20`,
+                  border: `1px solid ${theme.colors.primary}30`
+                }}
+              >
+                <svg
+                  className="w-6 h-6"
+                  style={{ color: theme.colors.primary }}
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold" style={{ color: theme.colors.textPrimary }}>
+                Coming Soon
+              </h3>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg transition-all duration-300 hover:scale-[1.05]"
+              style={{
+                background: `${theme.colors.surface}60`,
+                border: `1px solid ${theme.colors.border}`
+              }}
+            >
+              <svg className="w-5 h-5" style={{ color: theme.colors.textSecondary }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold mb-2" style={{ color: theme.colors.textPrimary }}>
+                {action}
+              </div>
+              <p className="text-sm" style={{ color: theme.colors.textSecondary }}>
+                is coming soon!
+              </p>
+            </div>
+
+            {/* Info Box */}
+            <div className="p-4 rounded-xl" style={{
+              background: `${theme.colors.primary}10`,
+              border: `1px solid ${theme.colors.primary}20`
+            }}>
+              <div className="flex items-start gap-3">
+                <svg
+                  className="w-5 h-5 flex-shrink-0 mt-0.5"
+                  style={{ color: theme.colors.primary }}
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
+                </svg>
+                <div>
+                  <h4 className="font-medium text-sm mb-1" style={{ color: theme.colors.primary }}>
+                    What does this mean?
+                  </h4>
+                  <p className="text-xs leading-relaxed" style={{ color: theme.colors.textSecondary }}>
+                    We're working hard to bring you the best staking experience. This feature will be available shortly with competitive rewards and enhanced security.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs" style={{ color: theme.colors.textMuted }}>
+                <span>🚀 Under Development</span>
+                <span>🔒 Security First</span>
+              </div>
+              <div className="flex items-center justify-between text-xs" style={{ color: theme.colors.textMuted }}>
+                <span>⭐ High Rewards</span>
+                <span>🛡️ Audited</span>
+              </div>
+            </div>
+
+            {/* Get Updates */}
+            <div className="p-4 rounded-xl" style={{
+              background: `${theme.colors.surface}40`,
+              border: `1px solid ${theme.colors.border}`
+            }}>
+              <div className="flex items-center gap-2 mb-2">
+                <svg
+                  className="w-4 h-4"
+                  style={{ color: theme.colors.success }}
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
+                </svg>
+                <span className="font-medium text-sm" style={{ color: theme.colors.textPrimary }}>
+                  Stay Updated
+                </span>
+              </div>
+              <p className="text-xs" style={{ color: theme.colors.textSecondary }}>
+                Follow our social media channels for the latest updates on launch dates and early bird rewards.
+              </p>
+            </div>
+          </div>
+
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className="w-full py-3 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+            style={{
+              background: `
+                linear-gradient(135deg,
+                  ${theme.colors.primary} 0%,
+                  ${theme.colors.primaryHover} 100%
+                )
+              `,
+              border: `1px solid ${theme.colors.primary}30`,
+              boxShadow: `0 8px 24px ${theme.colors.primary}30`,
+              color: theme.name === 'stealth' ? '#000000' : 'white'
+            }}
+          >
+            Got it, thanks!
           </button>
         </div>
       </div>
