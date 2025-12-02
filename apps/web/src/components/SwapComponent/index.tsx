@@ -569,6 +569,22 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const handleSwap = async () => {
     try {
       await swap()
+
+      // After successful swap, refresh confidential balances to track new tokens
+      setTimeout(() => {
+        console.log('[SwapComponent] Refreshing confidential balances after swap completion')
+
+        // Prioritize authenticated balances as they show real data
+        fetchAuthenticatedBalances().then(() => {
+          // After getting authenticated balances, also fetch basic ones as fallback
+          setTimeout(() => {
+            fetchConfidentialBalances()
+          }, 1000)
+        }).catch((error) => {
+          console.log('[SwapComponent] Authenticated balances failed, trying basic balances:', error)
+          fetchConfidentialBalances()
+        })
+      }, 4000) // Wait 4 seconds for blockchain state to update
     } catch (error) {
       // Error is already handled by useSwap hook
     }
@@ -1396,7 +1412,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
               style={{ borderTop: `1px solid ${theme.colors.border}` }}
             >
               <div
-                className="flex items-center justify-center gap-6 text-xs"
+                className="flex items-center justify-center gap-6 text-xs py-2"
                 style={{ color: theme.colors.textMuted }}
               >
                 <div className="flex items-center gap-1">

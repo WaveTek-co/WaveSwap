@@ -77,8 +77,9 @@ export function SwapButton({
       ...createGlassStyles(theme),
       background: theme.name === 'light' ? `${theme.colors.surface}80` : `${theme.colors.surface}60`,
       color: theme.name === 'light' ? theme.colors.textMuted : `${theme.colors.textMuted}cc`,
-      border: `1px solid ${theme.colors.border}50`,
-      cursor: 'not-allowed'
+      border: `2px solid ${theme.colors.primary}40`,
+      cursor: 'not-allowed',
+      boxShadow: `inset 0 0 0 1px ${theme.colors.primary}20`
     }
   } else if (!hasBalance) {
     buttonContent = <span>INSUFFICIENT BALANCE</span>

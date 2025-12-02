@@ -255,7 +255,7 @@ export async function GET(request: NextRequest) {
       privacyFee: {
         amount: privacyFeeAmount,
         bps: privacyFeeBps,
-        recipient: '5BFPwN3njPzBHz64G69uB5qw1TAYwbjLckWgYBj2kioT' // Privacy fee wallet
+        recipient: 'HGBTkp9PMF75Mfs6z8DXLr923AtAo7TVzM7d5gAfZdVL' // WaveTek privacy fee wallet
       }
     }
 
