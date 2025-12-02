@@ -218,7 +218,7 @@ export function HeliusSearchBar() {
                 e.currentTarget.style.background = `${theme.colors.surface}99`
               }}
               onKeyDown={handleKeyPress}
-              placeholder="Explore in the Orb..."
+              placeholder="Scan the Orb..."
               className="w-full pl-3 pr-12 py-1 rounded-md text-xs"
               style={{
                 border: `1px solid ${theme.colors.border}`,
@@ -276,7 +276,7 @@ export function HeliusSearchBar() {
           <div
             className="absolute top-full left-0 right-0 mt-1 z-50"
             style={{
-              background: theme.colors.surface,
+              backgroundColor: theme.name === 'dark' ? '#1a1a1a' : '#ffffff',
               border: `1px solid ${theme.colors.border}`,
               borderRadius: '12px',
               boxShadow: `0 8px 32px ${theme.colors.shadow}, 0 4px 16px ${theme.colors.shadow}40`,

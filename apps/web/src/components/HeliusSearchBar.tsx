@@ -234,7 +234,7 @@ export function HeliusSearchBar() {
               }}
               onFocus={() => setIsOpen(true)}
               onKeyDown={handleKeyPress}
-              placeholder="Explore in the Orb..."
+              placeholder="Scan the Orb..."
               className="w-full pl-10 pr-12 py-1 rounded-md text-xs"
               style={{
                 border: `1px solid ${theme.colors.border}`,
