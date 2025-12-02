@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 
 interface PrivacyContextType {
   privacyMode: boolean

@@ -1,6 +1,7 @@
 'use client'
 
-import { MessageCircle, Twitter, ExternalLink, Sparkles, Zap } from 'lucide-react'
+import React from 'react'
+import { TelegramIcon, TwitterIcon, ExternalLinkIcon, DocumentTextIcon } from '@/components/icons'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 
 export function Footer() {
@@ -8,104 +9,100 @@ export function Footer() {
 
   const footerLinks = [
     {
-      name: 'WaveSwap',
+      name: 'Secure The Bag',
       url: 'https://securethebag.fun/',
-      icon: ExternalLink,
+      icon: ExternalLinkIcon,
       description: 'Main Platform'
     },
     {
       name: 'Docs',
       url: 'https://docs.wavetek.io/',
-      icon: ExternalLink,
+      icon: DocumentTextIcon,
       description: 'Documentation'
     },
     {
       name: 'Telegram',
       url: 'https://t.me/securethebagfun',
-      icon: MessageCircle,
+      icon: TelegramIcon,
       description: 'Community'
     },
     {
-      name: 'X (Twitter)',
+      name: 'X',
       url: 'https://x.com/securethebagfun',
-      icon: Twitter,
+      icon: TwitterIcon,
       description: 'Updates'
     }
   ]
 
   return (
     <footer className="relative mt-auto">
-      {/* Glass background */}
+      {/* Header-style glassmorphism footer */}
       <div
         className="relative overflow-hidden"
         style={{
-          background: `
-            linear-gradient(135deg,
-              ${theme.colors.surface}ee 0%,
-              ${theme.colors.surfaceHover}cc 50%,
-              ${theme.colors.surface}ee 100%
-            ),
-            radial-gradient(circle at 25% 25%,
-              ${theme.colors.primary}05 0%,
-              transparent 50%
-            )
-          `,
-          borderTop: `1px solid ${theme.colors.border}20`,
-          backdropFilter: 'blur(20px) saturate(1.8)',
+          ...createGlassStyles(theme),
+          backdropFilter: 'blur(20px) saturate(180%)',
+          borderTop: `1px solid ${theme.name === 'ghost' ? theme.colors.primaryBorder : theme.colors.border}`,
+          background: theme.name === 'ghost'
+            ? 'linear-gradient(135deg, rgba(255, 253, 248, 0.95) 0%, rgba(226, 223, 254, 0.9) 25%, rgba(255, 253, 248, 0.92) 50%, rgba(171, 159, 242, 0.88) 75%, rgba(255, 253, 248, 0.95) 100%)'
+            : createGlassStyles(theme).background,
           minHeight: '80px'
         }}
       >
-        {/* Animated subtle background pattern */}
+        {/* Noise overlay - matching header style */}
         <div
-          className="absolute inset-0 opacity-30 pointer-events-none"
+          className="absolute inset-0 pointer-events-none"
           style={{
-            backgroundImage: `
-              linear-gradient(45deg, ${theme.colors.primary}10 25%, transparent 25%),
-              linear-gradient(-45deg, ${theme.colors.primary}10 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, ${theme.colors.primary}10 75%),
-              linear-gradient(-45deg, transparent 75%, ${theme.colors.primary}10 75%)
-            `,
-            backgroundSize: '20px 20px',
-            backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-            animation: 'slidePattern 20s linear infinite'
+            opacity: theme.name === 'light' ? 0.02 : theme.name === 'ghost' ? 0.04 : 0.03,
+            backgroundImage: theme.name === 'ghost'
+              ? `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='1.5'/%3E%3CfeColorMatrix type='matrix' values='1 0 0 0 0.67 0 1 0 0 0.63 0 0 1 0 0.95 0 0 0 1 0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.15'/%3E%3C/svg%3E")`
+              : `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.1'/%3E%3C/svg%3E")`,
+            mixBlendMode: theme.name === 'ghost' ? 'soft-light' : theme.name === 'light' ? 'soft-light' : 'overlay'
           }}
         />
 
-        <div className="relative z-10 px-6 py-6">
+        <div className="relative z-10 px-3 sm:px-4 md:px-6 py-4">
           <div className="max-w-7xl mx-auto">
             {/* Main content */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-
-              {/* Left side - Brand info */}
-              <div className="flex flex-col items-center sm:items-start gap-2 text-center sm:text-left">
-                <div className="flex items-center gap-2">
-                  <Sparkles
-                    className="w-4 h-4"
+            <div className="flex flex-col lg:flex-row items-center justify-between gap-4 lg:gap-6">
+              {/* Brand badges */}
+              <div className="flex flex-col items-center sm:items-start gap-1">
+                <div className="flex items-center gap-1">
+                  <div
+                    className="w-3 h-3 rounded-full flex items-center justify-center"
                     style={{
-                      color: theme.colors.primary,
-                      filter: `drop-shadow(0 0 6px ${theme.colors.primary}40)`
+                      background: `${theme.colors.primary}20`,
+                      color: theme.colors.primary
                     }}
-                  />
+                  >
+                    <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+                    </svg>
+                  </div>
                   <span
                     className="text-xs font-medium tracking-wider uppercase"
                     style={{
                       color: theme.colors.textMuted,
                       fontFamily: 'var(--font-jetbrains), monospace',
-                      letterSpacing: '0.1em'
+                      letterSpacing: '0.05em'
                     }}
                   >
-                    BUILT WITH NOAHAI
+                    BUILT WITH ENCIFER, NEAR INTENTS, AND STARKGATE
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Zap
-                    className="w-3 h-3"
+                <div className="flex items-center gap-1">
+                  <div
+                    className="w-3 h-3 rounded-full flex items-center justify-center"
                     style={{
-                      color: theme.colors.success,
-                      filter: `drop-shadow(0 0 4px ${theme.colors.success}30)`
+                      background: `${theme.colors.success}20`,
+                      color: theme.colors.success
                     }}
-                  />
+                  >
+                    <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" />
+                    </svg>
+                  </div>
                   <span
                     className="text-xs font-medium"
                     style={{
@@ -117,7 +114,7 @@ export function Footer() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <span
                     className="text-xs font-medium opacity-80"
                     style={{
@@ -131,7 +128,7 @@ export function Footer() {
               </div>
 
               {/* Right side - Social links */}
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 sm:gap-3">
                 {footerLinks.map((link) => {
                   const IconComponent = link.icon
                   return (
@@ -144,49 +141,67 @@ export function Footer() {
                       title={link.description}
                     >
                       <div
-                        className="p-2 rounded-lg transition-all duration-300 hover:scale-110 relative overflow-hidden"
+                        className="p-1.5 sm:p-2 rounded-lg transition-all duration-300 hover:scale-110 relative overflow-hidden"
                         style={{
-                          background: `${theme.colors.surface}40`,
-                          border: `1px solid ${theme.colors.border}30`,
-                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                          ...createGlassStyles(theme),
+                          border: `1px solid ${theme.name === 'ghost' ? `${theme.colors.primaryBorder}50` : `${theme.colors.primary}10`}`,
+                          backdropFilter: 'blur(20px) saturate(1.8)',
+                          boxShadow: theme.name === 'ghost'
+                            ? `0 4px 12px ${theme.colors.purpleShadow || theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primaryBorder}20`
+                            : `0 4px 12px ${theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primary}05`
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = theme.colors.primary + '20'
-                          e.currentTarget.style.borderColor = theme.colors.primary + '40'
+                          e.currentTarget.style.borderColor = `${theme.colors.primary}40`
                           e.currentTarget.style.transform = 'scale(1.05) translateY(-1px)'
-                          e.currentTarget.style.boxShadow = `0 4px 12px ${theme.colors.primary}25`
+                          e.currentTarget.style.boxShadow = `0 6px 16px ${theme.colors.primary}25`
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = `${theme.colors.surface}40`
-                          e.currentTarget.style.borderColor = `${theme.colors.border}30`
+                          e.currentTarget.style.borderColor = theme.name === 'ghost' ? `${theme.colors.primaryBorder}50` : `${theme.colors.primary}10`
                           e.currentTarget.style.transform = 'scale(1) translateY(0)'
-                          e.currentTarget.style.boxShadow = 'none'
+                          e.currentTarget.style.boxShadow = theme.name === 'ghost'
+                            ? `0 4px 12px ${theme.colors.purpleShadow || theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primaryBorder}20`
+                            : `0 4px 12px ${theme.colors.shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px ${theme.colors.primary}05`
                         }}
                       >
-                        <IconComponent
-                          className="w-4 h-4 transition-colors duration-300"
+                        {/* Noise grain overlay for icons */}
+                        <div
+                          className="absolute inset-0 pointer-events-none rounded-lg"
                           style={{
-                            color: theme.colors.textMuted,
-                            strokeWidth: 2
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = theme.colors.primary
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = theme.colors.textMuted
+                            opacity: theme.name === 'light' ? 0.01 : 0.03,
+                            backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3Cfilter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
+                            filter: theme.name === 'light' ? 'contrast(1.1) brightness(1.05)' : 'contrast(1.3) brightness(1.1)'
                           }}
                         />
+
+                        <div className="relative z-10 flex items-center justify-center">
+                          <div
+                            className="w-4 h-4 sm:w-4.5 sm:h-4.5 flex items-center justify-center transition-colors duration-300"
+                            style={{
+                              color: theme.colors.textMuted
+                            }}
+                            onMouseEnter={(e: any) => {
+                              e.currentTarget.style.color = theme.colors.primary
+                            }}
+                            onMouseLeave={(e: any) => {
+                              e.currentTarget.style.color = theme.colors.textMuted
+                            }}
+                          >
+                            <IconComponent className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                          </div>
+                        </div>
                       </div>
 
                       {/* Tooltip */}
                       <div
                         className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-20"
                         style={{
+                          ...createGlassStyles(theme),
                           background: theme.colors.surface,
                           border: `1px solid ${theme.colors.border}`,
                           color: theme.colors.textPrimary,
                           fontFamily: 'var(--font-helvetica)',
-                          boxShadow: `0 4px 12px ${theme.colors.shadow}40`
+                          boxShadow: `0 4px 12px ${theme.colors.shadow}40`,
+                          backdropFilter: 'blur(8px) saturate(1.5)'
                         }}
                       >
                         {link.name}
@@ -205,8 +220,8 @@ export function Footer() {
 
             {/* Bottom separator */}
             <div
-              className="mt-6 pt-4 border-t opacity-30"
-              style={{ borderColor: theme.colors.border }}
+              className="mt-4 pt-3 border-t"
+              style={{ borderColor: `${theme.colors.border}30` }}
             >
               <div className="flex items-center justify-center">
                 <span
@@ -223,18 +238,6 @@ export function Footer() {
           </div>
         </div>
       </div>
-
-      {/* Animated pattern keyframes */}
-      <style jsx>{`
-        @keyframes slidePattern {
-          0% {
-            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-          }
-          100% {
-            background-position: 20px 20px, 20px 30px, 30px 10px, 10px 20px;
-          }
-        }
-      `}</style>
     </footer>
   )
 }

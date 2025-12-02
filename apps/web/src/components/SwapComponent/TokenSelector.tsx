@@ -117,7 +117,7 @@ export function TokenSelector({
     if (!searchQuery || searchQuery.length < 2) {
       setSearchResults([])
       setIsSearching(false)
-      return
+      return undefined
     }
 
     const searchTimer = setTimeout(async () => {

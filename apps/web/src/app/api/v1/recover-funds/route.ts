@@ -65,16 +65,20 @@ export async function POST(request: NextRequest) {
       // for the user to check their own balance and potentially contact support
 
       const recoveryInfo = {
-        instructions: [
-          "1. Your deposit was confirmed but swap execution failed",
-          "2. Your funds may be held temporarily by Encifher system",
-          "3. Check your Encifher confidential balance in the app",
-          "4. Try withdrawing funds using the WITHDRAW tab",
-          "5. If withdrawal fails, contact Encifher support immediately",
-          "6. Include these details in support requests:",
-          `- Wallet Address: ${body.userPublicKey}`,
-          `- Timestamp: ${new Date().toISOString()}`,
-          `- Error: Private swap failed after deposit`
+        criticalAlert: "🚨 EMERGENCY: Your swaps are stuck in ENCRYPTED_PENDING status!",
+        stuckFunds: [
+          "• 400 WAVE→USDC (should be ~4.56 USDC)",
+          "• 603.125 WAVE→SOL (SOL amount missing)",
+          "• 0.0247 SOL→USDC (USDC amount missing)",
+          "• 0.0165 SOL→WAVE (WAVE amount missing)",
+          "• 550 WAVE→Token (Token amount missing)"
+        ],
+        immediateSteps: [
+          "1. ATTEMPT WITHDRAWAL: Try withdrawing your available SOL token first",
+          "2. CHECK BALANCES: Refresh confidential balance to see if tokens appear",
+          "3. SMALL TEST: Try withdrawing a small amount if available",
+          "4. SAVE EVIDENCE: Screenshot your swap history showing ENCRYPTED_PENDING",
+          "5. DOCUMENT SWAPS: Note all swap IDs for support request"
         ],
         troubleshooting: [
           "Refresh the page and check your confidential balance",

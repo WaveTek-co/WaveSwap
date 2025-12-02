@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { ArrowsUpDownIcon } from '@heroicons/react/24/outline'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { TokenSelector } from '../SwapComponent/TokenSelector'
 import { useThemeConfig, createGlassStyles, createInputStyles } from '@/lib/theme'
@@ -726,10 +725,15 @@ const handleBridge = async () => {
                 cursor: 'pointer'
               }}
             >
-              <ArrowsUpDownIcon
+              <svg
                 className={`w-5 h-5 transition-transform ${isReversed ? 'rotate-180' : ''}`}
                 style={{ color: theme.colors.primary }}
-              />
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+              </svg>
             </button>
           </div>
 
@@ -1038,7 +1042,15 @@ const handleBridge = async () => {
               border: `1px solid ${theme.colors.border}`
             }}
           >
-            <ArrowsUpDownIcon className="w-4 h-4" style={{ color: theme.colors.primary }} />
+            <svg
+              className="w-4 h-4"
+              style={{ color: theme.colors.primary }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+            </svg>
           </button>
         </div>
 

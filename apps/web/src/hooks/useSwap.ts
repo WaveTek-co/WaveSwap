@@ -74,6 +74,58 @@ export interface SwapActions {
   recoverStuckFunds: () => Promise<{ success: boolean; message: string; instructions?: string[] }>
 }
 
+// Fetch confidential balances using the working Encifher Proxy API
+async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<string, string>> {
+  try {
+    console.log('[Confidential Balance] Fetching via API for:', userPublicKey)
+
+    // Use GET request with userPublicKey as query parameter (the working format)
+    const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${encodeURIComponent(userPublicKey)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      console.log('[Confidential Balance] Successfully fetched balances:', result)
+      console.log('[Confidential Balance] Response structure:', {
+        hasConfidentialBalances: !!result.confidentialBalances,
+        confidentialBalancesType: Array.isArray(result.confidentialBalances) ? 'array' : typeof result.confidentialBalances,
+        confidentialBalancesLength: result.confidentialBalances?.length || 0,
+        fullResponse: result
+      })
+
+      // Convert the response to a Map of balances
+      const confidentialBalances = new Map<string, string>()
+
+      if (result.confidentialBalances && Array.isArray(result.confidentialBalances)) {
+        result.confidentialBalances.forEach((balance: any) => {
+          if (balance.tokenAddress) {
+            // Include balance even if amount is '0' or requires authentication
+            // This ensures users know they have tracked confidential tokens
+            confidentialBalances.set(balance.tokenAddress, balance.amount.toString())
+          }
+        })
+      }
+
+      console.log('[Confidential Balance] Processed balances:', {
+        totalBalances: confidentialBalances.size,
+        balances: Object.fromEntries(confidentialBalances)
+      })
+
+      return confidentialBalances
+    } else {
+      console.error('[Confidential Balance] Failed to fetch balances:', response.status, response.statusText)
+      return new Map()
+    }
+  } catch (error) {
+    console.error('[Confidential Balance] Error fetching via Encifher Proxy API:', error)
+    return new Map()
+  }
+}
+
 // API-based function to track confidential token balances
 async function updateConfidentialBalance(tokenAddress: string, amount: number, userPublicKey?: string) {
   if (!userPublicKey) return
@@ -263,8 +315,10 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 `${window.location.origin}/api/v1/jupiter/swap/v1`)
             } else if (url.includes('/ultra/v1/order')) {
               // Handle encifher SDK ultra endpoint - route to our quote endpoint
-              newUrl = url.replace(/.*\/ultra\/v1\/order.*/,
-                `${window.location.origin}/api/v1/jupiter/swap/v1/quote`)
+              // Extract query parameters and preserve them
+              const urlObj = new URL(url)
+              const searchParams = urlObj.searchParams.toString()
+              newUrl = `${window.location.origin}/api/v1/jupiter/swap/v1/quote${searchParams ? '?' + searchParams : ''}`
             }
 
             if (newUrl !== url) {
@@ -1252,6 +1306,25 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           return merged
         })
       }
+
+      // Also fetch confidential balances for the user
+      if (publicKey) {
+        try {
+          const confidentialBalances = await fetchConfidentialBalances(publicKey.toString())
+
+          // Merge confidential balances with regular balances (confidential take precedence)
+          setBalances(prev => {
+            const merged = new Map(prev)
+            confidentialBalances.forEach((balance, address) => {
+              merged.set(address, balance)
+            })
+            return merged
+          })
+        } catch (confidentialError) {
+          console.error('[Confidential Balance] Failed to fetch confidential balances:', confidentialError)
+          // Don't fail the entire refresh if confidential balances fail
+        }
+      }
     } catch (error) {
       console.error('Error refreshing balances:', error)
       setBalances(new Map())
@@ -1310,19 +1383,27 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         totalSteps: 2
       })
 
-      // Call our withdrawal API endpoint with Encifher SDK
+          // According to Encifher docs, send the amount in token units (display format), NOT base units
+      // For USDC: 4.56 should be sent as "4.56"
+      // For SOL: 0.01 should be sent as "0.01"
+
+      const requestBody = {
+        mint: tokenAddress,
+        amount: amount.toString(), // Send decimal amount in token units
+        userPublicKey: publicKey.toString(),
+        decimals: 6 // USDC decimals for proper conversion in backend
+      }
+
+      console.log('[Confidential Withdrawal] Sending request body:', requestBody)
+      console.log('[Confidential Withdrawal] Amount type:', typeof amount, 'Amount value:', amount)
+
       const response = await fetch('/api/v1/withdraw', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({
-          mint: tokenAddress,
-          amount: amount.toString(), // Send decimal amount, API will convert to base units
-          userPublicKey: publicKey.toString(),
-          decimals: 6 // USDC decimals
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {

@@ -13,14 +13,18 @@ import {
   SunIcon,
   ChartBarIcon,
   AdjustmentsHorizontalIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
+import { useTerms } from '@/contexts/TermsContext'
 
 export function Settings() {
   const { theme, setLightTheme, setDarkTheme, setStealthTheme, setGhostTheme } = useTheme()
   const themeConfig = useThemeConfig()
+  const { hasAcceptedTerms, setShowTermsModal } = useTerms()
   const [isOpen, setIsOpen] = useState(false)
   const [notifications, setNotifications] = useState(true)
   const [slippage, setSlippage] = useState('3')
@@ -557,6 +561,73 @@ export function Settings() {
                     className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${notifications ? 'translate-x-5' : 'translate-x-1'}`}
                   />
                 </Switch>
+              </div>
+            </div>
+
+            {/* Legal & Terms */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-3">
+                <DocumentTextIcon className="h-4 w-4" style={{ color: themeConfig.colors.primary }} />
+                <h3 className="text-xs font-medium uppercase tracking-wider" style={{
+                  color: themeConfig.colors.primary,
+                  fontFamily: 'var(--font-helvetica)',
+                  letterSpacing: '0.05em'
+                }}>Legal & Terms</h3>
+              </div>
+
+              {/* Terms & Conditions */}
+              <div className="p-3 rounded-xl" style={{
+                background: hasAcceptedTerms
+                  ? `${themeConfig.colors.success}08`
+                  : `${themeConfig.colors.error}08`,
+                border: hasAcceptedTerms
+                  ? `1px solid ${themeConfig.colors.success}20`
+                  : `1px solid ${themeConfig.colors.error}20`
+              }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-lg p-2" style={{
+                      background: hasAcceptedTerms
+                        ? `${themeConfig.colors.success}20`
+                        : `${themeConfig.colors.error}20`,
+                      border: hasAcceptedTerms
+                        ? `1px solid ${themeConfig.colors.success}30`
+                        : `1px solid ${themeConfig.colors.error}30`
+                    }}>
+                      {hasAcceptedTerms ? (
+                        <ShieldCheckIcon className="h-4 w-4" style={{ color: themeConfig.colors.success }} />
+                      ) : (
+                        <ExclamationTriangleIcon className="h-4 w-4" style={{ color: themeConfig.colors.error }} />
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-sm" style={{ color: themeConfig.colors.textPrimary }}>
+                        Terms & Conditions
+                      </h4>
+                      <p className="text-xs" style={{ color: themeConfig.colors.textMuted }}>
+                        {hasAcceptedTerms ? 'Accepted' : 'Not yet reviewed'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowTermsModal(true)}
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    style={{
+                      color: hasAcceptedTerms ? themeConfig.colors.primary : themeConfig.colors.error,
+                      backgroundColor: hasAcceptedTerms
+                        ? `${themeConfig.colors.primary}15`
+                        : `${themeConfig.colors.error}15`
+                    }}
+                  >
+                    {hasAcceptedTerms ? 'Review' : 'Review & Accept'}
+                  </button>
+                </div>
+                <p className="text-xs" style={{
+                  color: themeConfig.colors.textSecondary,
+                  fontFamily: 'var(--font-helvetica)'
+                }}>
+                  Review our terms regarding mainnet audit status, user responsibilities, and risk acknowledgments.
+                </p>
               </div>
             </div>
 

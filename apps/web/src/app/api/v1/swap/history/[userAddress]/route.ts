@@ -20,12 +20,11 @@ const historyQuerySchema = z.object({
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { userAddress: string } }
+  { params }: { params: Promise<{ userAddress: string }> }
 ) {
   try {
-    console.log(`[Swap History API] Getting history for user: ${params.userAddress}`)
-
-    const { userAddress } = params
+    const { userAddress } = await params
+    console.log(`[Swap History API] Getting history for user: ${userAddress}`)
     const { searchParams } = new URL(request.url)
 
     const query = historyQuerySchema.parse({

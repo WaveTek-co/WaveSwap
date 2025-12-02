@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Wallet, AlertCircle, ChevronDown } from 'lucide-react'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { WalletName } from '@solana/wallet-adapter-base'
+import { WalletName, PhantomWalletName } from '@solana/wallet-adapter-base'
 import { useThemeConfig, createButtonStyles, createGlassStyles } from '@/lib/theme'
 import { ConnectedWallet } from './ConnectedWallet'
 import { Modal } from '@/components/ui/Modal'
@@ -124,11 +124,11 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
       `)
     }
 
-    return fallbackIcons[wallet.name] || `data:image/svg+xml,${encodeURIComponent(`
+    return fallbackIcons[wallet?.adapter?.name || wallet.name] || `data:image/svg+xml,${encodeURIComponent(`
       <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="32" height="32" rx="8" fill="${getWalletColor(wallet.name)}"/>
+        <rect width="32" height="32" rx="8" fill="${getWalletColor(wallet?.adapter?.name || wallet.name)}"/>
         <text x="16" y="20" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="system-ui">
-          ${wallet.name.substring(0, 2).toUpperCase()}
+          ${(wallet?.adapter?.name || wallet.name || '??').substring(0, 2).toUpperCase()}
         </text>
       </svg>
     `)}`
@@ -165,7 +165,7 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
   }
 
   const phantomWallet = getPhantomWallet()
-const otherWallets = getOtherWallets()
+  const otherWallets = getOtherWallets()
 
   const handleWalletConnect = async (walletItem: any) => {
     // Prevent multiple connection attempts
@@ -185,53 +185,53 @@ const otherWallets = getOtherWallets()
     try {
       console.log('Connecting to wallet:', adapterName)
 
-      // Check if wallet is already selected
-      if (wallet?.adapter.name !== adapterName) {
-        // Select the wallet first
-        select(adapterName as WalletName)
+      // Try direct adapter connection first (more reliable)
+      const walletAdapter = walletItem.wallet.adapter
 
-        // Wait for selection to register
-        await new Promise(resolve => setTimeout(resolve, 100))
+      if (!walletAdapter) {
+        throw new Error('Wallet adapter not available')
       }
 
-      // Ensure wallet is selected before connecting
-      if (!wallet) {
-        throw new Error('Wallet not selected after selection attempt')
+      // Check if wallet is ready
+      if (!walletAdapter.ready) {
+        throw new Error(`${adapterName} wallet is not ready. Please make sure it's installed and unlocked.`)
       }
 
-      // Now connect to the selected wallet
-      await connect()
+      // Direct adapter connection
+      await walletAdapter.connect()
+      console.log('Direct adapter connection successful')
 
-      console.log('Wallet connected successfully')
+      // Update the wallet adapter context
+      await select(adapterName as WalletName)
 
       // Close modal after successful connection
       setTimeout(() => {
         onClose()
       }, 300)
+
     } catch (error) {
       console.error('Failed to connect wallet:', error)
 
       // Provide helpful error message to user
       if (error instanceof Error) {
-        if (error.message.includes('not installed')) {
-          alert(`${adapterName} wallet is not installed. Please install it first and try again.`)
+        if (error.message.includes('not installed') || error.message.includes('not ready')) {
+          alert(`${adapterName} wallet is not installed or ready. Please install it and make sure it's unlocked.`)
         } else if (error.message.includes('User rejected') || error.message.includes('User rejected the request')) {
           // User cancelled - no action needed
           console.log('User cancelled wallet connection')
         } else if (error.name === 'WalletNotSelectedError' || error.message.includes('WalletNotSelectedError')) {
-          console.log('Wallet not selected, retrying connection...')
-          // Retry connection once after a brief delay
-          setTimeout(async () => {
-            try {
-              if (wallet) {
-                await connect()
-                console.log('Retry connection successful')
-                setTimeout(() => onClose(), 300)
-              }
-            } catch (retryError) {
-              console.error('Retry connection failed:', retryError)
-            }
-          }, 1000)
+          console.log('WalletNotSelectedError, trying alternative connection method...')
+          // Fallback: try using the wallet adapter context method
+          try {
+            await select(adapterName as WalletName)
+            await new Promise(resolve => setTimeout(resolve, 300))
+            await connect()
+            console.log('Fallback connection successful')
+            setTimeout(() => onClose(), 300)
+          } catch (fallbackError) {
+            console.error('Fallback connection failed:', fallbackError)
+            alert(`Failed to connect to ${adapterName}. Please try:\n1. Refreshing the page\n2. Making sure ${adapterName} is unlocked\n3. Checking if ${adapterName} is installed`)
+          }
         } else {
           alert(`Failed to connect to ${adapterName}: ${error.message}`)
         }

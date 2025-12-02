@@ -8,6 +8,7 @@ import { HistoryTab } from './HistoryTab'
 import { WavePortal } from './Bridge/WavePortalNew'
 import { WaveStake } from './Stake/WaveStake'
 import { CleanWalletButton } from '@/components/Wallets/CleanWalletButton'
+import { HeliusSearchBar } from './HeliusSearchBar'
 
 // Import icons for each tab
 import {
@@ -261,10 +262,12 @@ export function AppTabs() {
                 </div>
               </div>
 
+              <HeliusSearchBar />
+
               {/* Right side controls - Responsive layout */}
               <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
-                {/* Network Selector - Hide on small mobile
-                <div className="hidden sm:block">
+                {/* Network Selector - Hide on small mobile */}
+                {/* <div className="hidden sm:block">
                   <NetworkSelector />
                 </div> */}
 

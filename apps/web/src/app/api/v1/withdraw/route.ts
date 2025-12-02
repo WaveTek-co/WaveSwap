@@ -7,6 +7,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Connection, PublicKey } from '@solana/web3.js'
 import { DefiClient, WithdrawParams, Token } from 'encifher-swap-sdk'
 
+// Helper functions to support any SPL token withdrawal
+function getWithdrawTokenSymbol(tokenAddress: string): string {
+  // Known token mappings
+  const knownTokens: { [key: string]: string } = {
+    'So11111111111111111111111111111111111111112': 'SOL',
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
+    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': 'WAVE',
+    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': 'WAVE',
+    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': 'ZEC',
+  }
+
+  return knownTokens[tokenAddress] || `TOKEN`
+}
+
+function getWithdrawTokenDecimals(tokenAddress: string, providedDecimals?: number): number {
+  // If decimals are provided by frontend, use them
+  if (providedDecimals && providedDecimals > 0) {
+    return providedDecimals
+  }
+
+  // Known token decimals
+  const knownDecimals: { [key: string]: number } = {
+    'So11111111111111111111111111111111111111112': 9,  // SOL
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6,  // USDC
+    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': 9, // WAVE
+    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': 9,  // WAVE
+    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': 8,  // ZEC
+  }
+
+  return knownDecimals[tokenAddress] || 9 // Default to 9 decimals
+}
+
 export async function POST(
   request: NextRequest
 ) {
@@ -16,6 +48,7 @@ export async function POST(
     // Parse request body
     const body = await request.json()
     console.log('[Withdrawal API] Request body:', body)
+    console.log('[Withdrawal API] Amount type:', typeof body.amount, 'Amount value:', body.amount)
 
     // Validate required fields
     if (!body.mint || !body.amount || !body.userPublicKey) {
@@ -49,50 +82,116 @@ export async function POST(
     const defiClient = new DefiClient(config)
     const connection = new Connection(rpcUrl)
 
-    // Create token object
+    // Create token object with proper decimals for any SPL token
+    const decimals = getWithdrawTokenDecimals(body.mint, body.decimals)
     const token: Token = {
       tokenMintAddress: body.mint,
-      decimals: body.decimals || 6 // Default to 6 for USDC-like tokens
+      decimals
     }
+
+    console.log('[Withdrawal API] Withdrawal token details:', {
+      mint: body.mint,
+      decimals,
+      symbol: getWithdrawTokenSymbol(body.mint)
+    })
 
     // Create withdrawer public key
     const withdrawerPubkey = new PublicKey(body.userPublicKey)
 
-    // Handle amount conversion based on what the frontend sends
-    const decimals = body.decimals || 6
+    // CRITICAL: Check if user actually has tokens in Encifher before attempting withdrawal
+    console.log('[Withdrawal API] Checking user actual Encifher token balances...')
+    try {
+      const userTokenMints = await defiClient.getUserTokenMints(withdrawerPubkey)
+      console.log('[Withdrawal API] User token mints found:', userTokenMints)
 
-    // The frontend sends the actual amount in base units already
-    // For example: 53582284 (SOL lamports) or 1000000 (USDC base units)
-    // Encifher SDK expects the amount in the smallest unit (lamports for SOL, base units for tokens)
-    let amountForSDK: string
+      if (!userTokenMints || userTokenMints.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'No Encifher account found',
+            details: 'User has not registered with Encifher. Please complete a deposit first to create an Encifher account.',
+            debug: {
+              userPublicKey: body.userPublicKey,
+              hasTokenMints: false,
+              availableTokens: []
+            }
+          },
+          { status: 400 }
+        )
+      }
 
-    if (body.mint === 'So11111111111111111111111111111111111111112') {
-      // SOL - use lamports directly (frontend already sends lamports)
-      amountForSDK = Math.floor(parseFloat(body.amount)).toString()
-    } else {
-      // SPL tokens - use base units directly (frontend already sends base units)
-      amountForSDK = Math.floor(parseFloat(body.amount)).toString()
+      console.log('[Withdrawal API] Available tokens in Encifher account:')
+      userTokenMints.forEach((token: any, index) => {
+        console.log(`  ${index + 1}. ${token.tokenMintAddress || token.mintAddress} (${token.tokenSymbol || 'Unknown'})`)
+      })
+
+      const hasToken = userTokenMints.some((mint: any) => (mint.tokenMintAddress || mint.mintAddress) === body.mint)
+      if (!hasToken) {
+        const availableTokenAddresses = userTokenMints.map((m: any) => m.tokenMintAddress || m.mintAddress).join(', ')
+        return NextResponse.json(
+          {
+            error: 'Insufficient confidential balance',
+            details: `No confidential ${body.mint} balance found in Encifher account. Available tokens: ${availableTokenAddresses}`,
+            debug: {
+              requestedToken: body.mint,
+              availableTokens: userTokenMints,
+              hasRequestedToken: false
+            }
+          },
+          { status: 400 }
+        )
+      }
+
+      console.log('[Withdrawal API] User account verified - has requested token available')
+    } catch (accountCheckError: any) {
+      console.error('[Withdrawal API] Account check failed:', accountCheckError.message)
+      console.error('[Withdrawal API] Account check details:', {
+        error: accountCheckError,
+        stack: accountCheckError.stack,
+        response: accountCheckError.response?.data
+      })
+
+      return NextResponse.json(
+        {
+          error: 'Failed to verify Encifher account',
+          details: accountCheckError.message,
+          debug: {
+            userPublicKey: body.userPublicKey,
+            error: accountCheckError.message,
+            sdkError: accountCheckError.response?.data || 'No additional error details'
+          }
+        },
+        { status: 400 }
+      )
     }
 
-    console.log('[Withdrawal API] Amount calculation:', {
+      // According to Encifher docs: amount should be in token units, NOT base units
+    // For USDC: 4.56 USDC = "4.56" (not "4560000")
+    // For SOL: 0.01 SOL = "0.01" (not "10000000")
+
+    // Frontend now sends amount in correct token units format - use directly
+    // No conversion needed since frontend is already sending token units
+    const amountForTokenUnits = body.amount
+
+    console.log('[Withdrawal API] Amount processing (no conversion needed):', {
       inputAmount: body.amount,
       mint: body.mint,
-      decimals,
-      amountForSDK
+      decimals: body.decimals,
+      amountForTokenUnits,
+      note: 'Frontend sends token units directly - no conversion required'
     })
 
-    // Prepare withdrawal parameters
+    // Prepare withdrawal parameters according to Encifher docs
     const withdrawParams: WithdrawParams = {
       token,
-      amount: amountForSDK, // Use the actual amount in smallest units
+      amount: amountForTokenUnits, // Amount in token units, NOT base units
       withdrawer: withdrawerPubkey
     }
 
     console.log('[Withdrawal API] Getting withdrawal transaction from Encifher SDK', {
       mint: body.mint,
-      amount: amountForSDK,
+      amount: amountForTokenUnits,
       withdrawer: body.userPublicKey,
-      decimals
+      decimals: body.decimals
     })
 
     // Get withdrawal transaction from Encifher SDK with retry logic

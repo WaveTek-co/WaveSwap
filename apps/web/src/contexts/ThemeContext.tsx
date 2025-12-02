@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 
 export type ThemeMode = 'light' | 'dark' | 'stealth' | 'ghost'
 

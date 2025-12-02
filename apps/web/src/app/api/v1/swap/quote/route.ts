@@ -74,6 +74,64 @@ export async function GET(request: NextRequest) {
     if (privacyMode) {
       console.log('[Privacy Mode Quote API] Getting private swap quote...')
 
+      // CRITICAL: Pre-flight health check before allowing any private swap operations
+      console.log('[Privacy Mode Quote API] Performing Encifher health check...')
+      try {
+        const healthCheckUrl = `${request.nextUrl.origin}/api/v1/encifher/health`
+        const healthResponse = await fetch(healthCheckUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!healthResponse.ok) {
+          const healthData = await healthResponse.json()
+          console.error('[Privacy Mode Quote API] Encifher health check failed:', healthData)
+
+          return NextResponse.json(
+            {
+              error: 'PRIVATE_SWAP_UNAVAILABLE',
+              message: 'Private swaps are currently unavailable due to service issues',
+              details: healthData.checks?.error || 'Encifher service health check failed',
+              healthCheck: healthData,
+              retryAfter: 30 // Suggest retry after 30 seconds
+            },
+            { status: 503 }
+          )
+        }
+
+        const healthData = await healthResponse.json()
+        if (healthData.status !== 'healthy') {
+          console.error('[Privacy Mode Quote API] Encifher service unhealthy:', healthData)
+
+          return NextResponse.json(
+            {
+              error: 'PRIVATE_SWAP_UNHEALTHY',
+              message: 'Private swaps are temporarily unavailable - service is unhealthy',
+              details: healthData.checks?.error || 'Encifher service reporting unhealthy status',
+              healthCheck: healthData,
+              retryAfter: 60 // Suggest retry after 1 minute
+            },
+            { status: 503 }
+          )
+        }
+
+        console.log('[Privacy Mode Quote API] Encifher health check passed - proceeding with private swap quote')
+      } catch (healthCheckError: any) {
+        console.error('[Privacy Mode Quote API] Health check request failed:', healthCheckError)
+
+        return NextResponse.json(
+          {
+            error: 'PRIVATE_SWAP_HEALTH_CHECK_FAILED',
+            message: 'Unable to verify private swap service availability',
+            details: healthCheckError.message,
+            retryAfter: 30
+          },
+          { status: 503 }
+        )
+      }
+
       // For now, simulate private swap quotes using Jupiter as base
       // We'll add actual EncifHer integration once the basic flow works
       try {

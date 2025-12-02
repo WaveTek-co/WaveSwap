@@ -36,7 +36,7 @@ export function OrderStatusTracker({
   const maxAttempts = 120 // 120 attempts * 3 seconds = 6 minutes max
 
   useEffect(() => {
-    if (!orderStatusIdentifier) return
+    if (!orderStatusIdentifier) return undefined
 
     setIsPolling(true)
     setAttempts(0)

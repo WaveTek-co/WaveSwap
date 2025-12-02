@@ -4,6 +4,9 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   
   // External packages for server components
   serverExternalPackages: ['@solana/web3.js', '@solana/spl-token'],

@@ -7,6 +7,7 @@ import {
   PhantomWalletAdapter,
   SolflareWalletAdapter
 } from '@solana/wallet-adapter-wallets'
+import { BackpackWalletAdapter } from '@solana/wallet-adapter-backpack'
 import { config } from '@/lib/config'
 
 // Removed default wallet adapter styles since we use custom UI
@@ -24,6 +25,7 @@ export function SolanaWalletProvider({ children }: SolanaWalletProviderProps) {
     () => [
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
+      new BackpackWalletAdapter(),
     ],
     []
   )

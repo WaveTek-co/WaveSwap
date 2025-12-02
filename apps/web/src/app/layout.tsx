@@ -1,16 +1,19 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import React from 'react'
 import { SolanaWalletProvider } from '@/providers/SolanaWalletProvider'
 import { WaveSwapProvider } from '@/components/providers/WaveSwapProvider'
 import { NoSSRProvider } from '@/components/providers/NoSSRProvider'
 import PrivacyReminder from '@/components/PrivacyReminder'
 import { PrivacyProvider } from '@/contexts/PrivacyContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
+import { TermsProvider } from '@/contexts/TermsContext'
 import { NearWalletProvider } from '@/providers/NearWalletProvider'
 import { StarknetWalletProvider } from '@/providers/StarknetWalletProvider'
 import { WalletModalProvider } from '@/contexts/WalletModalContext'
 import { GlobalWalletModal } from '@/components/Wallets/GlobalWalletModal'
 import Footer from '@/components/Footer'
+import { TermsGuard } from '@/components/TermsGuard'
 
 // Using local Helvetica Neue and JetBrains Mono fonts only
 
@@ -72,29 +75,33 @@ export default function RootLayout({
       <body className="antialiased" suppressHydrationWarning>
         <ThemeProvider>
           <PrivacyProvider>
-            <WalletModalProvider>
-              <NoSSRProvider>
-                <NearWalletProvider>
-                  <StarknetWalletProvider>
-                    <SolanaWalletProvider>
-                      <WaveSwapProvider>
-                        <div className="relative min-h-screen text-foreground w-full flex flex-col">
-                          <div className="theme-background fixed inset-0"></div>
-                          <div className="relative z-[1] flex-1">
-                            {children}
+            <TermsProvider>
+              <WalletModalProvider>
+                <NoSSRProvider>
+                  <NearWalletProvider>
+                    <StarknetWalletProvider>
+                      <SolanaWalletProvider>
+                        <WaveSwapProvider>
+                          <div className="relative min-h-screen text-foreground w-full flex flex-col">
+                            <div className="theme-background fixed inset-0"></div>
+                            <div className="relative z-[1] flex-1">
+                              <TermsGuard>
+                                {children}
+                              </TermsGuard>
+                            </div>
+                            <div className="relative z-[1]">
+                              <Footer />
+                            </div>
+                            <PrivacyReminder />
+                            <GlobalWalletModal />
                           </div>
-                          <div className="relative z-[1]">
-                            <Footer />
-                          </div>
-                          <PrivacyReminder />
-                          <GlobalWalletModal />
-                        </div>
-                      </WaveSwapProvider>
-                    </SolanaWalletProvider>
-                  </StarknetWalletProvider>
-                </NearWalletProvider>
-              </NoSSRProvider>
-            </WalletModalProvider>
+                        </WaveSwapProvider>
+                      </SolanaWalletProvider>
+                    </StarknetWalletProvider>
+                  </NearWalletProvider>
+                </NoSSRProvider>
+              </WalletModalProvider>
+            </TermsProvider>
           </PrivacyProvider>
         </ThemeProvider>
       </body>

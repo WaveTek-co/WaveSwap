@@ -1,7 +1,8 @@
 'use client'
 
-import { createContext, useContext, ReactNode, useState } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import React, { createContext, useContext, ReactNode, useState } from 'react'
+import { useConnection } from '@solana/wallet-adapter-react'
+import { useWallet } from '@solana/wallet-adapter-react'
 
 interface WaveSwapContextType {
   isProcessing: boolean

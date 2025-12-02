@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode, useMemo } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode, useMemo } from 'react'
 
 // Simplified interfaces based on defuse implementation
 interface NearWalletContextValue {

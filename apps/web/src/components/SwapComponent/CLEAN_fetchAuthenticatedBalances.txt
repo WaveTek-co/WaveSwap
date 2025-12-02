@@ -1,0 +1,85 @@
+// API function to fetch authenticated confidential balances using proper Encifher SDK methods
+  const fetchAuthenticatedBalances = async () => {
+    if (!publicKey || !signMessage) {
+      console.error('[SwapComponent] Wallet not connected or signing not available')
+      alert('Please connect your wallet and ensure it supports message signing.')
+      return
+    }
+
+    setIsLoadingConfidentialBalances(true)
+    try {
+      console.log('[SwapComponent] Using proper Encifher SDK methods for authenticated balance fetch:', publicKey.toString())
+
+      // Step 1: First get the message payload from the balance API
+      const balanceResponse = await fetch(`/api/v1/confidential/balances?userPublicKey=${publicKey.toString()}`)
+
+      if (!balanceResponse.ok) {
+        throw new Error('Failed to get authentication message from balance API')
+      }
+
+      const balanceData = await balanceResponse.json()
+
+      // Check if we have a message that needs signing
+      if (!balanceData.confidentialBalances || balanceData.confidentialBalances.length === 0) {
+        console.log('[SwapComponent] No confidential balances found')
+        setApiConfidentialBalances([])
+        setIsLoadingConfidentialBalances(false)
+        return
+      }
+
+      const authRequiredBalance = balanceData.confidentialBalances.find((b: any) => b.requiresAuth)
+      if (!authRequiredBalance || !authRequiredBalance.msgPayload) {
+        console.log('[SwapComponent] No authentication required or missing message payload')
+        setApiConfidentialBalances(balanceData.confidentialBalances)
+        setIsLoadingConfidentialBalances(false)
+        return
+      }
+
+      console.log('[SwapComponent] Got message payload for signing:', authRequiredBalance.msgPayload)
+
+      // Step 2: Sign the message with user's wallet
+      const messageBytes = new TextEncoder().encode(authRequiredBalance.msgPayload.msgHash)
+      const signatureArray = await signMessage(messageBytes)
+      const signature = Buffer.from(signatureArray).toString('base64')
+
+      console.log('[SwapComponent] User signed message successfully')
+
+      // Step 3: Call the authenticated balance API with the signature
+      const authenticatedResponse = await fetch('/api/v1/confidential/authenticated-balances', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userPublicKey: publicKey.toString(),
+          signature: signature,
+          msgPayload: authRequiredBalance.msgPayload
+        })
+      })
+
+      if (!authenticatedResponse.ok) {
+        const errorData = await authenticatedResponse.json()
+        throw new Error(errorData.details || errorData.error || 'Failed to get authenticated balances')
+      }
+
+      const authenticatedData = await authenticatedResponse.json()
+      console.log('[SwapComponent] Successfully retrieved authenticated balances:', authenticatedData)
+
+      // Update the state with the real balances
+      setApiConfidentialBalances(authenticatedData.confidentialBalances || [])
+
+      console.log('[SwapComponent] Authentication complete - user can now view their actual confidential balances')
+
+    } catch (error) {
+      console.error('[SwapComponent] Error in authenticated balance fetch:', error)
+
+      // Show user-friendly error
+      const errorMessage = error instanceof Error ? error.message : 'Failed to authenticate with Encifher'
+      alert(`Authentication failed: ${errorMessage}`)
+
+      // Optionally retry the regular balance fetch
+      await fetchConfidentialBalances()
+    } finally {
+      setIsLoadingConfidentialBalances(false)
+    }
+  }
