@@ -302,57 +302,10 @@ export const COMMON_TOKENS: Token[] = [
 
 /**
  * Confidential tokens (wrapped tokens with privacy)
+ * REMOVED: Hardcoded confidential tokens should not be used anymore
+ * Only use actual tokens from user's Encifher account
  */
-export const CONFIDENTIAL_TOKENS: Token[] = [
-  {
-    address: 'cSo11111111111111111111111111111111111111112',
-    chainId: 101,
-    decimals: 9,
-    name: 'Confidential SOL',
-    symbol: 'cSOL',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
-    tags: ['confidential', 'wrapped'],
-    isConfidentialSupported: true,
-    isNative: false,
-    addressable: false
-  },
-  {
-    address: 'cEPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-    chainId: 101,
-    decimals: 6,
-    name: 'Confidential USDC',
-    symbol: 'cUSDC',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
-    tags: ['confidential', 'wrapped', 'stablecoin'],
-    isConfidentialSupported: true,
-    isNative: false,
-    addressable: false
-  },
-  {
-    address: 'cA7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS',
-    chainId: 101,
-    decimals: 18,
-    name: 'Confidential ZEC',
-    symbol: 'cZEC',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS/logo.png',
-    tags: ['confidential', 'wrapped'],
-    isConfidentialSupported: true,
-    isNative: false,
-    addressable: false
-  },
-  {
-    address: 'c4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
-    chainId: 101,
-    decimals: 6,
-    name: 'Confidential PUMP',
-    symbol: 'cPUMP',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump/logo.png',
-    tags: ['confidential', 'wrapped'],
-    isConfidentialSupported: true,
-    isNative: false,
-    addressable: false
-  }
-]
+export const CONFIDENTIAL_TOKENS: Token[] = []
 
 /**
  * Get available tokens based on privacy mode using Jupiter Token API v2
@@ -447,17 +400,11 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
     // Merge all tokens
     let allTokens = [...allJupiterTokens, ...missingTodoTokens, ...commonTokensAsToken]
 
-    // Filter for privacy mode if needed
+    // REMOVED: Do not automatically create confidential tokens in getAvailableTokens
+    // Confidential tokens should only come from user's actual Encifher account balances
+    // This prevents showing hardcoded tokens that the user doesn't actually own
     if (privacyMode) {
-      console.log('[getAvailableTokens] Privacy mode enabled - adding confidential tokens')
-
-      // Create confidential versions of all tokens
-      const confidentialTokens = allTokens.map(token => createConfidentialToken(token))
-
-      // Merge regular and confidential tokens
-      allTokens = [...allTokens, ...confidentialTokens]
-
-      console.log('[getAvailableTokens] Total tokens with confidential versions:', allTokens.length)
+      console.log('[getAvailableTokens] Privacy mode enabled - confidential tokens will be loaded from user account only')
     }
 
     // Sort: Popular tokens maintain their exact order, others come after
@@ -555,17 +502,10 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
 
     let tokens = Array.from(uniqueTokens.values())
 
-    // Add confidential tokens for privacy mode
+    // REMOVED: Do not automatically create confidential tokens in getAvailableTokens (fallback)
+    // Confidential tokens should only come from user's actual Encifher account balances
     if (privacyMode) {
-      console.log('[getAvailableTokens] Privacy mode enabled - adding confidential tokens (fallback)')
-
-      // Create confidential versions of all tokens
-      const confidentialTokens = tokens.map(token => createConfidentialToken(token))
-
-      // Merge regular and confidential tokens
-      tokens = [...tokens, ...confidentialTokens]
-
-      console.log('[getAvailableTokens] Total tokens with confidential versions (fallback):', tokens.length)
+      console.log('[getAvailableTokens] Privacy mode enabled (fallback) - confidential tokens will be loaded from user account only')
     }
 
     // Sort: Popular tokens first, then others
@@ -683,7 +623,7 @@ export function createConfidentialToken(token: Token): Token {
     ...token,
     address: generateConfidentialTokenAddress(token.address),
     symbol: generateConfidentialTokenSymbol(token.symbol),
-    name: `Confidential ${token.name}`,
+    name: token.name?.startsWith('Confidential ') ? token.name : `Confidential ${token.name}`,
     tags: [...token.tags, 'confidential', 'wrapped'],
     isConfidentialSupported: true,
     isConfidentialToken: true,

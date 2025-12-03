@@ -65,14 +65,37 @@ export async function POST(
         ...body.msgPayload
       }
 
-      // Get all common token mints to check balances
-      const tokenMints = [
-        'So11111111111111111111111111111111111111112', // SOL
-        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-        '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump', // WAVE
-        'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS', // ZEC
-        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-      ]
+      // Get user token mints dynamically from their Encifher account
+      const userTokenMints = await defiClient.getUserTokenMints(userPubkey)
+      console.log('[Authenticated Balance API] User token mints found:', userTokenMints)
+
+      if (!userTokenMints || userTokenMints.length === 0) {
+        const responseData = {
+          success: true,
+          userPublicKey: body.userPublicKey,
+          confidentialBalances: [],
+          timestamp: new Date().toISOString(),
+          network: 'mainnet',
+          authenticated: true,
+          message: 'No confidential tokens found in Encifher account'
+        }
+
+        return NextResponse.json(responseData, {
+          status: 200,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, x-api-key',
+            'Access-Control-Allow-Credentials': 'true',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        })
+      }
+
+      // Extract mint addresses from user's actual tokens
+      const tokenMints = userTokenMints.map((token: any) =>
+        token.tokenMintAddress || token.mintAddress || token.mint
+      )
 
       const userBalances = await defiClient.getBalance(
         userPubkey,
@@ -93,36 +116,49 @@ export async function POST(
         })
       }
 
-      // Convert to response format
-      const confidentialBalances = tokenMints
+      // Dynamic token metadata fetching using Jupiter API
+      async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number; name: string }> {
+        try {
+          const response = await fetch(`https://token.jup.ag/v6/strict?filter=true&token=${tokenAddress}`)
+
+          if (response.ok) {
+            const tokens = await response.json()
+            if (Array.isArray(tokens) && tokens.length > 0) {
+              const token = tokens[0]
+              return {
+                symbol: token.symbol || `TOKEN_${tokenAddress.slice(0, 6)}`,
+                decimals: token.decimals || 9,
+                name: token.name || `Token ${tokenAddress.slice(0, 8)}...`
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`[Authenticated Balance API] Jupiter API failed for ${tokenAddress}:`, error)
+        }
+
+        // Fallback to generic token info
+        return {
+          symbol: `TOKEN_${tokenAddress.slice(0, 6)}`,
+          decimals: 9,
+          name: `Token ${tokenAddress.slice(0, 8)}...`
+        }
+      }
+
+      // Convert to response format with dynamic metadata
+      const confidentialBalancesPromises = tokenMints
         .filter(mint => balances[mint] && parseFloat(balances[mint]) > 0)
-        .map(mint => {
+        .map(async (mint) => {
           const balance = balances[mint]
-          let tokenSymbol = 'UNKNOWN'
-          let tokenName = 'Unknown Token'
-          let decimals = 9
 
-          // Known token mappings
-          const knownTokens: { [key: string]: { symbol: string, name: string, decimals: number } } = {
-            'So11111111111111111111111111111111111111112': { symbol: 'SOL', name: 'Solana', decimals: 9 },
-            'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', name: 'USDC Coin', decimals: 6 },
-            '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': { symbol: 'WAVE', name: 'Wave', decimals: 9 },
-            'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': { symbol: 'ZEC', name: 'Zcash', decimals: 8 },
-            'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-          }
-
-          if (knownTokens[mint]) {
-            tokenSymbol = knownTokens[mint].symbol
-            tokenName = `Confidential ${knownTokens[mint].name}`
-            decimals = knownTokens[mint].decimals
-          }
+          // Get dynamic token metadata
+          const tokenMetadata = await getTokenMetadata(mint)
 
           return {
             tokenAddress: mint,
-            tokenSymbol,
-            tokenName,
-            decimals,
-            amount: balance, // This will be the actual balance amount
+            tokenSymbol: `c${tokenMetadata.symbol}`,
+            tokenName: `Confidential ${tokenMetadata.name}`,
+            decimals: tokenMetadata.decimals,
+            amount: balance,
             isVisible: true,
             lastUpdated: new Date().toISOString(),
             source: 'encifher_authenticated',
@@ -132,6 +168,8 @@ export async function POST(
             authenticatedBalance: true
           }
         })
+
+      const confidentialBalances = await Promise.all(confidentialBalancesPromises)
 
       console.log('[Authenticated Balance API] Processed balances:', {
         totalTokens: confidentialBalances.length,

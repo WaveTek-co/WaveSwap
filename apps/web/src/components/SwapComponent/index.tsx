@@ -931,6 +931,18 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     // Use authenticated balances from Encifher SDK, fall back to API-fetched balances
     const sourceBalances = authenticatedBalances.length > 0 ? authenticatedBalances : apiConfidentialBalances
 
+    console.log('[SwapComponent] Computing confidentialBalances:', {
+      privacyMode,
+      availableTokensCount: availableTokens.length,
+      publicKey: publicKey?.toString(),
+      authenticatedBalancesLength: authenticatedBalances.length,
+      apiConfidentialBalancesLength: apiConfidentialBalances.length,
+      sourceBalancesLength: sourceBalances.length,
+      usingAuthenticated: authenticatedBalances.length > 0,
+      authenticatedBalances: authenticatedBalances.slice(0, 3), // Show first 3 for debugging
+      apiConfidentialBalances: apiConfidentialBalances.slice(0, 3) // Show first 3 for debugging
+    })
+
     return sourceBalances
       .filter((apiBalance: any) => {
         // Show ALL tokens from Encifher account, no filtering required
@@ -977,7 +989,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
         }
       })
       .filter((balance): balance is NonNullable<typeof balance> => balance !== null) // Remove null entries with type guard
-  }, [privacyMode, availableTokens, publicKey, apiConfidentialBalances])
+  }, [privacyMode, availableTokens, publicKey, apiConfidentialBalances, authenticatedBalances])
 
   // Get balances
   const inputBalance = safeInputToken?.address ? (balances.get(safeInputToken.address) || '0') : '0'

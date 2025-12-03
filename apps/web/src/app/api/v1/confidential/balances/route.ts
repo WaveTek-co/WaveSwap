@@ -30,6 +30,9 @@ const getEncifherClient = async () => {
 // In production, this should be replaced with a proper database
 const manualBalances = new Map<string, Array<any>>()
 
+// Clear any existing manual balances to prevent hardcoded tokens
+manualBalances.clear()
+
 // Simple cache for API responses to improve performance
 const responseCache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_DURATION = 30000 // 30 seconds
@@ -56,24 +59,7 @@ async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string;
     console.warn(`[TokenMetadata] Jupiter API failed for ${tokenAddress}:`, error)
   }
 
-  // Fallback to common hardcoded tokens
-  const commonTokens: { [key: string]: { symbol: string; decimals: number; name: string } } = {
-    'So11111111111111111111111111111111111111112': { symbol: 'SOL', decimals: 9, name: 'Solana' },
-    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
-    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': { symbol: 'WAVE', decimals: 6, name: 'Wave' },
-    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': { symbol: 'WAVE', decimals: 9, name: 'Wave' },
-    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': { symbol: 'ZEC', decimals: 8, name: 'Zcash' },
-    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
-    'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': { symbol: 'PUMP', decimals: 6, name: 'Pump' },
-    'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH': { symbol: 'CASH', decimals: 6, name: 'Cash' }
-  }
-
-  const fallbackToken = commonTokens[tokenAddress]
-  if (fallbackToken) {
-    console.log(`[TokenMetadata] Found token in fallback list: ${fallbackToken.symbol}`)
-    return fallbackToken
-  }
-
+  
   // Ultimate fallback for unknown tokens
   console.log(`[TokenMetadata] Using ultimate fallback for unknown token: ${tokenAddress}`)
   return {
@@ -132,22 +118,9 @@ export async function GET(
       )
     }
 
-    // Check cache first for performance
+    // DISABLE CACHE: Skip cache to ensure fresh responses during debugging
     const cacheKey = `balances-${userPublicKey}`
-    const cached = responseCache.get(cacheKey)
-    if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-      console.log('[Confidential Balance API] Using cached response for:', userPublicKey)
-      return NextResponse.json(cached.data, {
-        status: 200,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, x-api-key',
-          'Access-Control-Allow-Credentials': 'true',
-          'Cache-Control': 'public, max-age=30'
-        }
-      })
-    }
+    console.log('[Confidential Balance API] Cache disabled - fetching fresh response for:', userPublicKey)
 
     // Get environment variables
     const encifherKey = process.env.ENCIFHER_SDK_KEY || process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
@@ -184,106 +157,111 @@ export async function GET(
 
     console.log('[Confidential Balance API] Fetching balances for user:', userPublicKey)
 
-    // Get confidential balances from Encifher SDK
-    // Note: Encifher confidential balances require user authentication (message signing)
-    // This API endpoint can only show balances that have been tracked through swaps
+    // Get confidential balances from Encifher SDK with proper authentication
     let confidentialBalances: any[] = []
 
     try {
-      console.log('[Confidential Balance API] Attempting to fetch user balances for:', userPublicKey)
+      console.log('[Confidential Balance API] Attempting to fetch authenticated user balances for:', userPublicKey)
 
       console.log('[Confidential Balance API] Encifher SDK methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(defiClient)))
 
-      // Try to get authenticated balances using getUserTokenMints first (less sensitive)
+      // Step 1: Get message to sign for authentication
+      const msgPayload = await defiClient.getMessageToSign()
+      console.log('[Confidential Balance API] Got message payload for authentication')
+
+      // Step 2: For this API endpoint, we can't sign messages directly
+      // Instead, we'll use a fallback approach with common tokens that users might have
+      // The main goal is to show that the user has tokens and requires wallet signature for exact amounts
+
+      // Get user token mints dynamically from their Encifher account
+      let userTokenMints = []
       try {
-        console.log('[Confidential Balance API] Attempting to get user token mints')
-
-        // The getUserTokenMints method can show which confidential tokens the user has
-        // without revealing actual amounts (more privacy-preserving)
-        const userTokenMints = await defiClient.getUserTokenMints(userPublicKey)
-        console.log('[Confidential Balance API] User token mints:', userTokenMints)
-
-        if (userTokenMints && userTokenMints.length > 0) {
-          // User has confidential tokens, create entries showing they exist but amounts require auth
-          const tokenInfoPromises = userTokenMints.map(async (tokenMint: any, index: number) => {
-            // Handle both string and object formats
-            const mintAddress = typeof tokenMint === 'string' ? tokenMint : tokenMint.mint || tokenMint.tokenMint || tokenMint.address
-
-            try {
-              // Get dynamic token metadata
-              const tokenMetadata = await getTokenMetadata(mintAddress)
-
-              return {
-                tokenAddress: mintAddress,
-                tokenSymbol: `c${tokenMetadata.symbol}`,
-                tokenName: `Confidential ${tokenMetadata.name}`,
-                decimals: tokenMetadata.decimals,
-                amount: 'AUTH_REQUIRED',
-                isVisible: true,
-                lastUpdated: new Date().toISOString(),
-                source: 'confidential_encifher',
-                requiresAuth: true,
-                note: 'Confidential balance requires wallet signature to view amount'
-              }
-            } catch (error) {
-              console.error(`[Confidential Balance API] Error getting metadata for ${mintAddress}:`, error)
-
-              // Fallback to generic token info
-              return {
-                tokenAddress: mintAddress,
-                tokenSymbol: `cTOKEN${index + 1}`,
-                tokenName: `Confidential Token ${index + 1}`,
-                decimals: 9,
-                amount: 'AUTH_REQUIRED',
-                isVisible: true,
-                lastUpdated: new Date().toISOString(),
-                source: 'confidential_encifher',
-                requiresAuth: true,
-                note: 'Confidential balance requires wallet signature to view amount'
-              }
-            }
-          })
-
-          // Wait for all token metadata to be fetched
-          confidentialBalances = await Promise.all(tokenInfoPromises)
-
-          console.log('[Confidential Balance API] Found confidential tokens for user:', confidentialBalances.length)
-        } else {
-          console.log('[Confidential Balance API] No confidential tokens found for user')
-          confidentialBalances = []
-        }
-
-      } catch (mintError: any) {
-        console.log('[Confidential Balance API] getUserTokenMints failed:', mintError.message)
-
-        // Fallback: Check if this is a known user with previous deposits for demo purposes
-        if (userPublicKey === 'vivgdu332GMEk3FaupQa92gQjYd9LX6TMgjMVsLaCu4') {
-          console.log('[Confidential Balance API] Known user detected - showing demo balance')
-
-          // For demo purposes, show that the user has made deposits before
-          confidentialBalances = [
-            {
-              tokenAddress: 'So11111111111111111111111111111111111111112',
-              tokenSymbol: 'cSOL',
-              tokenName: 'Confidential SOL',
-              decimals: 9,
-              amount: 'DEPOSITED', // Indicates user has deposited but amount is private
-              isVisible: true,
-              lastUpdated: new Date().toISOString(),
-              source: 'deposit_history',
-              note: 'You have confidential SOL deposits. View exact amounts in the Withdraw tab.',
-              requiresAuth: false
-            }
-          ]
-        } else {
-          // For other users, show empty with explanation
-          confidentialBalances = []
-        }
+        userTokenMints = await defiClient.getUserTokenMints(userPubkey)
+        console.log('[Confidential Balance API] User token mints found:', userTokenMints)
+      } catch (error: any) {
+        console.log('[Confidential Balance API] Could not fetch user token mints:', error.message)
       }
+
+      if (!userTokenMints || userTokenMints.length === 0) {
+        console.log('[Confidential Balance API] No user tokens found - returning empty list')
+
+        const responseData = {
+          success: true,
+          userPublicKey,
+          confidentialBalances: [],
+          timestamp: new Date().toISOString(),
+          network: 'mainnet',
+          message: 'No confidential tokens found in Encifher account'
+        }
+
+        // Cache the empty response
+        responseCache.set(cacheKey, {
+          data: responseData,
+          timestamp: Date.now()
+        })
+
+        return NextResponse.json(responseData, {
+          status: 200,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, x-api-key',
+            'Access-Control-Allow-Credentials': 'true',
+            'Cache-Control': 'public, max-age=30'
+          }
+        })
+      }
+
+      // Extract mint addresses from user's actual tokens
+      const userTokenAddresses = userTokenMints.map((token: any) =>
+        token.tokenMintAddress || token.mintAddress || token.mint
+      )
+
+      console.log('[Confidential Balance API] Creating placeholder entries for user tokens that require authentication')
+
+      const tokenInfoPromises = userTokenAddresses.map(async (mintAddress: string) => {
+        try {
+          // Get dynamic token metadata
+          const tokenMetadata = await getTokenMetadata(mintAddress)
+
+          return {
+            tokenAddress: mintAddress,
+            tokenSymbol: `c${tokenMetadata.symbol}`,
+            tokenName: `Confidential ${tokenMetadata.name}`,
+            decimals: tokenMetadata.decimals,
+            amount: 'AUTH_REQUIRED',
+            isVisible: true,
+            lastUpdated: new Date().toISOString(),
+            source: 'confidential_encifher',
+            requiresAuth: true,
+            note: 'Confidential balance requires wallet signature to view exact amount'
+          }
+        } catch (error) {
+          console.error(`[Confidential Balance API] Error getting metadata for ${mintAddress}:`, error)
+
+          // Fallback to generic token info
+          return {
+            tokenAddress: mintAddress,
+            tokenSymbol: `cTOKEN_${mintAddress.slice(0, 6)}`,
+            tokenName: `Confidential Token ${mintAddress.slice(0, 8)}...`,
+            decimals: 9,
+            amount: 'AUTH_REQUIRED',
+            isVisible: true,
+            lastUpdated: new Date().toISOString(),
+            source: 'confidential_encifher',
+            requiresAuth: true,
+            note: 'Confidential balance requires wallet signature to view exact amount'
+          }
+        }
+      })
+
+      confidentialBalances = await Promise.all(tokenInfoPromises)
+
+      console.log('[Confidential Balance API] Created placeholder entries for common tokens:', confidentialBalances.length)
 
     } catch (sdkError: any) {
       console.log('[Confidential Balance API] SDK initialization failed:', sdkError.message)
-      confidentialBalances = []
+      // Fallback to empty list but still try to include manual balances
     }
 
     // Include any manually added balances
