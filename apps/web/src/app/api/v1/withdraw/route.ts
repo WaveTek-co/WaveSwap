@@ -1,42 +1,100 @@
 /**
  * Withdrawal API Route
  * Implements real Encifher SDK getWithdrawTxn for confidential token withdrawals
+ * Supports dynamic token metadata fetching using Jupiter API
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { Connection, PublicKey } from '@solana/web3.js'
 import { DefiClient, WithdrawParams, Token } from 'encifher-swap-sdk'
 
-// Helper functions to support any SPL token withdrawal
-function getWithdrawTokenSymbol(tokenAddress: string): string {
-  // Known token mappings
-  const knownTokens: { [key: string]: string } = {
-    'So11111111111111111111111111111111111111112': 'SOL',
-    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'USDC',
-    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': 'WAVE',
-    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': 'WAVE',
-    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': 'ZEC',
+// Dynamic token metadata fetching using Jupiter API
+async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number; name: string }> {
+  try {
+    // First try to get token info from Jupiter API
+    const response = await fetch(`https://token.jup.ag/v6/strict?filter=true&token=${tokenAddress}`)
+
+    if (response.ok) {
+      const tokens = await response.json()
+      if (Array.isArray(tokens) && tokens.length > 0) {
+        const token = tokens[0]
+        console.log(`[TokenMetadata] Found token via Jupiter API: ${token.symbol} (${token.name})`)
+        return {
+          symbol: token.symbol || `TOKEN_${tokenAddress.slice(0, 6)}`,
+          decimals: token.decimals || 9,
+          name: token.name || `Token ${tokenAddress.slice(0, 8)}...`
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[TokenMetadata] Jupiter API failed for ${tokenAddress}:`, error)
   }
 
-  return knownTokens[tokenAddress] || `TOKEN`
+  // Fallback: try to get from our local token list
+  try {
+    const localResponse = await fetch(`${process.env.NEXT_PUBLIC_HOST || ''}/api/v1/tokens`)
+    if (localResponse.ok) {
+      const tokens = await localResponse.json()
+      const token = tokens.find((t: any) => t.address === tokenAddress)
+      if (token) {
+        console.log(`[TokenMetadata] Found token via local API: ${token.symbol}`)
+        return {
+          symbol: token.symbol,
+          decimals: token.decimals || 9,
+          name: token.name
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[TokenMetadata] Local API failed for ${tokenAddress}:`, error)
+  }
+
+  // Final fallback to common hardcoded tokens
+  const commonTokens: { [key: string]: { symbol: string; decimals: number; name: string } } = {
+    'So11111111111111111111111111111111111111112': { symbol: 'SOL', decimals: 9, name: 'Solana' },
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
+    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': { symbol: 'WAVE', decimals: 6, name: 'Wave' },
+    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': { symbol: 'WAVE', decimals: 9, name: 'Wave' },
+    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': { symbol: 'ZEC', decimals: 8, name: 'Zcash' },
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
+    'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': { symbol: 'PUMP', decimals: 6, name: 'Pump' },
+    'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH': { symbol: 'CASH', decimals: 6, name: 'Cash' },
+    'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump': { symbol: 'WEALTH', decimals: 9, name: 'Wealth' },
+    'J2eaKn35rp82T6RFEsNK9CLRHEKV9BLXjedFM3q6pump': { symbol: 'FTP', decimals: 9, name: 'FTP' },
+    'DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2': { symbol: 'AURA', decimals: 9, name: 'Aura' },
+    'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5': { symbol: 'MEW', decimals: 9, name: 'MEW' },
+    'FLJYGHpCCcfYUdzhcfHSeSd2peb5SMajNWaCsRnhpump': { symbol: 'STORE', decimals: 9, name: 'Store' }
+  }
+
+  const fallbackToken = commonTokens[tokenAddress]
+  if (fallbackToken) {
+    console.log(`[TokenMetadata] Found token in fallback list: ${fallbackToken.symbol}`)
+    return fallbackToken
+  }
+
+  // Ultimate fallback for unknown tokens
+  console.log(`[TokenMetadata] Using ultimate fallback for unknown token: ${tokenAddress}`)
+  return {
+    symbol: `TOKEN_${tokenAddress.slice(0, 6)}`,
+    decimals: 9, // Most Solana tokens use 9 decimals
+    name: `Token ${tokenAddress.slice(0, 8)}...`
+  }
 }
 
-function getWithdrawTokenDecimals(tokenAddress: string, providedDecimals?: number): number {
+// Helper functions for backward compatibility (now using dynamic metadata)
+async function getWithdrawTokenSymbol(tokenAddress: string): Promise<string> {
+  const metadata = await getTokenMetadata(tokenAddress)
+  return metadata.symbol
+}
+
+async function getWithdrawTokenDecimals(tokenAddress: string, providedDecimals?: number): Promise<number> {
   // If decimals are provided by frontend, use them
   if (providedDecimals && providedDecimals > 0) {
     return providedDecimals
   }
 
-  // Known token decimals
-  const knownDecimals: { [key: string]: number } = {
-    'So11111111111111111111111111111111111111112': 9,  // SOL
-    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6,  // USDC
-    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': 9, // WAVE
-    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': 9,  // WAVE
-    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': 8,  // ZEC
-  }
-
-  return knownDecimals[tokenAddress] || 9 // Default to 9 decimals
+  const metadata = await getTokenMetadata(tokenAddress)
+  return metadata.decimals
 }
 
 export async function POST(
@@ -82,8 +140,11 @@ export async function POST(
     const defiClient = new DefiClient(config)
     const connection = new Connection(rpcUrl)
 
-    // Create token object with proper decimals for any SPL token
-    const decimals = getWithdrawTokenDecimals(body.mint, body.decimals)
+    // Get dynamic token metadata for any SPL token
+    console.log('[Withdrawal API] Fetching token metadata for:', body.mint)
+    const tokenMetadata = await getTokenMetadata(body.mint)
+    const decimals = await getWithdrawTokenDecimals(body.mint, body.decimals)
+
     const token: Token = {
       tokenMintAddress: body.mint,
       decimals
@@ -92,7 +153,9 @@ export async function POST(
     console.log('[Withdrawal API] Withdrawal token details:', {
       mint: body.mint,
       decimals,
-      symbol: getWithdrawTokenSymbol(body.mint)
+      symbol: tokenMetadata.symbol,
+      name: tokenMetadata.name,
+      source: 'dynamic'
     })
 
     // Create withdrawer public key
@@ -121,12 +184,12 @@ export async function POST(
 
       console.log('[Withdrawal API] Available tokens in Encifher account:')
       userTokenMints.forEach((token: any, index) => {
-        console.log(`  ${index + 1}. ${token.tokenMintAddress || token.mintAddress} (${token.tokenSymbol || 'Unknown'})`)
+        console.log(`  ${index + 1}. ${token.tokenMintAddress || token.mintAddress || token.mint} (${token.tokenSymbol || 'Unknown'})`)
       })
 
-      const hasToken = userTokenMints.some((mint: any) => (mint.tokenMintAddress || mint.mintAddress) === body.mint)
+      const hasToken = userTokenMints.some((mint: any) => (mint.tokenMintAddress || mint.mintAddress || mint.mint) === body.mint)
       if (!hasToken) {
-        const availableTokenAddresses = userTokenMints.map((m: any) => m.tokenMintAddress || m.mintAddress).join(', ')
+        const availableTokenAddresses = userTokenMints.map((m: any) => m.tokenMintAddress || m.mintAddress || m.mint).join(', ')
         return NextResponse.json(
           {
             error: 'Insufficient confidential balance',
@@ -266,13 +329,19 @@ export async function POST(
       withdrawer: body.userPublicKey,
       timestamp: new Date().toISOString(),
       networkFee: '0.000005 SOL',
-      instructions: 'Please sign this transaction to withdraw your confidential USDC tokens. The tokens will be sent to your wallet after confirmation.'
+      tokenSymbol: tokenMetadata.symbol,
+      tokenName: tokenMetadata.name,
+      tokenDecimals: decimals,
+      instructions: `Please sign this transaction to withdraw your confidential ${tokenMetadata.symbol} tokens. The tokens will be sent to your wallet after confirmation.`
     }
 
     console.log('[Withdrawal API] Withdrawal transaction prepared successfully:', {
       transactionId: responseData.timestamp,
       amount: responseData.amount,
-      mint: responseData.mint
+      mint: responseData.mint,
+      tokenSymbol: responseData.tokenSymbol,
+      tokenName: responseData.tokenName,
+      decimals: responseData.tokenDecimals
     })
 
     // Return successful response

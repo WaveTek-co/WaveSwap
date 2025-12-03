@@ -490,7 +490,73 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
       // Add confidential tokens if in privacy mode
       if (privacyMode) {
+        // First add predefined confidential tokens
         CONFIDENTIAL_TOKENS.forEach(token => tokenMap.set(token.address, token))
+
+        // Then dynamically create confidential tokens for any token with a balance
+        const confidentialBalances = await fetchConfidentialBalances(publicKey.toString())
+        console.log('[useSwap] Creating dynamic confidential tokens from balances:', confidentialBalances)
+
+        for (const [tokenAddress, balance] of confidentialBalances.entries()) {
+          // Show all tokens from Encifher account, not just those with positive balance
+          const hasBalance = balance && balance !== '0' && balance !== 'AUTH_REQUIRED' && balance !== 'DEPOSITED'
+          const hasStatus = balance === 'AUTH_REQUIRED' || balance === 'DEPOSITED'
+
+          if (hasBalance || hasStatus) {
+            // Find the original token from userTokens or COMMON_TOKENS
+            const originalToken = userTokens.find(t => t.address === tokenAddress) ||
+                               COMMON_TOKENS.find(t => t.address === tokenAddress)
+
+            if (originalToken) {
+              // Create confidential version of the token
+              const confidentialAddress = `c${tokenAddress}` // Add 'c' prefix
+              const confidentialToken: Token = {
+                ...originalToken,
+                address: confidentialAddress,
+                name: `Confidential ${originalToken.name}`,
+                symbol: `c${originalToken.symbol}`,
+                tags: ['confidential', 'wrapped', ...(originalToken.tags || [])],
+                isConfidentialSupported: true,
+                isNative: false,
+                addressable: false
+              }
+
+              console.log('[useSwap] Created dynamic confidential token:', confidentialToken.symbol, 'for original:', originalToken.address)
+              tokenMap.set(confidentialAddress, confidentialToken)
+            } else {
+              // Create a fallback token for unknown tokens from Encifher
+              const confidentialAddress = `c${tokenAddress}` // Add 'c' prefix
+              const fallbackToken: Token = {
+                address: confidentialAddress,
+                chainId: 101,
+                decimals: 9, // Default decimals
+                name: `Confidential Token ${tokenAddress.slice(0, 8)}...`,
+                symbol: `c${tokenAddress.slice(0, 6)}...`,
+                logoURI: getLocalFallbackIcon('', tokenAddress) || '/icons/default-token.svg',
+                tags: ['confidential', 'unknown'],
+                isConfidentialSupported: true,
+                isNative: false,
+                addressable: false,
+                // Also create the original token for reference
+              }
+
+              console.log('[useSwap] Created fallback confidential token for unknown token:', tokenAddress)
+              tokenMap.set(confidentialAddress, fallbackToken)
+
+              // Also add the original token (non-confidential version) for reference
+              const originalFallbackToken: Token = {
+                ...fallbackToken,
+                address: tokenAddress,
+                name: fallbackToken.name.replace('Confidential ', ''),
+                symbol: fallbackToken.symbol.replace('c', ''),
+                tags: ['unknown'],
+                isConfidentialSupported: false,
+                addressable: true
+              }
+              tokenMap.set(tokenAddress, originalFallbackToken)
+            }
+          }
+        }
       }
 
       // Add user tokens
@@ -1403,15 +1469,53 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       // For USDC: 4.56 should be sent as "4.56"
       // For SOL: 0.01 should be sent as "0.01"
 
+      // Get token decimals from available tokens for dynamic support
+      const getTokenDecimals = (tokenAddress: string): number => {
+        // Try to find token in availableTokens
+        const token = availableTokens.find(t => t.address === tokenAddress)
+        if (token && token.decimals) {
+          return token.decimals
+        }
+
+        // Fallback to known token decimals
+        const knownDecimals: { [key: string]: number } = {
+          'So11111111111111111111111111111111111111112': 9,  // SOL
+          'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6,  // USDC
+          'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 6,  // USDT
+          'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': 8,  // ZEC
+          'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 6,  // PUMP
+          '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': 6,  // WAVE
+          'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH': 6,  // CASH
+          'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump': 9,  // WEALTH
+          'J2eaKn35rp82T6RFEsNK9CLRHEKV9BLXjedFM3q6pump': 9,  // FTP
+          'DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2': 9,  // AURA
+          'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5': 9,  // MEW
+          'FLJYGHpCCcfYUdzhcfHSeSd2peb5SMajNWaCsRnhpump': 9   // STORE
+        }
+
+        return knownDecimals[tokenAddress] || 9 // Default to 9 decimals
+      }
+
+      const tokenDecimals = getTokenDecimals(tokenAddress)
+
       const requestBody = {
         mint: tokenAddress,
         amount: amount.toString(), // Send decimal amount in token units
         userPublicKey: publicKey.toString(),
-        decimals: 6 // USDC decimals for proper conversion in backend
+        decimals: tokenDecimals // Dynamic decimals based on token
       }
 
-      console.log('[Confidential Withdrawal] Sending request body:', requestBody)
-      console.log('[Confidential Withdrawal] Amount type:', typeof amount, 'Amount value:', amount)
+      console.log('[Confidential Withdrawal] Sending request body:', {
+        ...requestBody,
+        tokenDecimals,
+        note: 'Dynamic token support enabled'
+      })
+      console.log('[Confidential Withdrawal] Amount details:', {
+        amount,
+        amountType: typeof amount,
+        tokenDecimals,
+        tokenAddress
+      })
 
       const response = await fetch('/api/v1/withdraw', {
         method: 'POST',

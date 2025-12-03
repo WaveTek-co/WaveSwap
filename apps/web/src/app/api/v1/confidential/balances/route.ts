@@ -34,6 +34,55 @@ const manualBalances = new Map<string, Array<any>>()
 const responseCache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_DURATION = 30000 // 30 seconds
 
+// Dynamic token metadata fetching using Jupiter API
+async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string; decimals: number; name: string }> {
+  try {
+    // First try to get token info from Jupiter API
+    const response = await fetch(`https://token.jup.ag/v6/strict?filter=true&token=${tokenAddress}`)
+
+    if (response.ok) {
+      const tokens = await response.json()
+      if (Array.isArray(tokens) && tokens.length > 0) {
+        const token = tokens[0]
+        console.log(`[TokenMetadata] Found token via Jupiter API: ${token.symbol} (${token.name})`)
+        return {
+          symbol: token.symbol || `TOKEN_${tokenAddress.slice(0, 6)}`,
+          decimals: token.decimals || 9,
+          name: token.name || `Token ${tokenAddress.slice(0, 8)}...`
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[TokenMetadata] Jupiter API failed for ${tokenAddress}:`, error)
+  }
+
+  // Fallback to common hardcoded tokens
+  const commonTokens: { [key: string]: { symbol: string; decimals: number; name: string } } = {
+    'So11111111111111111111111111111111111111112': { symbol: 'SOL', decimals: 9, name: 'Solana' },
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', decimals: 6, name: 'USD Coin' },
+    '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump': { symbol: 'WAVE', decimals: 6, name: 'Wave' },
+    '86kZasgxFNRfZ1N373EUEs1eeShKb3TeA8tMyUfx5Ck6': { symbol: 'WAVE', decimals: 9, name: 'Wave' },
+    'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS': { symbol: 'ZEC', decimals: 8, name: 'Zcash' },
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', decimals: 6, name: 'Tether USD' },
+    'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': { symbol: 'PUMP', decimals: 6, name: 'Pump' },
+    'CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH': { symbol: 'CASH', decimals: 6, name: 'Cash' }
+  }
+
+  const fallbackToken = commonTokens[tokenAddress]
+  if (fallbackToken) {
+    console.log(`[TokenMetadata] Found token in fallback list: ${fallbackToken.symbol}`)
+    return fallbackToken
+  }
+
+  // Ultimate fallback for unknown tokens
+  console.log(`[TokenMetadata] Using ultimate fallback for unknown token: ${tokenAddress}`)
+  return {
+    symbol: `TOKEN_${tokenAddress.slice(0, 6)}`,
+    decimals: 9, // Most Solana tokens use 9 decimals
+    name: `Token ${tokenAddress.slice(0, 8)}...`
+  }
+}
+
 function addManualBalance(userPublicKey: string, tokenInfo: any) {
   const key = userPublicKey.toLowerCase()
   if (!manualBalances.has(key)) {
@@ -156,40 +205,47 @@ export async function GET(
 
         if (userTokenMints && userTokenMints.length > 0) {
           // User has confidential tokens, create entries showing they exist but amounts require auth
-          confidentialBalances = userTokenMints.map((tokenMint: any, index: number) => {
+          const tokenInfoPromises = userTokenMints.map(async (tokenMint: any, index: number) => {
             // Handle both string and object formats
             const mintAddress = typeof tokenMint === 'string' ? tokenMint : tokenMint.mint || tokenMint.tokenMint || tokenMint.address
 
-            // Map known mints to token info
-            let tokenInfo = {
-              tokenAddress: mintAddress,
-              tokenSymbol: `cTOKEN${index + 1}`,
-              tokenName: `Confidential Token ${index + 1}`,
-              decimals: 9,
-              amount: 'AUTH_REQUIRED',
-              isVisible: true,
-              lastUpdated: new Date().toISOString(),
-              source: 'confidential_encifher',
-              requiresAuth: true,
-              note: 'Confidential balance requires wallet signature to view amount'
-            }
+            try {
+              // Get dynamic token metadata
+              const tokenMetadata = await getTokenMetadata(mintAddress)
 
-            // Known token mappings
-            if (mintAddress === 'So11111111111111111111111111111111111111112') {
-              tokenInfo.tokenSymbol = 'cSOL'
-              tokenInfo.tokenName = 'Confidential SOL'
-            } else if (mintAddress === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') {
-              tokenInfo.tokenSymbol = 'cUSDC'
-              tokenInfo.tokenName = 'Confidential USDC'
-              tokenInfo.decimals = 6
-            } else if (mintAddress === 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') {
-              tokenInfo.tokenSymbol = 'cUSDT'
-              tokenInfo.tokenName = 'Confidential USDT'
-              tokenInfo.decimals = 6
-            }
+              return {
+                tokenAddress: mintAddress,
+                tokenSymbol: `c${tokenMetadata.symbol}`,
+                tokenName: `Confidential ${tokenMetadata.name}`,
+                decimals: tokenMetadata.decimals,
+                amount: 'AUTH_REQUIRED',
+                isVisible: true,
+                lastUpdated: new Date().toISOString(),
+                source: 'confidential_encifher',
+                requiresAuth: true,
+                note: 'Confidential balance requires wallet signature to view amount'
+              }
+            } catch (error) {
+              console.error(`[Confidential Balance API] Error getting metadata for ${mintAddress}:`, error)
 
-            return tokenInfo
+              // Fallback to generic token info
+              return {
+                tokenAddress: mintAddress,
+                tokenSymbol: `cTOKEN${index + 1}`,
+                tokenName: `Confidential Token ${index + 1}`,
+                decimals: 9,
+                amount: 'AUTH_REQUIRED',
+                isVisible: true,
+                lastUpdated: new Date().toISOString(),
+                source: 'confidential_encifher',
+                requiresAuth: true,
+                note: 'Confidential balance requires wallet signature to view amount'
+              }
+            }
           })
+
+          // Wait for all token metadata to be fetched
+          confidentialBalances = await Promise.all(tokenInfoPromises)
 
           console.log('[Confidential Balance API] Found confidential tokens for user:', confidentialBalances.length)
         } else {

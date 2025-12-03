@@ -31,39 +31,53 @@ const formatBalance = (balance: string, decimals: number = 9): string => {
       return '0'
     }
 
-    // Log for debugging SOL balance display in SwapComponent
+    // Log for debugging balance display
     if (balance && parseFloat(balance) > 0) {
-      console.log(`[SwapComponent.formatBalance] Converting balance: ${balance} with ${decimals} decimals`)
+      console.log(`[SwapComponent.formatBalance] Processing balance: ${balance} with ${decimals} decimals`)
     }
 
-    // Convert from smallest units (lamports) to human-readable format
-    const num = parseFloat(balance) / Math.pow(10, decimals)
+    // Determine if balance is already in human-readable format or in base units
+    const balanceNum = parseFloat(balance)
+
+    // If the balance is a very small number but has many decimal places, it's likely in base units
+    // Example: 1100000 (base units for 1.1 USDC) vs 1.1 (human readable)
+    let displayNum: number
+
+    if (balanceNum >= Math.pow(10, decimals - 2)) {
+      // Likely in base units (lamports), convert to human-readable
+      displayNum = balanceNum / Math.pow(10, decimals)
+      console.log(`[SwapComponent.formatBalance] Treating as base units: ${balanceNum} -> ${displayNum}`)
+    } else {
+      // Already in human-readable format
+      displayNum = balanceNum
+      console.log(`[SwapComponent.formatBalance] Treating as human-readable: ${balanceNum}`)
+    }
 
     // Log the conversion result for debugging
-    if (balance && parseFloat(balance) > 0) {
-      console.log(`[SwapComponent.formatBalance] Result: ${num} (from ${balance} / 10^${decimals})`)
+    if (balanceNum > 0) {
+      console.log(`[SwapComponent.formatBalance] Result: ${displayNum} (processed from ${balance})`)
     }
 
-    if (num === 0) return '0'
+    if (displayNum === 0) return '0'
 
     // For very small amounts, show appropriate precision
-    if (num < 0.000001) {
+    if (displayNum < 0.000001) {
       return '<0.000001'
     }
-    if (num < 0.001) {
-      return num.toFixed(6)
+    if (displayNum < 0.001) {
+      return displayNum.toFixed(6)
     }
-    if (num < 1) {
-      return num.toFixed(4)
+    if (displayNum < 1) {
+      return displayNum.toFixed(4)
     }
-    if (num < 1000) {
-      return num.toFixed(2)
+    if (displayNum < 1000) {
+      return displayNum.toFixed(2)
     }
 
     // For large amounts, use locale with reasonable precision
-    return num.toLocaleString(undefined, { maximumFractionDigits: 2 })
-  } catch {
-    console.log(`[SwapComponent.formatBalance] Error formatting balance: ${balance} with ${decimals} decimals`)
+    return displayNum.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  } catch (error) {
+    console.log(`[SwapComponent.formatBalance] Error formatting balance: ${balance} with ${decimals} decimals:`, error)
     return '0'
   }
 }
@@ -108,17 +122,42 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const [apiConfidentialBalances, setApiConfidentialBalances] = useState<any[]>([])
   const [isLoadingConfidentialBalances, setIsLoadingConfidentialBalances] = useState(false)
 
+  // Simple cache for token metadata to improve performance
+  const [tokenMetadataCache, setTokenMetadataCache] = useState<Map<string, any>>(new Map())
+
   // Info modal state
   const [showInfoModal, setShowInfoModal] = useState(false)
+
+  // Search modal state
+  const [showSearchModal, setShowSearchModal] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+
+  // Authenticated confidential balances from Encifher SDK
+  const [authenticatedBalances, setAuthenticatedBalances] = useState<any[]>([])
 
   // Fetch confidential balances from API when privacy mode is enabled and user is connected
   useEffect(() => {
     if (privacyMode && publicKey) {
-      fetchConfidentialBalances()
+      console.log('[SwapComponent] Privacy mode enabled, checking for existing authenticated balances...')
+      // Only fetch if we don't already have authenticated balances
+      if (authenticatedBalances.length === 0) {
+        console.log('[SwapComponent] No cached balances, initiating authentication...')
+        fetchAuthenticatedBalances().then(() => {
+          console.log('[SwapComponent] Authenticated balances fetched successfully')
+        }).catch((error) => {
+          console.error('[SwapComponent] Error fetching authenticated balances:', error)
+          // Fall back to basic confidential balances if authenticated flow fails
+          fetchConfidentialBalances()
+        })
+      } else {
+        console.log('[SwapComponent] Using cached authenticated balances')
+      }
     } else {
       setApiConfidentialBalances([])
+      setAuthenticatedBalances([])
     }
-  }, [privacyMode, publicKey])
+  }, [privacyMode, publicKey, authenticatedBalances.length]) // Added authenticatedBalances.length dependency
 
   // API function to fetch confidential balances
   const fetchConfidentialBalances = async () => {
@@ -342,17 +381,91 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
       // Update the API confidential balances with real authenticated data
       if (authenticatedBalance && Array.isArray(authenticatedBalance)) {
-        // Create a map of token addresses to token metadata for lookup (minimal to avoid rate limiting)
+        // Create a map of token addresses to token metadata for lookup using Jupiter API
         let tokenMetadataMap = new Map<string, any>()
 
-        // Basic token metadata for common tokens only
-        const basicTokenMetadata = {
-          'So11111111111111111111111111111111111111112': { symbol: 'SOL', name: 'Solana', decimals: 9 },
-          'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-          'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+        // Fetch token metadata from Jupiter API dynamically for all discovered tokens (with caching)
+        console.log('[SwapComponent] Fetching token metadata from Jupiter API for discovered tokens...')
+
+        try {
+          const uncachedTokens = finalTokenMints.filter(tokenAddress => !tokenMetadataCache.has(tokenAddress))
+          const cachedMetadata = new Map()
+
+          // Use cached metadata first
+          finalTokenMints.forEach(tokenAddress => {
+            if (tokenMetadataCache.has(tokenAddress)) {
+              cachedMetadata.set(tokenAddress, tokenMetadataCache.get(tokenAddress))
+            }
+          })
+
+          if (uncachedTokens.length > 0) {
+            console.log(`[SwapComponent] Fetching metadata for ${uncachedTokens.length} uncached tokens`)
+
+            const tokenMetadataPromises = uncachedTokens.map(async (tokenAddress) => {
+              try {
+                // Use direct Jupiter API call with timeout
+                const controller = new AbortController()
+                const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+
+                const response = await fetch(`https://token.jup.ag/v6/strict?filter=true&token=${tokenAddress}`, {
+                  signal: controller.signal
+                })
+
+                clearTimeout(timeoutId)
+
+                if (response.ok) {
+                  const tokens = await response.json()
+                  if (Array.isArray(tokens) && tokens.length > 0) {
+                    const token = tokens[0]
+                    const metadata = {
+                      address: token.address,
+                      symbol: token.symbol,
+                      name: token.name,
+                      decimals: token.decimals,
+                      logoURI: token.logoURI
+                    }
+                    console.log(`[SwapComponent] ✅ Fetched metadata for ${tokenAddress}:`, token.symbol)
+                    return metadata
+                  }
+                }
+              } catch (error) {
+                console.warn(`[SwapComponent] ⚠️ Failed to fetch metadata for token ${tokenAddress}:`, error)
+              }
+
+              // Create fallback token if Jupiter API fails
+              console.warn(`[SwapComponent] Creating fallback metadata for ${tokenAddress}`)
+              return {
+                address: tokenAddress,
+                symbol: `TOKEN_${tokenAddress.slice(0, 6)}`,
+                name: `Token ${tokenAddress.slice(0, 8)}...`,
+                decimals: 9,
+                logoURI: '/icons/default-token.svg'
+              }
+            })
+
+            const tokenMetadataResults = await Promise.all(tokenMetadataPromises)
+
+            // Update cache with new metadata
+            const updatedCache = new Map(tokenMetadataCache)
+            tokenMetadataResults.forEach(metadata => {
+              if (metadata) {
+                updatedCache.set(metadata.address, metadata)
+                cachedMetadata.set(metadata.address, metadata)
+              }
+            })
+            setTokenMetadataCache(updatedCache)
+          }
+
+          tokenMetadataMap = cachedMetadata
+
+          console.log('[SwapComponent] Successfully fetched token metadata for', tokenMetadataMap.size, 'tokens')
+          console.log(`[SwapComponent] Used ${cachedMetadata.size} cached entries, fetched ${uncachedTokens.length} new ones`)
+        } catch (error) {
+          console.error('[SwapComponent] Error fetching token metadata from Jupiter API:', error)
+          tokenMetadataMap = new Map()
         }
 
-        tokenMetadataMap = new Map(Object.entries(basicTokenMetadata))
+        console.log('[SwapComponent] Loaded token metadata for', tokenMetadataMap.size, 'tokens')
 
         // Debug token mapping
         console.log('[SwapComponent] Token mapping debug:')
@@ -413,9 +526,9 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           })
         })
 
-        // Filter out tokens with zero balances and map to proper token info
+        // Create balance objects for ALL tokens from Encifher account (no filtering)
         const updatedBalances = authenticatedBalance
-          .filter((balance: any, index: number) => {
+          .map((balance: any, index: number) => {
             const tokenAddress = finalTokenMints[index]
 
             // Handle the actual balance format: { "tokenAddress": "amount" }
@@ -437,63 +550,63 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
               amount = amount.toString()
             }
 
-            const amountAsString = String(amount || '0')
-
-            // Special handling for confidential tokens with status values
-            const isConfidentialToken = finalTokenMints[index] && (
-              confidentialBalances?.some(cb => cb.tokenAddress === finalTokenMints[index]) ||
-              finalTokenMints[index].startsWith('c')
-            )
-
-            // For confidential tokens, check if they were previously detected with AUTH_REQUIRED status
-            const wasConfidentialWithAuth = confidentialBalances?.some(cb =>
-              cb.tokenAddress === finalTokenMints[index] &&
-              (cb.requiresAuth || cb.amount === 'AUTH_REQUIRED' || cb.amount === 'DEPOSITED')
-            )
-
-            // For confidential tokens, treat status values as valid balances OR keep tokens that were detected as confidential
-            if ((isConfidentialToken && (amountAsString === 'AUTH_REQUIRED' || amountAsString === 'DEPOSITED')) ||
-                (wasConfidentialWithAuth && amountAsString === '0')) {
-              console.log(`[SwapComponent] Keeping confidential token ${tokenAddress} - was confidential with auth: ${wasConfidentialWithAuth}, amount: ${amountAsString}`)
-              return true
-            }
-
-            // Special handling for SOL - ensure it's always displayed if detected in user token mints
-            if (tokenAddress === 'So11111111111111111111111111111111111111112' && wasConfidentialWithAuth) {
-              console.log(`[SwapComponent] Keeping SOL token - detected in user deposits: ${amountAsString}`)
-              return true
-            }
-
-            const parsedAmount = parseFloat(amountAsString)
-            const hasBalance = amountAsString && amountAsString !== '0' && parsedAmount > 0
-
-            if (!hasBalance) {
-              console.log(`[SwapComponent] Filtering out token ${tokenAddress} - zero balance`)
-              return false
-            }
-
-            return hasBalance
+            // Always return true for all tokens - no filtering
+            return true
           })
+          .filter(Boolean) // Remove any null/undefined entries
           .map((balance: any, index: number) => {
             const tokenAddress = finalTokenMints[index] || balance.tokenAddress
             const metadata = tokenMetadataMap.get(tokenAddress)
 
             // Handle the actual balance format: { "tokenAddress": "amount" }
             let amount: string | number | bigint | unknown = '0'
+
+            console.log(`[SwapComponent] Processing balance for token ${tokenAddress}:`, {
+              balance,
+              balanceType: typeof balance,
+              balanceKeys: balance && typeof balance === 'object' ? Object.keys(balance) : 'not object',
+              tokenAddressInBalance: tokenAddress && balance && typeof balance === 'object' ? tokenAddress in balance : false
+            })
+
             if (balance && typeof balance === 'object') {
               // Extract amount from the balance object using token address as key
               if (tokenAddress && tokenAddress in balance) {
                 amount = balance[tokenAddress]
+                console.log(`[SwapComponent] Found amount using token address key:`, amount)
               } else {
                 // Fallback: try common amount fields
                 amount = balance.amount || balance.balanceAmount || balance.value || balance.quantity || '0'
+                console.log(`[SwapComponent] Found amount using fallback fields:`, amount)
               }
             } else {
               // Fallback for other formats
-              amount = balance?.amount || balance?.balanceAmount || balance?.value || balance?.quantity || '0'
+              amount = '0' // Default to 0 for non-object balances
+              console.log(`[SwapComponent] Using default amount for non-object balance:`, amount)
             }
 
-            const finalAmount = String(amount || '0')
+            // Handle BigInt conversion and base units to display units
+            let finalAmount = '0'
+            const decimals = metadata?.decimals || 6 // Default to 6 decimals for stablecoins
+
+            if (typeof amount === 'bigint') {
+              // Convert from base units to display units
+              const divisor = BigInt(10 ** decimals)
+              const wholePart = amount / divisor
+              const fractionalPart = amount % divisor
+
+              if (fractionalPart === 0n) {
+                finalAmount = wholePart.toString()
+              } else {
+                // Pad fractional part with leading zeros
+                const fractionalStr = fractionalPart.toString().padStart(decimals, '0')
+                finalAmount = `${wholePart.toString()}.${fractionalStr}`
+              }
+              console.log(`[SwapComponent] Converted BigInt ${amount} to display amount ${finalAmount} with ${decimals} decimals`)
+            } else {
+              finalAmount = String(amount || '0')
+            }
+
+            console.log(`[SwapComponent] Final display amount for ${tokenAddress}:`, finalAmount)
 
             return {
               tokenAddress,
@@ -520,6 +633,9 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
         console.log('[SwapComponent] About to set apiConfidentialBalances with:', updatedBalances)
         setApiConfidentialBalances(updatedBalances)
+
+        // Also update authenticated balances for the UI
+        setAuthenticatedBalances(updatedBalances)
 
         console.log('[SwapComponent] Successfully updated authenticated balances in UI:', {
           totalTokens: updatedBalances.length,
@@ -808,26 +924,48 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     fetchConfidentialBalances()
   }
 
-  // Confidential token balances for withdraw tab - fetched from API
+  // Confidential token balances for withdraw tab - from authenticated Encifher data
   const confidentialBalances = useMemo(() => {
     if (!privacyMode || !availableTokens || !publicKey) return []
 
-    // Use API-fetched confidential balances
-    return apiConfidentialBalances
+    // Use authenticated balances from Encifher SDK, fall back to API-fetched balances
+    const sourceBalances = authenticatedBalances.length > 0 ? authenticatedBalances : apiConfidentialBalances
+
+    return sourceBalances
       .filter((apiBalance: any) => {
-        // Only include tokens that can actually be withdrawn (positive balance and doesn't require authentication)
-        // Authentication-required tokens will be handled in the empty state UI, not in the withdrawal list
-        const amount = parseFloat(apiBalance.amount) || 0
-        return amount > 0 && apiBalance.requiresAuth !== true && apiBalance.amount !== 'AUTH_REQUIRED' && apiBalance.amount !== 'DEPOSITED'
+        // Show ALL tokens from Encifher account, no filtering required
+        // This ensures users can see all their tracked confidential tokens regardless of status
+        return apiBalance.tokenAddress && apiBalance.tokenAddress.length > 0
       })
       .map((apiBalance: any) => {
-        const token = availableTokens.find(t => t.address === apiBalance.tokenAddress)
-        if (!token) return null
+        // Try to find token in both confidential (c-prefixed) and original formats
+        const confidentialAddress = `c${apiBalance.tokenAddress}`
+        let token = availableTokens.find(t => t.address === confidentialAddress || t.address === apiBalance.tokenAddress)
+
+        // If no token found, create a fallback token for unknown tokens
+        if (!token) {
+          token = {
+            address: apiBalance.tokenAddress,
+            chainId: 101,
+            decimals: apiBalance.decimals || 9,
+            name: apiBalance.name || `Token ${apiBalance.tokenAddress.slice(0, 8)}...`,
+            symbol: apiBalance.symbol || `TOKEN`,
+            logoURI: apiBalance.logoURI || '/icons/default-token.svg',
+            tags: ['unknown'],
+            isConfidentialSupported: true,
+            isNative: false,
+            addressable: true
+          }
+        }
+
+        // Create confidential token symbol (single 'c' prefix, not double)
+        const cleanTokenSymbol = token.symbol.replace(/^c+/, '') // Remove any existing c prefixes
+        const confidentialSymbol = `c${cleanTokenSymbol}`
 
         return {
           tokenAddress: apiBalance.tokenAddress,
-          symbol: apiBalance.symbol || `c${token.symbol}`,
-          name: apiBalance.name || `Confidential ${token.name || token.symbol}`,
+          symbol: apiBalance.symbol || confidentialSymbol,
+          name: apiBalance.name || `Confidential ${token.name || cleanTokenSymbol}`,
           decimals: apiBalance.decimals || token.decimals || 9,
           amount: apiBalance.amount,
           usdValue: apiBalance.usdValue || 0, // Will be calculated later if needed
@@ -1338,9 +1476,34 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                 ) : (
                   <div className="space-y-4">
                     <div className="text-center mb-6">
-                      <h3 className="text-lg font-bold mb-2" style={{ color: theme.colors.textPrimary }}>
-                        Confidential Balances
-                      </h3>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
+                          Confidential Balances
+                        </h3>
+                        <button
+                          onClick={() => setShowSearchModal(true)}
+                          className="p-2 rounded-lg transition-all duration-200 hover:bg-opacity-10"
+                          style={{
+                            background: `${theme.colors.primary}10`,
+                            color: theme.colors.primary
+                          }}
+                          title="Search tokens"
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <path d="m21 21-4.35-4.35"></path>
+                          </svg>
+                        </button>
+                      </div>
                       <p className="text-sm" style={{ color: theme.colors.textMuted }}>
                         Your privacy-protected tokens that can be withdrawn back to regular tokens
                       </p>
@@ -1349,6 +1512,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                     {confidentialBalances.map((balance, index) => (
                       <div
                         key={index}
+                        data-token-address={balance.tokenAddress}
                         className="p-4 rounded-xl border"
                         style={{
                           background: `${theme.colors.surface}50`,
@@ -1718,6 +1882,149 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
               Encifher
             </a>
           </div>
+        </div>
+      </Modal>
+
+      {/* Search Modal */}
+      <Modal
+        isOpen={showSearchModal}
+        onClose={() => {
+          setShowSearchModal(false)
+          setSearchQuery('')
+          setSearchResults([])
+        }}
+        title="Search Confidential Tokens"
+      >
+        <div className="space-y-4">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                const query = e.target.value
+                setSearchQuery(query)
+
+                // Filter confidential balances based on search query
+                if (query.trim() === '') {
+                  setSearchResults([])
+                } else {
+                  const filtered = confidentialBalances.filter((balance: any) =>
+                    balance.tokenSymbol?.toLowerCase().includes(query.toLowerCase()) ||
+                    balance.tokenName?.toLowerCase().includes(query.toLowerCase()) ||
+                    balance.tokenAddress?.toLowerCase().includes(query.toLowerCase())
+                  )
+                  setSearchResults(filtered)
+                }
+              }}
+              placeholder="Search by token name, symbol, or address..."
+              className="w-full px-4 py-3 pl-10 rounded-lg border focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all duration-200"
+              style={{
+                background: theme.colors.surface,
+                borderColor: theme.colors.border,
+                color: theme.colors.textPrimary,
+                '--tw-ring-color': theme.colors.primary
+              } as React.CSSProperties}
+              autoFocus
+            />
+            <div
+              className="absolute left-3 top-1/2 transform -translate-y-1/2"
+              style={{ color: theme.colors.textMuted }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+              </svg>
+            </div>
+          </div>
+
+          {/* Search Results */}
+          {searchQuery.trim() !== '' && (
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {searchResults.length > 0 ? (
+                searchResults.map((balance: any, index: number) => (
+                  <div
+                    key={index}
+                    className="p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md"
+                    style={{
+                      background: `${theme.colors.surface}50`,
+                      borderColor: theme.colors.border
+                    }}
+                    onClick={() => {
+                      // Scroll to the token in the main list
+                      const tokenElement = document.querySelector(`[data-token-address="${balance.tokenAddress}"]`)
+                      if (tokenElement) {
+                        tokenElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        // Highlight briefly
+                        ;(tokenElement as HTMLElement).style.animation = 'pulse 2s'
+                        setTimeout(() => {
+                          ;(tokenElement as HTMLElement).style.animation = ''
+                        }, 2000)
+                      }
+                      setShowSearchModal(false)
+                      setSearchQuery('')
+                      setSearchResults([])
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {balance.logoURI && (
+                          <img
+                            src={balance.logoURI}
+                            alt={balance.tokenSymbol}
+                            className="w-8 h-8 rounded-full"
+                            onError={(e) => {
+                              ;(e.target as HTMLImageElement).src = '/icons/default-token.svg'
+                            }}
+                          />
+                        )}
+                        <div>
+                          <div className="font-medium" style={{ color: theme.colors.textPrimary }}>
+                            {balance.tokenSymbol}
+                          </div>
+                          <div className="text-xs" style={{ color: theme.colors.textMuted }}>
+                            {balance.tokenName}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-medium" style={{ color: theme.colors.textPrimary }}>
+                          {balance.amount}
+                        </div>
+                        <div className="text-xs" style={{ color: theme.colors.textMuted }}>
+                          {balance.tokenAddress.slice(0, 8)}...
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8" style={{ color: theme.colors.textMuted }}>
+                  <div className="mb-2">No tokens found</div>
+                  <div className="text-sm">
+                    Try searching with different keywords
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {searchQuery.trim() === '' && (
+            <div className="text-center py-8" style={{ color: theme.colors.textMuted }}>
+              <div className="mb-2">Start typing to search tokens</div>
+              <div className="text-sm">
+                Search by token name, symbol, or address
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

@@ -327,6 +327,30 @@ export const CONFIDENTIAL_TOKENS: Token[] = [
     isConfidentialSupported: true,
     isNative: false,
     addressable: false
+  },
+  {
+    address: 'cA7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS',
+    chainId: 101,
+    decimals: 18,
+    name: 'Confidential ZEC',
+    symbol: 'cZEC',
+    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS/logo.png',
+    tags: ['confidential', 'wrapped'],
+    isConfidentialSupported: true,
+    isNative: false,
+    addressable: false
+  },
+  {
+    address: 'c4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+    chainId: 101,
+    decimals: 6,
+    name: 'Confidential PUMP',
+    symbol: 'cPUMP',
+    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump/logo.png',
+    tags: ['confidential', 'wrapped'],
+    isConfidentialSupported: true,
+    isNative: false,
+    addressable: false
   }
 ]
 
