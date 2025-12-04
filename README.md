@@ -14,7 +14,7 @@ Swap any SPL tokens with encrypted amounts, zero MEV exposure, and institutional
 [![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://reactjs.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 
-**[Documentation](https://docs.waveswap.io)** • **[Launch App](https://app.waveswap.io)** • **[Discord](https://discord.gg/waveswap)**
+**[Documentation](https://wave-swap-docs.vercel.app)** • **[Launch App](https://app.waveswap.io)** • **[Discord](https://discord.gg/waveswap)**
 
 </div>
 
@@ -156,11 +156,11 @@ anchor deploy --provider.cluster devnet
 <!-- 
 ## 📚 Documentation
 
-- **[Getting Started](https://docs.waveswap.io/docs/quickstart)** - Your first private swap
-- **[API Reference](https://docs.waveswap.io/api)** - REST API documentation
-- **[SDK Guide](https://docs.waveswap.io/docs/sdk)** - TypeScript SDK usage
-- **[Architecture](https://docs.waveswap.io/docs/architecture/overview)** - Technical deep dive
-- **[Security](https://docs.waveswap.io/docs/security/overview)** - Security model and audits
+- **[Getting Started](https://wave-swap-docs.vercel.app/guides/quickstart)** - Your first private swap
+- **[API Reference](https://wave-swap-docs.vercel.app/api/overview)** - REST API documentation
+- **[SDK Guide](https://wave-swap-docs.vercel.app/developers/sdk)** - TypeScript SDK usage
+- **[Architecture](https://wave-swap-docs.vercel.app/products/waveswap)** - Technical deep dive
+- **[Security](https://wave-swap-docs.vercel.app/security/overview)** - Security model and audits
 
 ## 🔌 SDK Usage
 
@@ -287,7 +287,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **WaveTek**: [wavetek.io](https://wavetek.io)
 - **WaveSwap**: [waveswap.live](https://waveswap.live)
 - **Secure The Bag**: [securethebag.fun](https://securethebag.fun)
-- **Documentation**: [docs.wavetek.io](https://docs.wavetek.io)
+- **Documentation**: [wave-swap-docs.vercel.app](https://wave-swap-docs.vercel.app)
 - **Twitter**: [@securethebag](https://twitter.com/securethebag)
 - **Email**: [vivek@wavetek.io](mailto:vivek@wavetek.io)
 
