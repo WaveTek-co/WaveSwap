@@ -1,11 +1,13 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import mermaid from 'astro-mermaid';
 import { ion } from './index.js';
 
 // https://astro.build/config
 export default defineConfig({
 	integrations: [
+		mermaid(),
 		starlight({
 			title: 'WaveTek Documentation',
 			description: 'Privacy-Preserving Multi-Chain DEX Documentation',

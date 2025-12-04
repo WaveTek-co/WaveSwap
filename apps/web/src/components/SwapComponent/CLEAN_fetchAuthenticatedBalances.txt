@@ -44,8 +44,8 @@
 
       console.log('[SwapComponent] User signed message successfully')
 
-      // Step 3: Call the authenticated balance API with the signature
-      const authenticatedResponse = await fetch('/api/v1/confidential/authenticated-balances', {
+      // Step 3: Call the proper authentication API with the signature
+      const authenticatedResponse = await fetch('/api/v1/confidential/auth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -53,7 +53,7 @@
         body: JSON.stringify({
           userPublicKey: publicKey.toString(),
           signature: signature,
-          msgPayload: authRequiredBalance.msgPayload
+          message: authRequiredBalance.msgPayload.msgHash // Send the message that was signed
         })
       })
 

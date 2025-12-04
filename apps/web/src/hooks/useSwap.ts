@@ -80,7 +80,9 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
     console.log('[Confidential Balance] Fetching via API for:', userPublicKey)
 
     // Use GET request with userPublicKey as query parameter (the working format)
-    const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${encodeURIComponent(userPublicKey)}`, {
+    // Add cache-busting timestamp to force fresh data
+    const timestamp = Date.now()
+    const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${encodeURIComponent(userPublicKey)}&t=${timestamp}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -136,66 +138,28 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
   }
 }
 
-// API-based function to track confidential token balances
+// API-based function to track confidential token balances (disabled - no POST endpoint available)
 async function updateConfidentialBalance(tokenAddress: string, amount: number, userPublicKey?: string) {
   if (!userPublicKey) return
 
-  try {
-    console.log('[Confidential Balance] Updating balance via API:', { tokenAddress, amount, userPublicKey })
+  console.log('[Confidential Balance] Balance tracking disabled - no POST endpoint available')
+  console.log('[Confidential Balance] Balance update would be:', { tokenAddress, amount, userPublicKey })
 
-    const response = await fetch('/api/v1/confidential/balances', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userPublicKey,
-        tokenAddress,
-        amount,
-        operation: 'add' // Specify that we're adding to the balance
-      })
-    })
-
-    if (response.ok) {
-      const result = await response.json()
-      console.log('[Confidential Balance] Successfully updated balance:', result)
-    } else {
-      console.error('[Confidential Balance] Failed to update balance:', response.status, response.statusText)
-    }
-  } catch (error) {
-    console.error('[Confidential Balance] Error updating balance via API:', error)
-  }
+  // The /api/v1/confidential/balances endpoint only supports GET requests
+  // Balance tracking should be handled by the frontend state only
+  return
 }
 
-// API-based function to subtract confidential token balances (for withdrawals)
+// API-based function to subtract confidential token balances (for withdrawals) - disabled
 async function subtractConfidentialBalance(tokenAddress: string, amount: number, userPublicKey?: string) {
   if (!userPublicKey) return
 
-  try {
-    console.log('[Confidential Balance] Subtracting balance via API:', { tokenAddress, amount, userPublicKey })
+  console.log('[Confidential Balance] Balance subtraction disabled - no POST endpoint available')
+  console.log('[Confidential Balance] Balance subtraction would be:', { tokenAddress, amount, userPublicKey })
 
-    const response = await fetch('/api/v1/confidential/balances', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userPublicKey,
-        tokenAddress,
-        amount: -amount, // Negative amount for subtraction
-        operation: 'subtract' // Specify that we're subtracting from the balance
-      })
-    })
-
-    if (response.ok) {
-      const result = await response.json()
-      console.log('[Confidential Balance] Successfully subtracted balance:', result)
-    } else {
-      console.error('[Confidential Balance] Failed to subtract balance:', response.status, response.statusText)
-    }
-  } catch (error) {
-    console.error('[Confidential Balance] Error subtracting balance via API:', error)
-  }
+  // The /api/v1/confidential/balances endpoint only supports GET requests
+  // Balance tracking should be handled by the frontend state only
+  return
 }
 
 export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): SwapState & SwapActions {
@@ -498,11 +462,18 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         console.log('[useSwap] Creating dynamic confidential tokens from balances:', confidentialBalances)
 
         for (const [tokenAddress, balance] of confidentialBalances.entries()) {
-          // Show all tokens from Encifher account, not just those with positive balance
-          const hasBalance = balance && balance !== '0' && balance !== 'AUTH_REQUIRED' && balance !== 'DEPOSITED'
-          const hasStatus = balance === 'AUTH_REQUIRED' || balance === 'DEPOSITED'
+          // Only show tokens with actual positive balances (numeric values)
+          const hasActualBalance = balance &&
+                                   balance !== '0' &&
+                                   balance !== 'AUTH_REQUIRED' &&
+                                   balance !== 'DEPOSITED' &&
+                                   balance !== 'USER_REPORTED' &&
+                                   !isNaN(parseFloat(balance)) &&
+                                   parseFloat(balance) > 0
 
-          if (hasBalance || hasStatus) {
+          console.log(`[useSwap] Token ${tokenAddress}: balance="${balance}" hasActualBalance=${hasActualBalance}`)
+
+          if (hasActualBalance) {
             // Find the original token from userTokens or COMMON_TOKENS
             const originalToken = userTokens.find(t => t.address === tokenAddress) ||
                                COMMON_TOKENS.find(t => t.address === tokenAddress)
@@ -1517,14 +1488,20 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         tokenAddress
       })
 
-      const response = await fetch('/api/v1/withdraw', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      })
+      let response
+      try {
+        response = await fetch('/api/v1/withdraw', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        })
+      } catch (fetchError) {
+        console.error('[Confidential Withdrawal] Network error during fetch:', fetchError)
+        throw new Error(`Failed to connect to withdrawal service: ${fetchError.message}`)
+      }
 
       if (!response.ok) {
         const errorData = await response.text()

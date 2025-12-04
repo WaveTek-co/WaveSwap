@@ -5,9 +5,6 @@ import {
   ClockIcon,
   ArrowPathIcon,
   ShieldCheckIcon,
-  CheckCircleIcon,
-  ExclamationTriangleIcon,
-  XCircleIcon,
   ArrowUpRightIcon,
   ArrowDownLeftIcon,
   ArrowTopRightOnSquareIcon,
@@ -15,7 +12,8 @@ import {
   MagnifyingGlassIcon,
   CalendarIcon,
   ChartBarIcon,
-  ExclamationCircleIcon
+  ExclamationCircleIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 import { useTransactionHistory } from '@/hooks/useTransactionHistory'
@@ -28,7 +26,6 @@ interface HistoryTabProps {
 interface Transaction {
   id: string
   type: 'swap' | 'send' | 'receive'
-  status: 'success' | 'pending' | 'failed'
   timestamp: Date
   fromToken: {
     symbol: string
@@ -51,8 +48,9 @@ interface Transaction {
 export function HistoryTab({ privacyMode }: HistoryTabProps) {
   const theme = useThemeConfig()
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'pending' | 'failed'>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | 'swap' | 'send' | 'receive'>('all')
+  const [selectedDate, setSelectedDate] = useState<string>('')
+  const [showDatePicker, setShowDatePicker] = useState(false)
 
   // Get real transactions from API
   const {
@@ -73,12 +71,24 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
         tx.txHash?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         tx.intentId?.toLowerCase().includes(searchQuery.toLowerCase())
 
-      const matchesStatus = statusFilter === 'all' || tx.status === statusFilter
       const matchesType = typeFilter === 'all' || tx.type === typeFilter
 
-      return matchesSearch && matchesStatus && matchesType
+      // Filter by selected date
+      let matchesDate = true
+      if (selectedDate) {
+        const selectedDateObj = new Date(selectedDate)
+        const transactionDate = new Date(tx.timestamp)
+
+        // Set both dates to midnight to compare only the date part
+        selectedDateObj.setHours(0, 0, 0, 0)
+        transactionDate.setHours(0, 0, 0, 0)
+
+        matchesDate = selectedDateObj.getTime() === transactionDate.getTime()
+      }
+
+      return matchesSearch && matchesType && matchesDate
     })
-  }, [allTransactions, searchQuery, statusFilter, typeFilter])
+  }, [allTransactions, searchQuery, typeFilter, selectedDate])
 
   const formatTimestamp = (date: Date) => {
     const now = new Date()
@@ -94,32 +104,7 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
     return date.toLocaleDateString()
   }
 
-  const getStatusIcon = (status: Transaction['status']) => {
-    switch (status) {
-      case 'success':
-        return <CheckCircleIcon className="h-4 w-4" style={{ color: theme.colors.success }} />
-      case 'pending':
-        return <ArrowPathIcon className="h-4 w-4 animate-spin" style={{ color: theme.colors.warning }} />
-      case 'failed':
-        return <XCircleIcon className="h-4 w-4" style={{ color: theme.colors.error }} />
-      default:
-        return null
-    }
-  }
-
-  const getStatusColor = (status: Transaction['status']) => {
-    switch (status) {
-      case 'success':
-        return theme.colors.success
-      case 'pending':
-        return theme.colors.warning
-      case 'failed':
-        return theme.colors.error
-      default:
-        return theme.colors.textMuted
-    }
-  }
-
+  
   return (
     <div className="max-w-4xl sm:max-w-5xl lg:max-w-6xl mx-auto px-2 xs:px-0">
       {/* Header */}
@@ -200,9 +185,13 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                 e.currentTarget.style.background = createGlassStyles(theme).background as string
               }}
             >
-              <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} style={{ color: theme.colors.textMuted }} />
+              <ArrowPathIcon className={`h-4 w-4 ${loading && allTransactions.length === 0 ? 'animate-spin' : ''}`} style={{ color: theme.colors.textMuted }} />
             </button>
             <button
+              onClick={() => {
+                // TODO: Implement analytics/stats view
+                console.log('Chart/Analytics clicked')
+              }}
               className="p-2 rounded-lg transition-all duration-200"
               style={{
                 ...createGlassStyles(theme),
@@ -218,23 +207,128 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
               <ChartBarIcon className="h-4 w-4" style={{ color: theme.colors.textMuted }} />
             </button>
             <button
-              className="p-2 rounded-lg transition-all duration-200"
+              onClick={() => setShowDatePicker(!showDatePicker)}
+              className="p-2 rounded-lg transition-all duration-200 relative"
               style={{
                 ...createGlassStyles(theme),
-                border: `1px solid ${theme.colors.border}`
+                border: `1px solid ${theme.colors.border}`,
+                ...(selectedDate && {
+                  background: `${theme.colors.primary}20`,
+                  borderColor: `${theme.colors.primary}40`
+                })
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = theme.colors.surfaceHover
+                e.currentTarget.style.background = selectedDate ? `${theme.colors.primary}30` : theme.colors.surfaceHover
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = createGlassStyles(theme).background as string
+                e.currentTarget.style.background = selectedDate ? `${theme.colors.primary}20` : createGlassStyles(theme).background as string
               }}
             >
-              <CalendarIcon className="h-4 w-4" style={{ color: theme.colors.textMuted }} />
+              <CalendarIcon className="h-4 w-4" style={{
+                color: selectedDate ? theme.colors.primary : theme.colors.textMuted
+              }} />
+              {selectedDate && (
+                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{
+                  background: theme.colors.primary
+                }} />
+              )}
             </button>
           </div>
         </div>
-      </div>
+
+      {/* Date Picker Popover */}
+      {showDatePicker && (
+        <div className="absolute top-20 right-6 z-50" style={{ minWidth: '280px' }}>
+          <div
+            className="p-4 rounded-xl shadow-2xl border"
+            style={{
+              ...createGlassStyles(theme),
+              background: theme.colors.surface,
+              borderColor: theme.colors.border,
+              boxShadow: `
+                0 20px 40px ${theme.colors.shadow},
+                0 8px 24px ${theme.colors.primary}20
+              `
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold" style={{
+                color: theme.colors.textPrimary,
+                fontFamily: 'var(--font-helvetica)'
+              }}>
+                Filter by Date
+              </h3>
+              <button
+                onClick={() => setShowDatePicker(false)}
+                className="p-1 rounded-lg transition-all duration-200"
+                style={{
+                  ...createGlassStyles(theme),
+                  border: `1px solid ${theme.colors.border}`
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = theme.colors.surfaceHover
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = createGlassStyles(theme).background as string
+                }}
+              >
+                <XMarkIcon className="h-3 w-3" style={{ color: theme.colors.textMuted }} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium block mb-1" style={{
+                  color: theme.colors.textMuted,
+                  fontFamily: 'var(--font-helvetica)'
+                }}>
+                  Select Date
+                </label>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value)
+                    setShowDatePicker(false)
+                  }}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    border: `1px solid ${theme.colors.border}`,
+                    background: `${theme.colors.surface}99`,
+                    color: theme.colors.textPrimary,
+                    fontFamily: 'var(--font-helvetica)'
+                  }}
+                  max={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+
+              {selectedDate && (
+                <button
+                  onClick={() => {
+                    setSelectedDate('')
+                    setShowDatePicker(false)
+                  }}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200"
+                  style={{
+                    background: `${theme.colors.error}10`,
+                    border: `1px solid ${theme.colors.error}20`,
+                    color: theme.colors.error,
+                    fontFamily: 'var(--font-helvetica)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = `${theme.colors.error}20`
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = `${theme.colors.error}10`
+                  }}
+                >
+                  Clear Filter
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filters and Search */}
       <div
@@ -267,26 +361,8 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
             />
           </div>
 
-          {/* Status Filter */}
+          {/* Type Filter */}
           <div className="flex gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'success' | 'pending' | 'failed')}
-              className="px-4 py-2 rounded-lg text-sm"
-              style={{
-                border: `1px solid ${theme.colors.border}`,
-                background: `${theme.colors.surface}99`,
-                color: theme.colors.textPrimary,
-                backdropFilter: 'blur(8px) saturate(1.2)',
-                fontFamily: 'var(--font-helvetica)'
-              }}
-            >
-              <option value="all">All Status</option>
-              <option value="success">Success</option>
-              <option value="pending">Pending</option>
-              <option value="failed">Failed</option>
-            </select>
-
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as 'all' | 'swap' | 'send' | 'receive')}
@@ -349,8 +425,8 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
         </div>
       )}
 
-      {/* Loading State */}
-      {loading && (
+      {/* Loading State - Only show during initial load or when explicitly loading more */}
+      {loading && allTransactions.length === 0 && (
         <div className="space-y-3">
           {[...Array(3)].map((_, index) => (
             <div
@@ -439,17 +515,6 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                 <div className="flex items-center justify-between">
                   {/* Left side - Transaction details */}
                   <div className="flex items-center gap-4">
-                    {/* Status */}
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(transaction.status)}
-                      <span className="text-sm font-medium" style={{
-                        color: getStatusColor(transaction.status),
-                        fontFamily: 'var(--font-helvetica)'
-                      }}>
-                        {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
-                      </span>
-                    </div>
-
                     {/* Tokens */}
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2">
@@ -526,6 +591,10 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       {transaction.txHash && (
                         <button
+                          onClick={() => {
+                            const orbUrl = `https://orb.helius.dev/tx/${transaction.txHash}`
+                            window.open(orbUrl, '_blank')
+                          }}
                           className="p-1.5 rounded-lg transition-all duration-200"
                           style={{
                             background: `${theme.colors.border}20`,
@@ -593,6 +662,7 @@ export function HistoryTab({ privacyMode }: HistoryTabProps) {
           </button>
         </div>
       )}
+    </div>
     </div>
   )
 }

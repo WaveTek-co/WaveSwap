@@ -100,7 +100,8 @@ const formatAmount = (amount: string, decimals: number): string => {
 }
 
 const getStatus = (status: string): 'success' | 'pending' | 'failed' => {
-  switch (status.toUpperCase()) {
+  const upperStatus = status.toUpperCase()
+  switch (upperStatus) {
     case 'COMPLETED':
     case 'SUCCESS':
     case 'SETTLED':
@@ -114,7 +115,10 @@ const getStatus = (status: string): 'success' | 'pending' | 'failed' => {
     case 'CANCELLED':
       return 'failed'
     default:
-      return 'failed'
+      // Default to 'pending' for unknown statuses instead of 'failed'
+      // This prevents legitimate transactions from showing as failed
+      console.warn(`Unknown transaction status: ${status}, defaulting to 'pending'`)
+      return 'pending'
   }
 }
 
@@ -160,33 +164,64 @@ export function useTransactionHistory(privacyMode: boolean = false) {
       }
 
       const data: TransactionHistoryResponse = apiResponse.data
-      const transactions: Transaction[] = data.swaps.map((swap: SwapHistoryItem) => {
-        const inputTokenInfo = getTokenInfo(swap.inputToken)
-        const outputTokenInfo = getTokenInfo(swap.outputToken)
-        const status = getStatus(swap.status)
+      // Filter out invalid transactions and map to our format
+      const transactions: Transaction[] = data.swaps
+        .filter((swap: SwapHistoryItem) => {
+          // Filter out transactions with essential missing data
+          return swap.intentId && swap.inputToken && swap.outputToken && swap.createdAt
+        })
+        .map((swap: SwapHistoryItem) => {
+          const inputTokenInfo = getTokenInfo(swap.inputToken)
+          const outputTokenInfo = getTokenInfo(swap.outputToken)
 
-        return {
-          id: swap.intentId,
-          type: 'swap' as const,
-          status,
-          timestamp: new Date(swap.createdAt),
-          fromToken: {
-            symbol: inputTokenInfo.symbol,
-            amount: formatAmount(swap.inputAmount, inputTokenInfo.decimals),
-            logoURI: inputTokenInfo.logoURI,
-            address: swap.inputToken,
-          },
-          toToken: {
-            symbol: outputTokenInfo.symbol,
-            amount: swap.outputAmount ? formatAmount(swap.outputAmount, outputTokenInfo.decimals) : '0',
-            logoURI: outputTokenInfo.logoURI,
-            address: swap.outputToken,
-          },
-          txHash: swap.intentId,
-          privacyLevel: swap.privacyMode ? 'private' : 'public',
-          intentId: swap.intentId,
-        }
-      })
+          // Debug logging for transaction status
+          console.log(`[Transaction History] Processing swap: ${swap.intentId}`, {
+            status: swap.status,
+            settledAt: swap.settledAt,
+            createdAt: swap.createdAt,
+            error: swap.error,
+            inputAmount: swap.inputAmount,
+            outputAmount: swap.outputAmount
+          })
+
+          // Enhanced status detection
+          let status: 'success' | 'pending' | 'failed'
+
+          // If there's an error, it's definitely failed
+          if (swap.error) {
+            status = 'failed'
+          }
+          // If it's settled, it's successful
+          else if (swap.settledAt) {
+            status = 'success'
+          }
+          // Otherwise use the status field
+          else {
+            status = getStatus(swap.status)
+          }
+
+          return {
+            id: swap.intentId,
+            type: 'swap' as const,
+            status,
+            timestamp: new Date(swap.createdAt),
+            fromToken: {
+              symbol: inputTokenInfo.symbol,
+              amount: formatAmount(swap.inputAmount, inputTokenInfo.decimals),
+              logoURI: inputTokenInfo.logoURI,
+              address: swap.inputToken,
+            },
+            toToken: {
+              symbol: outputTokenInfo.symbol,
+              amount: swap.outputAmount ? formatAmount(swap.outputAmount, outputTokenInfo.decimals) : '0',
+              logoURI: outputTokenInfo.logoURI,
+              address: swap.outputToken,
+            },
+            txHash: swap.intentId,
+            privacyLevel: swap.privacyMode ? 'private' : 'public',
+            intentId: swap.intentId,
+          }
+        })
 
       if (reset) {
         setHistory(transactions)

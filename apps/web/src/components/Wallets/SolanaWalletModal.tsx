@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Wallet, AlertCircle, ChevronDown } from 'lucide-react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletName, PhantomWalletName } from '@solana/wallet-adapter-base'
@@ -19,6 +19,21 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
   const [showOtherWallets, setShowOtherWallets] = useState(false)
   const theme = useThemeConfig()
 
+  // Check if we have a wallet reset parameter and handle it
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.has('walletReset')) {
+      console.log('Detected wallet reset parameter, cleaning up...')
+      // Clean up the URL
+      const cleanUrl = new URL(window.location.href)
+      cleanUrl.searchParams.delete('walletReset')
+      window.history.replaceState({}, '', cleanUrl.toString())
+
+      // Force re-render of wallet context
+      console.log('Wallet reset completed, context should be fresh now')
+    }
+  }, [])
+
   // Wallet utility functions
   const copyAddress = async () => {
     if (publicKey) {
@@ -32,10 +47,22 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
 
   const handleDisconnect = async () => {
     try {
+      console.log('Disconnecting wallet...')
       await disconnect()
+
+      // Clear selected wallet state
+      setSelectedWallet(null)
+
+      // Force a small delay to ensure state updates
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      console.log('Wallet disconnected successfully')
       onClose()
     } catch (error) {
       console.error('Failed to disconnect wallet:', error)
+      // Still close the modal even if disconnect fails
+      setSelectedWallet(null)
+      onClose()
     }
   }
 
@@ -54,7 +81,7 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
       icon: getWalletIcon(phantomWallet),
       color: getWalletColor(phantomWallet.adapter.name),
       installUrl: getWalletInstallUrl(phantomWallet.adapter.name),
-      isInstalled: phantomWallet.readyState === 'Installed',
+      isInstalled: phantomWallet.readyState === 'Installed' || phantomWallet.readyState === 'Loadable' || (window as any).phantom?.solana?.isPhantom,
       isRecommended: true,
       wallet: phantomWallet,
       category: 'installed'
@@ -173,6 +200,10 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
       return
     }
 
+    // Clear any previous selection
+    setSelectedWallet(null)
+    await new Promise(resolve => setTimeout(resolve, 100))
+
     // Check if wallet and adapter exist
     if (!walletItem || !walletItem.wallet || !walletItem.wallet.adapter) {
       console.error('Invalid wallet object:', walletItem)
@@ -185,6 +216,30 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
     try {
       console.log('Connecting to wallet:', adapterName)
 
+      // For Phantom, try to trigger connection popup immediately before any adapter logic
+      if (adapterName === 'Phantom' && (window as any).phantom?.solana) {
+        console.log('Triggering Phantom connection popup immediately...')
+        try {
+          // This should trigger the Phantom popup immediately
+          await (window as any).phantom.solana.connect()
+          console.log('Phantom popup triggered successfully')
+        } catch (phantomTriggerError) {
+          console.log('Phantom trigger attempt (expected if already connected):', phantomTriggerError.message)
+        }
+      }
+
+      // For Solflare, try to trigger connection popup immediately before any adapter logic
+      if (adapterName === 'Solflare' && (window as any).solflare) {
+        console.log('Triggering Solflare connection popup immediately...')
+        try {
+          // This should trigger the Solflare popup immediately
+          await (window as any).solflare.connect()
+          console.log('Solflare popup triggered successfully')
+        } catch (solflareTriggerError) {
+          console.log('Solflare trigger attempt (expected if already connected):', solflareTriggerError.message)
+        }
+      }
+
       // Try direct adapter connection first (more reliable)
       const walletAdapter = walletItem.wallet.adapter
 
@@ -192,38 +247,134 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
         throw new Error('Wallet adapter not available')
       }
 
-      // For Phantom wallet, be more lenient with readiness check
-      // Phantom sometimes reports not ready even when it's available
-      if (!walletAdapter.ready && adapterName !== 'Phantom') {
-        throw new Error(`${adapterName} wallet is not ready. Please make sure it's installed and unlocked.`)
+      // Be more lenient with readiness checks for all wallets
+      // Many wallets report not ready even when they're available and working
+      if (!walletAdapter.ready && !['Phantom', 'Solflare'].includes(adapterName)) {
+        console.log(`${adapterName} not ready, but attempting connection anyway...`)
+        // Don't throw error, just log and continue
       }
 
-      // Try connection method with better error handling
+      // Special handling for Phantom - try to connect even if not ready
+      if (adapterName === 'Phantom' && !walletAdapter.ready) {
+        console.log('Phantom not ready, but attempting connection anyway...')
+        // Try to trigger Phantom to be ready
+        try {
+          await (window as any).phantom?.solana?.connect()
+        } catch (e) {
+          console.log('Phantom direct connect attempt failed:', e)
+        }
+      }
+
+      // Special handling for Solflare - try to connect even if not ready
+      if (adapterName === 'Solflare' && !walletAdapter.ready) {
+        console.log('Solflare not ready, but attempting connection anyway...')
+        // Try to trigger Solflare to be ready
+        try {
+          await (window as any).solflare?.connect()
+        } catch (e) {
+          console.log('Solflare direct connect attempt failed:', e)
+        }
+      }
+
+      // If already connected to this wallet, disconnect first
+    if (connected && wallet?.adapter?.name === adapterName) {
+      console.log('Already connected to this wallet, disconnecting first...')
       try {
-        // Direct adapter connection
-        await walletAdapter.connect()
-        console.log('Direct adapter connection successful')
+        await disconnect()
+        await new Promise(resolve => setTimeout(resolve, 500))
+      } catch (e) {
+        console.log('Disconnect failed, continuing anyway:', e)
+      }
+    }
+
+    // Try connection method with better error handling - prioritize direct wallet connections
+      try {
+        console.log('Attempting direct wallet connection first...')
+
+        // For Phantom and Solflare, try direct connection first to avoid adapter issues
+        if (adapterName === 'Phantom' && (window as any).phantom?.solana) {
+          console.log('Using direct Phantom connection...')
+          const phantom = (window as any).phantom.solana
+          if (!phantom.isConnected) {
+            await phantom.connect()
+          }
+          console.log('Direct Phantom connection successful')
+        } else if (adapterName === 'Solflare' && (window as any).solflare) {
+          console.log('Using direct Solflare connection...')
+          const solflare = (window as any).solflare
+          if (!solflare.isConnected) {
+            await solflare.connect()
+          }
+          console.log('Direct Solflare connection successful')
+        } else {
+          // For other wallets or fallback, try adapter-based connection
+          console.log('Attempting adapter-based connection...')
+          if (!walletItem.wallet.adapter.name) {
+            throw new Error('Wallet adapter name is missing')
+          }
+
+          // Select the wallet first, then connect
+          await select(walletItem.wallet.adapter.name as WalletName)
+          await new Promise(resolve => setTimeout(resolve, 500)) // Give it time to register
+
+          // Now connect
+          await connect()
+          console.log('Adapter-based connection successful')
+        }
+
+        // Force a small delay to ensure state updates
+        await new Promise(resolve => setTimeout(resolve, 500))
+
+        // Give the wallet context time to sync
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        // Check if we need to sync with adapter context
+        if (!connected || !publicKey) {
+          console.log('Direct wallet connected, but context not synced. Attempting to sync...')
+          try {
+            // Try to select the wallet in the adapter context
+            await select(adapterName as WalletName)
+            await new Promise(resolve => setTimeout(resolve, 500))
+
+            // Force a context refresh
+            const adapter = wallets.find(w => w.adapter.name === adapterName)?.adapter
+            if (adapter && !adapter.connected) {
+              await adapter.connect()
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500))
+            console.log('Context sync completed')
+          } catch (syncError) {
+            console.warn('Context sync failed, but direct connection may still work:', syncError)
+          }
+        }
       } catch (connectError) {
-        console.log('Direct connection failed, trying context method:', connectError)
-
-        // Fallback to context-based connection for Phantom
-        await select(adapterName as WalletName)
-        await new Promise(resolve => setTimeout(resolve, 300))
-        await connect()
-        console.log('Context-based connection successful')
-      }
-
-      // Update the wallet adapter context (if not already updated)
-      try {
-        await select(adapterName as WalletName)
-      } catch (selectError) {
-        console.log('Wallet already selected or selection failed:', selectError)
+        console.error('All connection methods failed:', connectError)
+        throw connectError
       }
 
       // Close modal after successful connection
-      setTimeout(() => {
-        onClose()
-      }, 300)
+      if (connected && publicKey) {
+        console.log('✅ Connection successful! Public key:', publicKey.toString())
+        setTimeout(() => {
+          console.log('Closing wallet modal...')
+          onClose()
+        }, 500)
+      } else {
+        console.warn('⚠️ Connection failed - checking if direct wallet is available...')
+
+        // Check if direct connection worked even if context didn't sync
+        const directWallet = adapterName === 'Phantom' ? (window as any).phantom?.solana : (window as any).solflare
+        if (directWallet?.isConnected) {
+          console.log('✅ Direct wallet connection successful, closing modal')
+          setTimeout(() => {
+            onClose()
+          }, 500)
+        } else {
+          console.warn('❌ No wallet connection available')
+          setSelectedWallet(null)
+        }
+      }
 
     } catch (error) {
       console.error('Failed to connect wallet:', error)
@@ -235,19 +386,6 @@ export function SolanaWalletModal({ isOpen, onClose }: SolanaWalletModalProps) {
         } else if (error.message.includes('User rejected') || error.message.includes('User rejected the request')) {
           // User cancelled - no action needed
           console.log('User cancelled wallet connection')
-        } else if (error.name === 'WalletNotSelectedError' || error.message.includes('WalletNotSelectedError')) {
-          console.log('WalletNotSelectedError, trying alternative connection method...')
-          // Fallback: try using the wallet adapter context method
-          try {
-            await select(adapterName as WalletName)
-            await new Promise(resolve => setTimeout(resolve, 300))
-            await connect()
-            console.log('Fallback connection successful')
-            setTimeout(() => onClose(), 300)
-          } catch (fallbackError) {
-            console.error('Fallback connection failed:', fallbackError)
-            alert(`Failed to connect to ${adapterName}. Please try:\n1. Refreshing the page\n2. Making sure ${adapterName} is unlocked\n3. Checking if ${adapterName} is installed`)
-          }
         } else {
           alert(`Failed to connect to ${adapterName}: ${error.message}`)
         }

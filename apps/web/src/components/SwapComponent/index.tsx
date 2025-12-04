@@ -100,7 +100,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     }
   }
 
-  const { publicKey, signMessage } = walletContext
+  const { publicKey, signMessage, wallet } = walletContext
   const theme = useThemeConfig()
   const [activeTab, setActiveTab] = useState<'swap' | 'withdraw'>('swap')
 
@@ -526,102 +526,115 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           })
         })
 
-        // Create balance objects for ALL tokens from Encifher account (no filtering)
-        const updatedBalances = authenticatedBalance
-          .map((balance: any, index: number) => {
-            const tokenAddress = finalTokenMints[index]
+        // Create balance objects for ALL tokens from Encifher account using robust mapping
+        console.log('[SwapComponent] 🔄 Creating robust balance mapping from authenticated data...')
 
-            // Handle the actual balance format: { "tokenAddress": "amount" }
-            let amount: string | number | bigint | unknown = '0'
-            if (balance && typeof balance === 'object') {
-              // Extract amount from the balance object using token address as key
-              if (tokenAddress && tokenAddress in balance) {
-                amount = balance[tokenAddress]
-              } else {
-                // Fallback: try common amount fields
-                amount = balance.amount || balance.balanceAmount || balance.value || balance.quantity || '0'
+        const updatedBalances: any[] = []
+
+        // Process each balance object and extract token data properly
+        authenticatedBalance.forEach((balance: any, balanceIndex: number) => {
+          console.log(`[SwapComponent] 📊 Processing balance object ${balanceIndex}:`, balance)
+
+          if (balance && typeof balance === 'object') {
+            // Get all token addresses from this balance object
+            const tokenAddresses = Object.keys(balance)
+
+            tokenAddresses.forEach(tokenAddress => {
+              const amount = balance[tokenAddress]
+
+              console.log(`[SwapComponent] 💰 Found token balance: ${tokenAddress} = ${amount}`)
+
+              // Skip if amount is undefined, null, or empty string
+              if (amount === undefined || amount === null || amount === '') {
+                console.log(`[SwapComponent] ⚠️ Skipping token ${tokenAddress} - no valid amount`)
+                return
               }
-            } else {
-              // Fallback for other formats
-              amount = balance?.amount || balance?.balanceAmount || balance?.value || balance?.quantity || '0'
-            }
 
-            if (typeof amount === 'bigint') {
-              amount = amount.toString()
-            }
+              // Get token metadata
+              const metadata = tokenMetadataMap.get(tokenAddress)
 
-            // Always return true for all tokens - no filtering
-            return true
-          })
-          .filter(Boolean) // Remove any null/undefined entries
-          .map((balance: any, index: number) => {
-            const tokenAddress = finalTokenMints[index] || balance.tokenAddress
-            const metadata = tokenMetadataMap.get(tokenAddress)
+              // Handle BigInt conversion and base units to display units
+              let finalAmount = '0'
+              let decimals = metadata?.decimals || 6 // Default to 6 decimals for stablecoins
 
-            // Handle the actual balance format: { "tokenAddress": "amount" }
-            let amount: string | number | bigint | unknown = '0'
+              // Get token-specific decimals from known tokens
+              if (tokenAddress === 'So11111111111111111111111111111111111111112') {
+                decimals = 9 // SOL has 9 decimals
+              } else if (tokenAddress === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') {
+                decimals = 6 // USDC has 6 decimals
+              } else if (tokenAddress === '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump') {
+                decimals = 6 // WAVE has 6 decimals
+              } else if (tokenAddress === 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS') {
+                decimals = 8 // ZEC has 8 decimals (assuming, adjust if needed)
+              }
 
-            console.log(`[SwapComponent] Processing balance for token ${tokenAddress}:`, {
-              balance,
-              balanceType: typeof balance,
-              balanceKeys: balance && typeof balance === 'object' ? Object.keys(balance) : 'not object',
-              tokenAddressInBalance: tokenAddress && balance && typeof balance === 'object' ? tokenAddress in balance : false
+              console.log(`[SwapComponent] 📊 Token ${tokenAddress} using ${decimals} decimals, raw amount: ${amount}`)
+
+              if (typeof amount === 'bigint') {
+                // Convert from base units to display units
+                const divisor = BigInt(10 ** decimals)
+                const wholePart = amount / divisor
+                const fractionalPart = amount % divisor
+
+                if (fractionalPart === 0n) {
+                  finalAmount = wholePart.toString()
+                } else {
+                  // Pad fractional part with leading zeros
+                  const fractionalStr = fractionalPart.toString().padStart(decimals, '0')
+                  finalAmount = `${wholePart.toString()}.${fractionalStr}`
+                }
+                console.log(`[SwapComponent] 🔄 Converted BigInt ${amount} to display amount ${finalAmount} with ${decimals} decimals`)
+              } else if (typeof amount === 'string') {
+                // Parse string amount that might already be in base units
+                try {
+                  const amountBigInt = BigInt(amount)
+                  const divisor = BigInt(10 ** decimals)
+                  const wholePart = amountBigInt / divisor
+                  const fractionalPart = amountBigInt % divisor
+
+                  if (fractionalPart === 0n) {
+                    finalAmount = wholePart.toString()
+                  } else {
+                    const fractionalStr = fractionalPart.toString().padStart(decimals, '0')
+                    finalAmount = `${wholePart.toString()}.${fractionalStr}`
+                  }
+                  console.log(`[SwapComponent] 🔄 Converted string ${amount} to display amount ${finalAmount} with ${decimals} decimals`)
+                } catch (parseError) {
+                  console.warn(`[SwapComponent] ⚠️ Could not parse amount ${amount} as BigInt, using as-is:`, parseError)
+                  finalAmount = amount
+                }
+              } else {
+                finalAmount = String(amount)
+              }
+
+              // Remove trailing zeros and decimal point if not needed
+              finalAmount = parseFloat(finalAmount).toString()
+
+              const tokenSymbol = metadata ? `c${metadata.symbol}` : `c${tokenAddress.slice(0, 6)}`
+              const tokenName = metadata ? `Confidential ${metadata.name}` : `Confidential Token ${tokenAddress.slice(0, 8)}...`
+
+              console.log(`[SwapComponent] ✅ Created token entry: ${tokenSymbol} = ${finalAmount}`)
+
+              updatedBalances.push({
+                tokenAddress,
+                tokenSymbol,
+                tokenName,
+                decimals: metadata?.decimals || 9,
+                amount: finalAmount,
+                isVisible: true, // Show all tokens with actual balances
+                lastUpdated: new Date().toISOString(),
+                source: 'authenticated_real',
+                requiresAuth: false,
+                note: 'Real balance from Encifher SDK',
+                logoURI: metadata?.logoURI || '/icons/default-token.svg',
+                hasRealBalance: true,
+                rawAmount: amount.toString() // Keep raw amount for debugging
+              })
             })
-
-            if (balance && typeof balance === 'object') {
-              // Extract amount from the balance object using token address as key
-              if (tokenAddress && tokenAddress in balance) {
-                amount = balance[tokenAddress]
-                console.log(`[SwapComponent] Found amount using token address key:`, amount)
-              } else {
-                // Fallback: try common amount fields
-                amount = balance.amount || balance.balanceAmount || balance.value || balance.quantity || '0'
-                console.log(`[SwapComponent] Found amount using fallback fields:`, amount)
-              }
-            } else {
-              // Fallback for other formats
-              amount = '0' // Default to 0 for non-object balances
-              console.log(`[SwapComponent] Using default amount for non-object balance:`, amount)
-            }
-
-            // Handle BigInt conversion and base units to display units
-            let finalAmount = '0'
-            const decimals = metadata?.decimals || 6 // Default to 6 decimals for stablecoins
-
-            if (typeof amount === 'bigint') {
-              // Convert from base units to display units
-              const divisor = BigInt(10 ** decimals)
-              const wholePart = amount / divisor
-              const fractionalPart = amount % divisor
-
-              if (fractionalPart === 0n) {
-                finalAmount = wholePart.toString()
-              } else {
-                // Pad fractional part with leading zeros
-                const fractionalStr = fractionalPart.toString().padStart(decimals, '0')
-                finalAmount = `${wholePart.toString()}.${fractionalStr}`
-              }
-              console.log(`[SwapComponent] Converted BigInt ${amount} to display amount ${finalAmount} with ${decimals} decimals`)
-            } else {
-              finalAmount = String(amount || '0')
-            }
-
-            console.log(`[SwapComponent] Final display amount for ${tokenAddress}:`, finalAmount)
-
-            return {
-              tokenAddress,
-              tokenSymbol: metadata ? `c${metadata.symbol}` : balance.tokenSymbol || `cToken${index}`,
-              tokenName: metadata ? `Confidential ${metadata.name}` : balance.tokenName || 'Confidential Token',
-              decimals: metadata?.decimals || balance.decimals || 9,
-              amount: finalAmount,
-              isVisible: true, // All authenticated tokens should be visible
-              lastUpdated: new Date().toISOString(),
-              source: 'authenticated',
-              requiresAuth: false,
-              note: 'Balance successfully authenticated and loaded',
-              logoURI: metadata?.logoURI
-            }
-          })
+          } else {
+            console.log(`[SwapComponent] ⚠️ Balance ${balanceIndex} is not an object, skipping...`)
+          }
+        })
 
         // Sort by balance value (descending) for better UX
         updatedBalances.sort((a: any, b: any) => {
@@ -841,8 +854,13 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     setWithdrawalAmounts(prev => ({ ...prev, [tokenAddress]: amount }))
   }
 
-  // Handle withdrawal confirmation
-  const handleWithdrawClick = (tokenAddress: string, maxAmount: number, symbol: string) => {
+  // Handle withdrawal confirmation using professional SDK implementation
+  const handleWithdrawClick = async (tokenAddress: string, maxAmount: number, symbol: string, decimals: number = 6) => {
+    if (!publicKey) {
+      alert('Please connect your wallet to proceed with withdrawal')
+      return
+    }
+
     const inputAmount = withdrawalAmounts[tokenAddress] || maxAmount.toString()
     const amount = parseFloat(inputAmount)
 
@@ -856,9 +874,107 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       return
     }
 
-    setPendingWithdrawal({ tokenAddress, amount, symbol })
-    setWithdrawalError('')
-    setShowWithdrawConfirmModal(true)
+    try {
+      setIsWithdrawing(true)
+      setWithdrawalError('')
+
+      console.log('[SwapComponent] 🔄 Initiating professional withdrawal using Encifher SDK...')
+      console.log('[SwapComponent] Withdrawal details:', {
+        tokenAddress: tokenAddress.slice(0, 8) + '...',
+        amount,
+        symbol,
+        decimals,
+        userPublicKey: publicKey.toString().slice(0, 8) + '...'
+      })
+
+      // Step 1: Create withdrawal transaction using SDK
+      const withdrawResponse = await fetch('/api/v1/confidential/withdraw', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tokenAddress,
+          amount,
+          userPublicKey: publicKey.toString(),
+          decimals
+        })
+      })
+
+      if (!withdrawResponse.ok) {
+        const errorData = await withdrawResponse.json()
+        throw new Error(errorData.error || 'Failed to create withdrawal transaction')
+      }
+
+      const withdrawData = await withdrawResponse.json()
+      console.log('[SwapComponent] ✅ Withdrawal transaction created:', withdrawData)
+
+      if (!withdrawData.success || !withdrawData.transaction?.serialized) {
+        throw new Error('Invalid withdrawal transaction response')
+      }
+
+      // Step 2: Deserialize and sign transaction
+      const { Connection, Transaction } = await import('@solana/web3.js')
+      const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com')
+
+      const transaction = Transaction.from(
+        Buffer.from(withdrawData.transaction.serialized, 'base64')
+      )
+
+      console.log('[SwapComponent] 📝 Transaction deserialized, requesting user signature...')
+
+      // Step 3: Check if wallet adapter is available
+      if (!wallet?.adapter) {
+        throw new Error('Wallet adapter not available for transaction signing')
+      }
+
+      console.log('[SwapComponent] 📝 Sending transaction via wallet adapter...')
+
+      // Step 4: Send transaction using wallet adapter
+      const signature = await wallet.adapter.sendTransaction(transaction, connection, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed'
+      })
+
+      if (!signature) {
+        throw new Error('Transaction was not sent')
+      }
+
+      console.log('[SwapComponent] ✅ Transaction sent successfully:', signature)
+
+      // Step 5: Confirm transaction
+      console.log('[SwapComponent] 📡 Confirming transaction...')
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed')
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${confirmation.value.err}`)
+      }
+
+      console.log('[SwapComponent] ✅ Withdrawal completed successfully!')
+
+      // Step 5: Update UI state
+      setWithdrawalTransactionSignature(signature)
+      setPendingWithdrawal({ tokenAddress, amount, symbol })
+
+      // Show success message
+      alert(`✅ Withdrawal successful!\n\nWithdrawn: ${amount} ${symbol}\nTransaction: ${signature}\n\nYour tokens will appear in your regular wallet shortly.`)
+
+      // Step 6: Refresh confidential balances after withdrawal
+      setTimeout(() => {
+        console.log('[SwapComponent] 🔄 Refreshing confidential balances after withdrawal...')
+        fetchAuthenticatedBalances().catch(console.error)
+      }, 2000)
+
+    } catch (error: any) {
+      console.error('[SwapComponent] ❌ Withdrawal failed:', error)
+      setWithdrawalError(error.message || 'Withdrawal failed. Please try again.')
+
+      // Show user-friendly error
+      const errorMessage = error instanceof Error ? error.message : 'Unknown withdrawal error'
+      alert(`❌ Withdrawal Failed: ${errorMessage}`)
+    } finally {
+      setIsWithdrawing(false)
+    }
   }
 
   // Handle withdrawal execution
@@ -931,7 +1047,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     // Use authenticated balances from Encifher SDK, fall back to API-fetched balances
     const sourceBalances = authenticatedBalances.length > 0 ? authenticatedBalances : apiConfidentialBalances
 
-    console.log('[SwapComponent] Computing confidentialBalances:', {
+    console.log('[SwapComponent] 🔍 Computing confidentialBalances:', {
       privacyMode,
       availableTokensCount: availableTokens.length,
       publicKey: publicKey?.toString(),
@@ -939,9 +1055,28 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       apiConfidentialBalancesLength: apiConfidentialBalances.length,
       sourceBalancesLength: sourceBalances.length,
       usingAuthenticated: authenticatedBalances.length > 0,
+      sourceBalances: sourceBalances.map(b => ({
+        address: b.tokenAddress?.slice(0, 8) + '...',
+        symbol: b.tokenSymbol,
+        amount: b.amount,
+        source: b.source
+      })),
       authenticatedBalances: authenticatedBalances.slice(0, 3), // Show first 3 for debugging
       apiConfidentialBalances: apiConfidentialBalances.slice(0, 3) // Show first 3 for debugging
     })
+
+    // Debug: Check if we have real data
+    if (sourceBalances.length === 0) {
+      console.warn('[SwapComponent] ⚠️ No confidential balances found - this means either:')
+      console.warn('  1. User has not deposited any tokens to Encifher yet')
+      console.warn('  2. API call failed or is still loading')
+      console.warn('  3. State update is pending')
+    } else {
+      console.log(`[SwapComponent] ✅ Found ${sourceBalances.length} confidential balances to display`)
+      sourceBalances.forEach((balance, idx) => {
+        console.log(`  ${idx + 1}. ${balance.tokenSymbol}: ${balance.amount} (${balance.source})`)
+      })
+    }
 
     return sourceBalances
       .filter((apiBalance: any) => {
@@ -1711,8 +1846,8 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                         </div>
 
                         <button
-                          onClick={() => handleWithdrawClick(balance.tokenAddress, balance.amount, balance.symbol)}
-                          disabled={!balance.canWithdraw || isLoading}
+                          onClick={() => handleWithdrawClick(balance.tokenAddress, balance.amount, balance.symbol, balance.decimals)}
+                          disabled={!balance.canWithdraw || isLoading || isWithdrawing}
                           className="w-full py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{
                             background: balance.canWithdraw ? `${theme.colors.success}10` : `${theme.colors.border}50`,
@@ -1720,8 +1855,17 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                             color: balance.canWithdraw ? theme.colors.success : theme.colors.textMuted
                           }}
                         >
-                          <ArrowDownTrayIcon className="h-4 w-4" />
-                          {balance.canWithdraw ? 'Withdraw to Regular Token' : 'Withdrawal Unavailable'}
+                          {isWithdrawing ? (
+                            <>
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+                              Processing Withdrawal...
+                            </>
+                          ) : (
+                            <>
+                              <ArrowDownTrayIcon className="h-4 w-4" />
+                              {balance.canWithdraw ? 'Withdraw to Regular Token' : 'Withdrawal Unavailable'}
+                            </>
+                          )}
                         </button>
                       </div>
                     ))}
