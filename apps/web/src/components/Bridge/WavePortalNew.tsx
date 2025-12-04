@@ -72,8 +72,8 @@ const SUPPORTED_CHAINS = [
 
 // Bridge providers mapping
 const BRIDGE_PROVIDERS = {
-  'zec-solana': 'near-intents',
-  'solana-zec': 'near-intents',
+  'zec-solana': 'nearIntents',
+  'solana-zec': 'nearIntents',
   'solana-starknet': 'starkgate',
   'starknet-solana': 'starkgate'
 } as const
@@ -275,8 +275,10 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
 
   // Check if a bridge route is valid
   const isValidBridgeRoute = (from: string, to: string): boolean => {
-    const validDestinations = VALID_BRIDGE_ROUTES[from as keyof typeof VALID_BRIDGE_ROUTES]
-    return validDestinations ? validDestinations.includes(to as 'solana' | 'zec' | 'starknet') : false
+    const fromKey = from as keyof typeof VALID_BRIDGE_ROUTES
+    const destinations = VALID_BRIDGE_ROUTES[fromKey]
+    if (!destinations) return false
+    return (destinations as readonly string[]).includes(to)
   }
 
   // Get available destination chains for a source chain
@@ -287,7 +289,7 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
 
   const getBridgeProvider = (from: string, to: string) => {
     const routeKey = `${from}-${to}` as keyof typeof BRIDGE_PROVIDERS
-    return BRIDGE_PROVIDERS[routeKey] || 'near-intents'
+    return BRIDGE_PROVIDERS[routeKey] || 'nearIntents'
   }
 
   const getChainName = (chainId: string) => {
@@ -529,7 +531,7 @@ const handleBridge = async () => {
           chain: fromChain,
           logoURI: fromToken.logoURI,
           bridgeSupport: {
-            nearIntents: bridgeProvider === 'near-intents',
+            nearIntents: bridgeProvider === 'nearIntents',
             starkgate: bridgeProvider === 'starkgate',
             defuse: true,
             directBridge: false
@@ -543,7 +545,7 @@ const handleBridge = async () => {
           chain: toChain,
           logoURI: toToken.logoURI,
           bridgeSupport: {
-            nearIntents: bridgeProvider === 'near-intents',
+            nearIntents: bridgeProvider === 'nearIntents',
             starkgate: bridgeProvider === 'starkgate',
             defuse: true,
             directBridge: false
@@ -575,16 +577,34 @@ const handleBridge = async () => {
     const walletStatus = getWalletConnectionStatus()
     setIsBridging(true)
     setShowQuoteModal(false)
+    setShowBridgingProgress(true)
+    setBridgingStep(1)
+    setBridgingMessage('Initializing bridge connection...')
 
     try {
+      // Simulate bridging steps
+      const totalSteps = 4
+
+      // Step 1: Initialize
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      setBridgingStep(2)
+      setBridgingMessage('Validating transaction details...')
+
+      // Step 2: Validate
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      setBridgingStep(3)
+      setBridgingMessage(`Processing cross-chain transfer (${bridgeQuote.estimatedTime})...`)
+
       // Check if this is a Zcash bridge
       if (bridgeQuote.depositChain === 'zec' || bridgeQuote.destinationChain === 'zec') {
-        // For Zcash bridges, show the Zcash flow after quote acceptance
+        // Step 3: Process Zcash bridge
+        await new Promise(resolve => setTimeout(resolve, 3000))
         const userId = publicKey?.toBase58() || `user_${Date.now()}`
         setUserId(userId)
         setShowZcashFlow(true)
+        setShowBridgingProgress(false)
 
-        // Simulate bridging process for Zcash
+        // Simulate Zcash processing
         setTimeout(() => {
           handleZcashBridgeComplete()
         }, 2000 + Math.random() * 3000) // 2-5 seconds delay
@@ -592,7 +612,13 @@ const handleBridge = async () => {
         return
       }
 
-      // Execute regular bridge for other chains
+      // Step 3: Process regular bridge
+      await new Promise(resolve => setTimeout(resolve, 4000))
+      setBridgingStep(4)
+      setBridgingMessage('Finalizing transfer on destination chain...')
+
+      // Step 4: Execute regular bridge for other chains
+      await new Promise(resolve => setTimeout(resolve, 2000))
       const result = await enhancedBridgeService.executeBridge(bridgeQuote, {
         recipientAddress: walletStatus.address || '',
         privacyMode: privacyMode
@@ -600,12 +626,14 @@ const handleBridge = async () => {
 
       console.log('Bridge execution result:', result)
       setBridgeExecution(result)
+      setShowBridgingProgress(false)
       setShowCompletionModal(true)
       setAmount('')
 
     } catch (error) {
       console.error('Bridge execution failed:', error)
       setError(`Bridge execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      setShowBridgingProgress(false)
     } finally {
       setIsBridging(false)
     }
@@ -1478,7 +1506,7 @@ const handleBridge = async () => {
               <div className="flex justify-between items-center">
                 <span style={{ color: theme.colors.textSecondary }}>Provider</span>
                 <span style={{ color: theme.colors.textPrimary, textTransform: 'capitalize' }}>
-                  {bridgeQuote.bridgeProvider === 'near-intents' ? 'Near Intents' :
+                  {bridgeQuote.bridgeProvider === 'nearIntents' ? 'Near Intents' :
                    bridgeQuote.bridgeProvider === 'starkgate' ? 'StarkGate' :
                    bridgeQuote.bridgeProvider === 'direct' ? 'Direct Bridge' :
                    bridgeQuote.bridgeProvider}
@@ -1515,6 +1543,19 @@ const handleBridge = async () => {
           </div>
         </div>
       )}
+
+      {/* Bridging Progress */}
+      <BridgingProgress
+        isVisible={showBridgingProgress}
+        estimatedTime={bridgeQuote?.estimatedTime || '2-3 minutes'}
+        currentStep={bridgingStep}
+        totalSteps={4}
+        message={bridgingMessage}
+        provider={bridgeQuote?.bridgeProvider === 'direct' ? 'Direct Bridge' :
+                 bridgeQuote?.bridgeProvider === 'nearIntents' ? 'Near Intents' :
+                 bridgeQuote?.bridgeProvider === 'starkgate' ? 'Starkgate' :
+                 bridgeQuote?.bridgeProvider === 'defuse' ? 'Defuse' : 'Unknown'}
+      />
 
       {/* Completion Modal */}
       {showCompletionModal && bridgeExecution && (
