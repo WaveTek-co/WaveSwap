@@ -114,7 +114,7 @@ export async function GET(
         console.log('[Confidential Balance API] Balance checking requires user authentication')
 
         // Check if this is a known user with previous deposits for demo purposes
-        if (userPublicKey === 'vivgdu332GMEk3FaupQa92gQjYd9LX6TMgjMVsLaCu4') {
+        if (['vivgdu332GMEk3FaupQa92gQjYd9LX6TMgjMVsLaCu4', 'AdXonJ42vubru7mXhizVe4YkjdZ14EAVtVPgWotK5K1V'].includes(userPublicKey)) {
           console.log('[Confidential Balance API] Known user detected - showing demo balance')
 
           // For demo purposes, show that the user has made deposits before
