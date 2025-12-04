@@ -578,7 +578,7 @@ export function WithdrawSuccessModal({
   }
 
   const openExplorer = (signature: string) => {
-    window.open(`https://solscan.io/tx/${signature}`, '_blank')
+    window.open(`https://orb.helius.dev/tx/${signature}`, '_blank')
   }
 
   return (
