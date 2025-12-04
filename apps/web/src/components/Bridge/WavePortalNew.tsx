@@ -1345,6 +1345,8 @@ const handleBridge = async () => {
           )}
         </div>
       </div>
+        </>
+      )}
 
       {/* Quote Modal */}
       {bridgeQuote && (
@@ -1555,7 +1557,6 @@ const handleBridge = async () => {
         onClose={() => setShowStarknetWalletModal(false)}
         onSuccess={() => setShowStarknetWalletModal(false)}
       />
-      </div>
     </div>
   )
 }
