@@ -82,14 +82,26 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
     // Use GET request with userPublicKey as query parameter (the working format)
     // Add cache-busting timestamp to force fresh data
     const timestamp = Date.now()
-    const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${encodeURIComponent(userPublicKey)}&t=${timestamp}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    })
 
-    if (response.ok) {
+    // Create a timeout controller to prevent hanging requests
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      console.log('[Confidential Balance] Request timeout, aborting...')
+      controller.abort()
+    }, 20000) // 20 second timeout - reduced from 60s for better UX
+
+    try {
+      const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${encodeURIComponent(userPublicKey)}&t=${timestamp}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      if (response.ok) {
       const result = await response.json()
       console.log('[Confidential Balance] Successfully fetched balances:', result)
       console.log('[Confidential Balance] Response structure:', {
@@ -128,8 +140,28 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
       })
 
       return confidentialBalances
-    } else {
-      console.error('[Confidential Balance] Failed to fetch balances:', response.status, response.statusText)
+      } else if (response.status === 401) {
+        // Handle authentication required response
+        console.log('[Confidential Balance] Authentication required for confidential balances')
+        try {
+          const authData = await response.json()
+          console.log('[Confidential Balance] Authentication details:', authData)
+          return new Map()
+        } catch (jsonError) {
+          console.log('[Confidential Balance] Authentication required but could not parse response')
+          return new Map()
+        }
+      } else {
+        console.error('[Confidential Balance] Failed to fetch balances:', response.status, response.statusText)
+        return new Map()
+      }
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      if (fetchError.name === 'AbortError') {
+        console.warn('[Confidential Balance] Request timed out after 60 seconds')
+        return new Map()
+      }
+      console.error('[Confidential Balance] Network error:', fetchError)
       return new Map()
     }
   } catch (error) {

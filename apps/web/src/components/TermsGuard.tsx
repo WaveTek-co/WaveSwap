@@ -132,10 +132,10 @@ export function TermsGuard({ children }: TermsGuardProps) {
                         border: `1px solid ${theme.colors.warning}30`
                       }}
                     >
-                      <ExclamationTriangleIcon
-                        className="w-8 h-8"
-                        style={{ color: theme.colors.warning }}
-                      />
+                      {React.createElement(ExclamationTriangleIcon, {
+                        className: "w-8 h-8",
+                        style: { color: theme.colors.warning }
+                      })}
                     </div>
                   </div>
 

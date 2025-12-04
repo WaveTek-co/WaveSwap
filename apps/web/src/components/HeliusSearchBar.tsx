@@ -355,7 +355,10 @@ export function HeliusSearchBar() {
                     </div>
                   </div>
 
-                  <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" style={{ color: theme.colors.textMuted }} />
+                  {React.createElement(ExternalLink, {
+                      className: "w-2.5 h-2.5 flex-shrink-0",
+                      style: { color: theme.colors.textMuted }
+                    })}
                 </button>
               )
             })}

@@ -6,7 +6,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Connection, PublicKey, Keypair } from '@solana/web3.js'
 import { DefiClient, Token, DepositParams } from 'encifher-swap-sdk'
-import { EncifherUtils } from '@/lib/utils/encifherUtils'
 
 export async function POST(
   request: NextRequest
@@ -32,9 +31,14 @@ export async function POST(
       decimals
     })
 
-    // Initialize Encifher SDK client
-    const encifherConfig = EncifherUtils.getConfig()
-    if (!encifherConfig) {
+    // Initialize Encifher SDK client with professional configuration
+    const encifherConfig = {
+      encifherKey: process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY || '',
+      rpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+      mode: 'Mainnet'
+    }
+
+    if (!encifherConfig.encifherKey) {
       console.error('[Deposit API] Encifher configuration not found')
       return NextResponse.json({
         success: false,
@@ -42,16 +46,17 @@ export async function POST(
       }, { status: 500 })
     }
 
-    console.log('[Deposit API] Initializing Encifher SDK client...')
-    const config = {
-      encifherKey: encifherConfig.encifherKey,
-      rpcUrl: encifherConfig.rpcUrl
-    }
-    const defiClient = new DefiClient(config)
+    console.log('[Deposit API] 🚀 Initializing Encifher SDK client...')
+    console.log('[Deposit API] Configuration:', {
+      hasKey: !!encifherConfig.encifherKey,
+      rpcUrl: encifherConfig.rpcUrl,
+      mode: encifherConfig.mode,
+      userKey: userPublicKey?.slice(0, 8) + '...'
+    })
+    const defiClient = new DefiClient(encifherConfig)
 
     // Convert addresses to PublicKey objects
     const userPubkey = new PublicKey(userPublicKey)
-    const connection = new Connection(encifherConfig.rpcUrl)
 
     console.log('[Deposit API] 🏗️ Building deposit transaction...')
 
