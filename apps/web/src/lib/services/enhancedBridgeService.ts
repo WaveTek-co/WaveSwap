@@ -447,7 +447,7 @@ export class EnhancedBridgeService {
         destinationChain: toToken.chain,
         status: 'pending',
         privacySupported: false,
-        estimatedTime: '2-5 minutes',
+        estimatedTime: '4-8 minutes',
         slippageTolerance: 0.5,
         expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString()
       }
@@ -469,20 +469,22 @@ export class EnhancedBridgeService {
     // For now, return a mock quote structure
 
     const mockRate = '0.95' // Mock exchange rate
-    const estimatedFee = (parseFloat(amount) * 0.002).toString() // 0.2% fee
+    // Convert amount from smallest units to human-readable for fee calculation
+    const humanReadableAmount = (parseFloat(amount) / Math.pow(10, fromToken.decimals)).toString()
+    const estimatedFee = (parseFloat(humanReadableAmount) * 0.002).toString() // 0.2% fee
 
     return {
       id: `starkgate-${Date.now()}`,
       fromToken,
       toToken,
       fromAmount: amount,
-      toAmount: (parseFloat(amount) * parseFloat(mockRate) - parseFloat(estimatedFee)).toString(),
+      toAmount: (parseFloat(humanReadableAmount) * parseFloat(mockRate) - parseFloat(estimatedFee)).toString(),
       rate: mockRate,
       bridgeProvider: 'starkgate',
       route: 'solana->starknet',
       feeAmount: estimatedFee,
       feePercentage: 0.2,
-      estimatedTime: '2-5 minutes',
+      estimatedTime: '4-8 minutes',
       depositChain: fromToken.chain,
       destinationChain: toToken.chain,
       status: 'pending',
@@ -509,17 +511,20 @@ export class EnhancedBridgeService {
       // Use Defuse SDK for quote generation
       // This would integrate with Defuse's quote API
 
+      // Convert amount from smallest units to human-readable for calculations
+      const humanReadableAmount = (parseFloat(amount) / Math.pow(10, fromToken.decimals)).toString()
+
       return {
         id: `defuse-${Date.now()}`,
         fromToken,
         toToken,
         fromAmount: amount,
-        toAmount: (parseFloat(amount) * 0.98).toString(), // Mock 2% slippage
+        toAmount: (parseFloat(humanReadableAmount) * 0.98).toString(), // Mock 2% slippage
         rate: '0.98',
         bridgeProvider: 'defuse',
-        feeAmount: (parseFloat(amount) * 0.001).toString(), // 0.1% fee
+        feeAmount: (parseFloat(humanReadableAmount) * 0.001).toString(), // 0.1% fee
         feePercentage: 0.1,
-        estimatedTime: '1-3 minutes',
+        estimatedTime: '3-5 minutes',
         depositChain: fromToken.chain,
         destinationChain: toToken.chain,
         status: 'pending',
@@ -823,13 +828,13 @@ export class EnhancedBridgeService {
   private getEstimatedTime(fromChain: string, toChain: string, provider: string): string {
     switch (provider) {
       case 'nearIntents':
-        return '1-3 minutes'
+        return '3-6 minutes'
       case 'starkgate':
-        return '2-5 minutes'
+        return '4-8 minutes'
       case 'defuse':
-        return '1-3 minutes'
+        return '3-5 minutes'
       default:
-        return '3-10 minutes'
+        return '5-12 minutes'
     }
   }
 

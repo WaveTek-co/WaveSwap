@@ -103,8 +103,8 @@ export class BridgeWalletService {
 
       this.updateProgress('Bridge initiated', 'Zcash deposit received, processing bridge to Solana...')
 
-      // Simulate Zcash deposit confirmation and bridge processing time
-      await new Promise(resolve => setTimeout(resolve, 4000))
+      // Simulate Zcash deposit confirmation and bridge processing time (increased)
+      await new Promise(resolve => setTimeout(resolve, 6000))
 
       this.updateProgress('Completing bridge', 'Bridge transaction completed successfully!')
 
@@ -165,8 +165,8 @@ export class BridgeWalletService {
 
       this.updateProgress('Processing', 'Bridge intent created and submitted...')
 
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      // Simulate processing time (increased)
+      await new Promise(resolve => setTimeout(resolve, 5000))
 
       this.updateProgress('Completing', 'Bridge transaction completed successfully!')
 
@@ -220,8 +220,8 @@ export class BridgeWalletService {
 
       this.updateProgress('Processing', 'StarkGate bridge transaction submitted...')
 
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 4000))
+      // Simulate processing time (increased)
+      await new Promise(resolve => setTimeout(resolve, 6000))
 
       this.updateProgress('Completing', 'StarkGate bridge completed successfully!')
 
@@ -263,7 +263,7 @@ export class BridgeWalletService {
       // Mock Defuse integration
       this.updateProgress('Processing', 'Defuse bridge intent submitted...')
 
-      await new Promise(resolve => setTimeout(resolve, 3500))
+      await new Promise(resolve => setTimeout(resolve, 5500))
 
       this.updateProgress('Completing', 'Defuse bridge completed successfully!')
 
@@ -305,7 +305,7 @@ export class BridgeWalletService {
 
       this.updateProgress('Processing', 'Direct bridge transaction submitted...')
 
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise(resolve => setTimeout(resolve, 4000))
 
       this.updateProgress('Completing', 'Direct bridge completed successfully!')
 
@@ -340,6 +340,35 @@ export class BridgeWalletService {
   }
 
   /**
+   * Get source chain from quote
+   */
+  private getSourceChainFromQuote(quote: any): string {
+    // Use the quote's deposit chain if available, otherwise fall back to provider mapping
+    if (quote && quote.depositChain) {
+      return quote.depositChain
+    }
+    return this.getChainFromProvider(quote.bridgeProvider)
+  }
+
+  /**
+   * Check if wallet is connected for specific chain
+   */
+  private isWalletConnectedForChain(chain: string, walletContext: ReturnType<typeof useWallet>): boolean {
+    switch (chain) {
+      case 'solana':
+        const solanaWallet = walletContext.getConnectedWalletByChain('solana')
+        return !!(solanaWallet && solanaWallet.address)
+      case 'starknet':
+        const starknetWallet = walletContext.getConnectedWalletByChain('starknet')
+        return !!(starknetWallet && starknetWallet.address)
+      case 'zec':
+        return true // Zcash doesn't need wallet connection
+      default:
+        return false
+    }
+  }
+
+  /**
    * Update progress callback
    */
   private updateProgress(status: string, message: string): void {
@@ -359,13 +388,22 @@ export class BridgeWalletService {
       const { quote, fromAddress, toAddress } = request
       const provider = quote.bridgeProvider
 
-      // Check if wallet is connected for source chain
-      const sourceChain = this.getChainFromProvider(provider)
-      const connectedWallet = walletContext.getConnectedWalletByChain(sourceChain)
+      // Check if this is a Zcash deposit (fromAddress is not a real blockchain address)
+      const isZcashDeposit = fromAddress === 'Zcash Pool System' || fromAddress.includes('zcash_bridge')
 
-      if (!connectedWallet || !connectedWallet.address) {
+      // Skip validation for Zcash deposits since they use pool system
+      if (isZcashDeposit) {
+        return { valid: true }
+      }
+
+      // Check if wallet is connected for source chain
+      const sourceChain = this.getSourceChainFromQuote(quote)
+
+      if (!this.isWalletConnectedForChain(sourceChain, walletContext)) {
         return { valid: false, error: `Wallet not connected for ${sourceChain} chain` }
       }
+
+      const connectedWallet = walletContext.getConnectedWalletByChain(sourceChain)
 
       // Validate addresses
       if (fromAddress !== connectedWallet.address) {
