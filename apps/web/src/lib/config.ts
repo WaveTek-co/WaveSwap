@@ -35,7 +35,7 @@ export const config = {
   swap: {
     defaultSlippageBps: 50, // 0.5%
     maxSlippageBps: 1000,   // 10%
-    maintenanceMode: true, // Maintenance mode toggle
+    maintenanceMode: false, // Maintenance mode toggle
   },
 } as const
 
