@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { zcashPoolService, ZcashTransaction, formatAmount, getStatusColor, getStatusText } from '@/lib/services/zcashPoolService'
 import { ZcashDepositQR } from './ZcashDepositQR'
 import { useThemeConfig, createGlassStyles, createInputStyles } from '@/lib/theme'
+import { useComingSoon } from '@/components/ui/ComingSoonModal'
 
 interface ZcashBridgeFlowProps {
   userId: string
@@ -24,6 +25,9 @@ export function ZcashBridgeFlow({ userId, isDepositing, onDepositComplete, onWit
   const [isProcessing, setIsProcessing] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const theme = useThemeConfig()
+
+  // Coming soon hook
+  const { showComingSoon } = useComingSoon()
 
   useEffect(() => {
     if (userId) {
@@ -63,15 +67,8 @@ export function ZcashBridgeFlow({ userId, isDepositing, onDepositComplete, onWit
 
   const handleDepositAmount = (amount: number) => {
     setShowQR(true)
-    // Mock immediate processing for demo
-    setTimeout(() => {
-      setShowQR(false)
-      if (onDepositComplete) {
-        onDepositComplete(amount)
-      }
-      initializePool() // Refresh pool balance
-      loadTransactions() // Refresh transactions
-    }, 3000)
+    // Show coming soon message for Zcash deposits
+    showComingSoon('Zcash Deposits')
   }
 
   const handleWithdrawal = async () => {

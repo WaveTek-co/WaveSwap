@@ -1373,6 +1373,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
     console.log('[refreshBalances] Starting balance refresh for:', publicKey.toString())
     // Clear SOL balance cache to ensure fresh data
     clearBalanceCache()
+    console.log('[refreshBalances] Balance cache cleared')
 
     try {
       // Get user's tokens from wallet
@@ -1493,7 +1494,14 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   useEffect(() => {
     if (publicKey && connection) {
       console.log('[useSwap] Wallet connected, refreshing balances for:', publicKey.toString())
+      // Force immediate balance refresh
       refreshBalances()
+
+      // Also force a second refresh after a short delay to ensure SOL balance is caught
+      setTimeout(() => {
+        console.log('[useSwap] Secondary balance refresh to catch SOL balance')
+        refreshBalances()
+      }, 2000)
     }
   }, [publicKey, connection, refreshBalances])
 

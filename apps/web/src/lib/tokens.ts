@@ -367,7 +367,7 @@ export function getDefaultTokens(): Token[] {
 
 // Balance caching to avoid repeated expensive RPC calls
 const balanceCache = new Map<string, { balance: string; timestamp: number }>()
-const BALANCE_CACHE_DURATION = 30000 // Increased to 30 seconds for better performance
+const BALANCE_CACHE_DURATION = 10000 // Reduced to 10 seconds to ensure fresh balance data
 
 // Performance optimization: Batch balance requests
 const balanceBatchQueue = new Map<string, Promise<string>>()

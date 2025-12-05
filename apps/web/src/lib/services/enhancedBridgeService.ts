@@ -222,54 +222,7 @@ export class EnhancedBridgeService {
    */
   private async getDefuseAssets(): Promise<any[]> {
     // This would integrate with Defuse API to get supported assets
-    // For now, return commonly supported assets with dynamic icon loading from Jupiter API
-    try {
-      // Get token icons from Jupiter API
-      const jupiterTokens = await JupiterTokenService.searchTokens('USDC')
-      const usdcToken = jupiterTokens.find(t => t.id === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
-      const usdtTokens = await JupiterTokenService.searchTokens('USDT')
-      const usdtToken = usdtTokens.find(t => t.id === 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB')
-
-      return [
-        {
-          symbol: 'USDC',
-          name: 'USD Coin',
-          address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-          decimals: 6,
-          chain: 'solana',
-          logoURI: usdcToken?.icon || ''
-        },
-        {
-          symbol: 'USDT',
-          name: 'Tether USD',
-          address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-          decimals: 6,
-          chain: 'solana',
-          logoURI: usdtToken?.icon || ''
-        }
-      ]
-    } catch (error) {
-      console.warn('Failed to fetch token icons from Jupiter API:', error)
-      // Fallback without icons
-      return [
-        {
-          symbol: 'USDC',
-          name: 'USD Coin',
-          address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-          decimals: 6,
-          chain: 'solana',
-          logoURI: ''
-        },
-        {
-          symbol: 'USDT',
-          name: 'Tether USD',
-          address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-          decimals: 6,
-          chain: 'solana',
-          logoURI: ''
-        }
-      ]
-    }
+    throw new Error('Defuse assets integration coming soon!')
   }
 
   /**
@@ -470,33 +423,7 @@ export class EnhancedBridgeService {
     amount: string,
     options: BridgeOptions
   ): Promise<EnhancedBridgeQuote> {
-    // Starkgate integration would go here
-    // For now, return a mock quote structure
-
-    const mockRate = '0.95' // Mock exchange rate
-    // Convert amount from smallest units to human-readable for fee calculation
-    const humanReadableAmount = (parseFloat(amount) / Math.pow(10, fromToken.decimals)).toString()
-    const estimatedFee = (parseFloat(humanReadableAmount) * 0.002).toString() // 0.2% fee
-
-    return {
-      id: `starkgate-${Date.now()}`,
-      fromToken,
-      toToken,
-      fromAmount: amount,
-      toAmount: (parseFloat(humanReadableAmount) * parseFloat(mockRate) - parseFloat(estimatedFee)).toString(),
-      rate: mockRate,
-      bridgeProvider: 'starkgate',
-      route: 'solana->starknet',
-      feeAmount: estimatedFee,
-      feePercentage: 0.2,
-      estimatedTime: '4-8 minutes',
-      depositChain: fromToken.chain,
-      destinationChain: toToken.chain,
-      status: 'pending',
-      privacySupported: false,
-      slippageTolerance: 0.5,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
-    }
+    throw new Error('Starkgate bridge integration coming soon!')
   }
 
   /**
@@ -512,35 +439,7 @@ export class EnhancedBridgeService {
       throw new Error('Defuse SDK not initialized')
     }
 
-    try {
-      // Use Defuse SDK for quote generation
-      // This would integrate with Defuse's quote API
-
-      // Convert amount from smallest units to human-readable for calculations
-      const humanReadableAmount = (parseFloat(amount) / Math.pow(10, fromToken.decimals)).toString()
-
-      return {
-        id: `defuse-${Date.now()}`,
-        fromToken,
-        toToken,
-        fromAmount: amount,
-        toAmount: (parseFloat(humanReadableAmount) * 0.98).toString(), // Mock 2% slippage
-        rate: '0.98',
-        bridgeProvider: 'defuse',
-        feeAmount: (parseFloat(humanReadableAmount) * 0.001).toString(), // 0.1% fee
-        feePercentage: 0.1,
-        estimatedTime: '3-5 minutes',
-        depositChain: fromToken.chain,
-        destinationChain: toToken.chain,
-        status: 'pending',
-        privacySupported: true,
-        slippageTolerance: 2.0,
-        privacyFee: (parseFloat(amount) * 0.0005).toString(), // 0.05% privacy fee
-        expiresAt: new Date(Date.now() + 25 * 60 * 1000).toISOString()
-      }
-    } catch (error) {
-      throw new Error(`Defuse quote failed: ${error}`)
-    }
+    throw new Error('Defuse bridge integration coming soon!')
   }
 
   /**
@@ -756,25 +655,21 @@ export class EnhancedBridgeService {
     quote: EnhancedBridgeQuote,
     options: any
   ): Promise<string> {
-    // This would create and execute the actual Solana transaction
-    // For now, return a mock transaction signature
-    return `solana-deposit-${Date.now()}`
+    throw new Error('Solana deposit execution coming soon!')
   }
 
   /**
    * Relay transaction to StarkNet
    */
   private async relayToStarknet(solanaTx: string, quote: EnhancedBridgeQuote): Promise<string> {
-    // Mock StarkNet relay implementation
-    return `starknet-relay-${Date.now()}`
+    throw new Error('StarkNet relay integration coming soon!')
   }
 
   /**
    * Execute on StarkNet
    */
   private async executeOnStarknet(quote: EnhancedBridgeQuote): Promise<string> {
-    // Mock StarkNet execution
-    return `starknet-execution-${Date.now()}`
+    throw new Error('StarkNet execution coming soon!')
   }
 
   /**
@@ -810,9 +705,7 @@ export class EnhancedBridgeService {
    * Monitor Defuse intent execution
    */
   private async monitorDefuseExecution(intentId: string, execution: BridgeExecution): Promise<void> {
-    // Mock implementation - would integrate with Defuse SDK monitoring
-    await new Promise(resolve => setTimeout(resolve, 5000))
-    execution.status = 'COMPLETED'
+    throw new Error('Defuse execution monitoring coming soon!')
   }
 
   /**

@@ -1,5 +1,5 @@
 /**
- * Mock Zcash Pool Service
+ * Zcash Pool Service
  * Manages user deposits and withdrawal addresses for Zcash bridging
  */
 
@@ -30,134 +30,41 @@ export interface ZcashTransaction {
 }
 
 class ZcashPoolService {
-  private pools: Map<string, ZcashPool> = new Map()
-  private transactions: ZcashTransaction[] = []
-  private readonly MOCK_ZEC_ADDRESS_PREFIX = 'zcash_pool_'
+  private readonly ZEC_ADDRESS_PREFIX = 'zcash_pool_'
 
   // Generate unique Zcash deposit address for each user
   generateDepositAddress(userId: string): { address: string; memo?: string } {
-    const timestamp = Date.now()
-    const random = Math.random().toString(36).substring(2, 8)
-    const address = `${this.MOCK_ZEC_ADDRESS_PREFIX}${userId.substring(0, 8)}_${timestamp}_${random}`
-    const memo = `WaveSwap Pool Deposit - User: ${userId.substring(0, 6)}...`
-
-    return { address, memo }
+    throw new Error('Zcash deposit addresses coming soon!')
   }
 
   // Create or get existing pool for user
   async getUserPool(userId: string): Promise<ZcashPool> {
-    const poolId = `pool_${userId}`
-
-    if (this.pools.has(poolId)) {
-      return this.pools.get(poolId)!
-    }
-
-    // Create new pool
-    const { address, memo } = this.generateDepositAddress(userId)
-    const newPool: ZcashPool = {
-      id: poolId,
-      userId,
-      depositAddress: address,
-      depositMemo: memo,
-      balance: 0,
-      status: 'active',
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-
-    this.pools.set(poolId, newPool)
-    return newPool
+    throw new Error('Zcash pool management coming soon!')
   }
 
-  // Mock deposit processing
+  // Process deposit
   async processDeposit(userId: string, amount: number): Promise<ZcashTransaction> {
-    const pool = await this.getUserPool(userId)
-    const transaction: ZcashTransaction = {
-      id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      type: 'deposit',
-      amount,
-      fromAddress: pool.depositAddress,
-      toAddress: 'WaveSwap Pool',
-      status: 'pending',
-      createdAt: new Date()
-    }
-
-    this.transactions.push(transaction)
-
-    // Deposit confirmation after delay
-    setTimeout(() => {
-      transaction.status = 'confirmed'
-      transaction.confirmedAt = new Date()
-      pool.balance += amount
-      pool.updatedAt = new Date()
-
-      // Update transaction to completed after another delay
-      setTimeout(() => {
-        transaction.status = 'completed'
-        transaction.completedAt = new Date()
-      }, 5000)
-    }, 3000)
-
-    return transaction
+    throw new Error('Zcash deposit processing coming soon!')
   }
 
-  // Mock withdrawal processing
+  // Process withdrawal
   async processWithdrawal(userId: string, amount: number, destinationAddress: string): Promise<ZcashTransaction> {
-    const pool = await this.getUserPool(userId)
-
-    if (pool.balance < amount) {
-      throw new Error('Insufficient balance in pool')
-    }
-
-    const transaction: ZcashTransaction = {
-      id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      type: 'withdrawal',
-      amount,
-      fromAddress: 'WaveSwap Pool',
-      toAddress: destinationAddress,
-      status: 'pending',
-      createdAt: new Date()
-    }
-
-    this.transactions.push(transaction)
-
-    // Simulate withdrawal processing
-    setTimeout(() => {
-      transaction.status = 'confirmed'
-      transaction.confirmedAt = new Date()
-      pool.balance -= amount
-      pool.updatedAt = new Date()
-
-      // Generate mock transaction hash
-      transaction.txHash = `0x${Math.random().toString(16).substring(2, 66)}`
-
-      // Update transaction to completed after another delay
-      setTimeout(() => {
-        transaction.status = 'completed'
-        transaction.completedAt = new Date()
-      }, 8000)
-    }, 5000)
-
-    return transaction
+    throw new Error('Zcash withdrawal processing coming soon!')
   }
 
   // Get pool balance
   async getPoolBalance(userId: string): Promise<number> {
-    const pool = await this.getUserPool(userId)
-    return pool.balance
+    throw new Error('Zcash balance queries coming soon!')
   }
 
   // Get transaction history
   async getTransactionHistory(userId: string): Promise<ZcashTransaction[]> {
-    return this.transactions
-      .filter(tx => tx.fromAddress.includes(userId) || tx.toAddress.includes(userId))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    throw new Error('Zcash transaction history coming soon!')
   }
 
   // Get transaction status
   getTransactionStatus(transactionId: string): 'pending' | 'confirmed' | 'completed' | 'failed' | null {
-    const transaction = this.transactions.find(tx => tx.id === transactionId)
-    return transaction?.status || null
+    throw new Error('Zcash transaction status tracking coming soon!')
   }
 
   // Generate QR code data
@@ -172,29 +79,9 @@ class ZcashPoolService {
     return JSON.stringify(qrData)
   }
 
-  // Mock check for pending deposits (for demo purposes)
+  // Check for pending deposits
   async checkPendingDeposits(userId: string): Promise<ZcashTransaction[]> {
-    // Simulate some random pending deposits for demo
-    if (Math.random() > 0.7) {
-      const amounts = [0.1, 0.25, 0.5, 1.0, 2.5]
-      const randomAmount = amounts[Math.floor(Math.random() * amounts.length)]
-
-      try {
-        await this.processDeposit(userId, randomAmount)
-      } catch (error) {
-        // Ignore errors in demo
-      }
-    }
-
-    return this.getTransactionsByStatus(userId, 'pending')
-  }
-
-  private getTransactionsByStatus(userId: string, status: 'pending' | 'confirmed' | 'completed' | 'failed'): ZcashTransaction[] {
-    return this.transactions
-      .filter(tx =>
-        (tx.fromAddress.includes(userId) || tx.toAddress.includes(userId)) &&
-        tx.status === status
-      )
+    throw new Error('Zcash deposit monitoring coming soon!')
   }
 }
 
@@ -203,8 +90,8 @@ export const zcashPoolService = new ZcashPoolService()
 
 // Helper functions for UI
 export const formatZecAddress = (address: string): string => {
-  if (address.startsWith(zcashPoolService['MOCK_ZEC_ADDRESS_PREFIX'])) {
-    return `ZCash Pool: ${address.substring(zcashPoolService['MOCK_ZEC_ADDRESS_PREFIX'].length, 8)}...${address.slice(-8)}`
+  if (address.startsWith('zcash_pool_')) {
+    return `ZCash Pool: ${address.substring('zcash_pool_'.length, 8)}...${address.slice(-8)}`
   }
   return address
 }

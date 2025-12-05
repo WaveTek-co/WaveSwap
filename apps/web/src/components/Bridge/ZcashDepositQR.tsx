@@ -61,11 +61,10 @@ export function ZcashDepositQR({
     if (!onDepositDetected) return
 
     try {
-      // Mock checking for deposits (in real app, this would poll blockchain)
-      const mockUserId = depositAddress.split('_')[1] // Extract user ID from address
-      await zcashPoolService.checkPendingDeposits(mockUserId)
+      // Show coming soon message for deposit checking
+      console.log('🚀 Zcash deposit monitoring coming soon!')
     } catch (error) {
-      // Ignore errors in demo
+      // Error handling would be implemented here
     }
   }
 

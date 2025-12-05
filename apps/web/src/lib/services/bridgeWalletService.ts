@@ -86,40 +86,7 @@ export class BridgeWalletService {
     request: BridgeTransactionRequest,
     walletContext: ReturnType<typeof useWallet>
   ): Promise<BridgeExecution> {
-    const { quote } = request
-
-    this.updateProgress('Processing Zcash deposit', 'Verifying Zcash deposit to bridge pool...')
-
-    try {
-      const execution: BridgeExecution = {
-        id: `zcash_bridge_${Date.now()}`,
-        quote,
-        transaction: null, // Zcash bridge handles deposits off-chain
-        status: 'PROCESSING',
-        currentStep: 1,
-        totalSteps: 4,
-        steps: ['Initializing', 'Processing deposit', 'Validating transaction', 'Completing bridge'],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        provider: 'direct'
-      }
-
-      this.updateProgress('Bridge initiated', 'Zcash deposit received, processing bridge to Solana...')
-
-      // Simulate Zcash deposit confirmation and bridge processing time (increased)
-      await new Promise(resolve => setTimeout(resolve, 6000))
-
-      this.updateProgress('Completing bridge', 'Bridge transaction completed successfully!')
-
-      execution.status = 'COMPLETED'
-      execution.updatedAt = new Date()
-
-      return execution
-
-    } catch (error) {
-      console.error('Zcash bridge execution failed:', error)
-      throw new Error(`Zcash bridge failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
+    throw new Error('Zcash bridge integration coming soon!')
   }
 
   /**
@@ -129,62 +96,7 @@ export class BridgeWalletService {
     request: BridgeTransactionRequest,
     walletContext: ReturnType<typeof useWallet>
   ): Promise<BridgeExecution> {
-    const { quote } = request
-
-    this.updateProgress('Signing transaction', 'Preparing Near Intents bridge...')
-
-    // Get the appropriate wallet (Solana or NEAR)
-    const solanaWallet = walletContext.getConnectedWalletByChain('solana')
-    const nearWallet = walletContext.getConnectedWalletByChain('near')
-
-    if (!solanaWallet || !solanaWallet.address) {
-      throw new Error('Solana wallet must be connected for Near Intents bridge')
-    }
-
-    try {
-      this.updateProgress('Executing bridge', 'Submitting bridge transaction...')
-
-      // For Near Intents, we typically need to:
-      // 1. Lock tokens on source chain
-      // 2. Create intent
-      // 3. Wait for fulfillment
-
-      // This would integrate with the Near Intents SDK
-      const execution: BridgeExecution = {
-        id: `near_intents_${Date.now()}`,
-        quote,
-        transaction: null, // Near Intents handles transactions internally
-        status: 'PROCESSING',
-        currentStep: 1,
-        totalSteps: 4,
-        steps: ['Initializing', 'Creating intent', 'Submitting to network', 'Completing bridge'],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        provider: 'nearIntents'
-      }
-
-      // Mock the actual bridge execution - in real implementation this would:
-      // 1. Call Near Intents SDK to create bridge intent
-      // 2. Handle wallet signing for token lockup
-      // 3. Submit intent to Near Intents network
-      // 4. Monitor fulfillment
-
-      this.updateProgress('Processing', 'Bridge intent created and submitted...')
-
-      // Simulate processing time (increased)
-      await new Promise(resolve => setTimeout(resolve, 5000))
-
-      this.updateProgress('Completing', 'Bridge transaction completed successfully!')
-
-      execution.status = 'COMPLETED'
-      execution.updatedAt = new Date()
-
-      return execution
-
-    } catch (error) {
-      console.error('Near Intents bridge execution failed:', error)
-      throw new Error(`Near Intents bridge failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
+    throw new Error('Near Intents bridge integration coming soon!')
   }
 
   /**
@@ -194,55 +106,7 @@ export class BridgeWalletService {
     request: BridgeTransactionRequest,
     walletContext: ReturnType<typeof useWallet>
   ): Promise<BridgeExecution> {
-    const { quote } = request
-
-    this.updateProgress('Signing transaction', 'Preparing StarkGate bridge...')
-
-    const solanaWallet = walletContext.getConnectedWalletByChain('solana')
-
-    if (!solanaWallet || !solanaWallet.address) {
-      throw new Error('Solana wallet must be connected for StarkGate bridge')
-    }
-
-    try {
-      this.updateProgress('Executing bridge', 'Submitting bridge transaction...')
-
-      // StarkGate bridge execution logic
-      const execution: BridgeExecution = {
-        id: `starkgate_${Date.now()}`,
-        quote,
-        transaction: null,
-        status: 'PROCESSING',
-        currentStep: 1,
-        totalSteps: 4,
-        steps: ['Initializing', 'Signing transaction', 'Submitting to network', 'Completing bridge'],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        provider: 'starkgate'
-      }
-
-      // Mock StarkGate integration - would normally:
-      // 1. Call StarkGate bridge contract
-      // 2. Handle wallet signing for token transfer
-      // 3. Submit transaction to StarkGate network
-      // 4. Monitor cross-chain fulfillment
-
-      this.updateProgress('Processing', 'StarkGate bridge transaction submitted...')
-
-      // Simulate processing time (increased)
-      await new Promise(resolve => setTimeout(resolve, 6000))
-
-      this.updateProgress('Completing', 'StarkGate bridge completed successfully!')
-
-      execution.status = 'COMPLETED'
-      execution.updatedAt = new Date()
-
-      return execution
-
-    } catch (error) {
-      console.error('StarkGate bridge execution failed:', error)
-      throw new Error(`StarkGate bridge failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
+    throw new Error('StarkGate bridge integration coming soon!')
   }
 
   /**
@@ -252,42 +116,7 @@ export class BridgeWalletService {
     request: BridgeTransactionRequest,
     walletContext: ReturnType<typeof useWallet>
   ): Promise<BridgeExecution> {
-    const { quote } = request
-
-    this.updateProgress('Signing transaction', 'Preparing Defuse bridge...')
-
-    try {
-      this.updateProgress('Executing bridge', 'Submitting bridge transaction...')
-
-      const execution: BridgeExecution = {
-        id: `defuse_${Date.now()}`,
-        quote,
-        transaction: null,
-        status: 'PROCESSING',
-        currentStep: 1,
-        totalSteps: 4,
-        steps: ['Initializing', 'Creating intent', 'Submitting to network', 'Completing bridge'],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        provider: 'defuse'
-      }
-
-      // Mock Defuse integration
-      this.updateProgress('Processing', 'Defuse bridge intent submitted...')
-
-      await new Promise(resolve => setTimeout(resolve, 5500))
-
-      this.updateProgress('Completing', 'Defuse bridge completed successfully!')
-
-      execution.status = 'COMPLETED'
-      execution.updatedAt = new Date()
-
-      return execution
-
-    } catch (error) {
-      console.error('Defuse bridge execution failed:', error)
-      throw new Error(`Defuse bridge failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
+    throw new Error('Defuse bridge integration coming soon!')
   }
 
   /**
@@ -297,42 +126,7 @@ export class BridgeWalletService {
     request: BridgeTransactionRequest,
     walletContext: ReturnType<typeof useWallet>
   ): Promise<BridgeExecution> {
-    const { quote, fromAddress, toAddress } = request
-
-    this.updateProgress('Signing transaction', 'Preparing direct bridge...')
-
-    try {
-      // For direct bridges, we might need to sign and send transactions directly
-      // This would typically be used for chains that have direct bridge mechanisms
-
-      const execution: BridgeExecution = {
-        id: `direct_${Date.now()}`,
-        quote,
-        transaction: null,
-        status: 'PROCESSING',
-        currentStep: 1,
-        totalSteps: 4,
-        steps: ['Initializing', 'Processing transaction', 'Validating transfer', 'Completing bridge'],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        provider: 'direct'
-      }
-
-      this.updateProgress('Processing', 'Direct bridge transaction submitted...')
-
-      await new Promise(resolve => setTimeout(resolve, 4000))
-
-      this.updateProgress('Completing', 'Direct bridge completed successfully!')
-
-      execution.status = 'COMPLETED'
-      execution.updatedAt = new Date()
-
-      return execution
-
-    } catch (error) {
-      console.error('Direct bridge execution failed:', error)
-      throw new Error(`Direct bridge failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
+    throw new Error('Direct bridge integration coming soon!')
   }
 
   /**

@@ -11,7 +11,7 @@ import { Token } from '@/types/token'
 import { enhancedBridgeService, type EnhancedBridgeQuote, type BridgeExecution } from '@/lib/services/enhancedBridgeService'
 import { bridgeWalletService, type BridgeTransactionRequest } from '@/lib/services/bridgeWalletService'
 import { useWallet as useMultiChainWallet } from '@/contexts/WalletContext'
-import { ComingSoon } from '@/components/ui/ComingSoon'
+import { ComingSoonModal, useComingSoon } from '@/components/ui/ComingSoonModal'
 import { ImprovedZcashDeposit } from './ImprovedZcashDeposit'
 import { BridgingProgress } from '@/components/ui/BridgingProgress'
 import { formatTokenAmount } from '@/lib/token-formatting'
@@ -279,6 +279,9 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
   const [zecDepositAddress] = useState('zs1z7xjlrf4glvdpjl85kq7r6k3f3ydlrn4f9mz8qsxfq7rn8pgl3t2z7qk5f6h')
   const [completedTransaction, setCompletedTransaction] = useState<any>(null)
 
+  // Coming soon hook
+  const { showComingSoon, hideComingSoon, modalState } = useComingSoon()
+
   // Generate realistic transaction ID based on chains
   const generateTransactionId = (fromChain: string, toChain: string): string => {
     const characters = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz123456789'
@@ -423,7 +426,7 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
       // Disconnect wallet
       switch (fromChain) {
         case 'zec':
-          // Zcash doesn't need disconnection (mock pool system)
+          // Zcash doesn't need disconnection (pool system)
           break
         case 'starknet':
           await disconnectStarknet()
@@ -442,7 +445,7 @@ export function WavePortal({ privacyMode, comingSoon = false }: WavePortalProps)
         alert('Please use the Solana wallet connect button in the header')
         break
       case 'zec':
-        // Zcash doesn't need wallet connection (mock pool system)
+        // Zcash doesn't need wallet connection (pool system)
         alert('Zcash uses a pool system - no wallet connection required!')
         break
       case 'starknet':
@@ -473,59 +476,13 @@ const handleBridge = async () => {
       // Generate quote for Zcash bridge
       setIsGeneratingQuote(true)
       try {
-        // Create a mock quote for Zcash bridge with realistic fees and timing
-        const quote: EnhancedBridgeQuote = {
-          id: `zcash_${Date.now()}`,
-          fromToken: {
-            symbol: fromToken!.symbol,
-            name: fromToken!.name,
-            address: fromToken!.address,
-            decimals: fromToken!.decimals || 9,
-            chain: fromChain === 'zec' ? 'zec' : 'solana',
-            logoURI: fromToken!.logoURI,
-            bridgeSupport: {
-              nearIntents: false,
-              starkgate: false,
-              defuse: false,
-              directBridge: true
-            }
-          },
-          toToken: {
-            symbol: toToken!.symbol,
-            name: toToken!.name,
-            address: toToken!.address,
-            decimals: toToken!.decimals || 9,
-            chain: toChain === 'zec' ? 'zec' : 'solana',
-            logoURI: toToken!.logoURI,
-            bridgeSupport: {
-              nearIntents: false,
-              starkgate: false,
-              defuse: false,
-              directBridge: true
-            }
-          },
-          fromAmount: amount,
-          toAmount: amount, // 1:1 for ZEC
-          rate: '1.0', // 1:1 conversion rate
-          bridgeProvider: 'direct',
-          route: 'Zcash Bridge - Direct Transfer',
-          feeAmount: '0.001', // 0.001 ZEC fee
-          feePercentage: 0.1, // 0.1% fee
-          estimatedTime: '2-5 minutes',
-          slippageTolerance: 0.1,
-          depositChain: fromChain,
-          destinationChain: toChain,
-          status: 'pending'
-        }
-
-        console.log('Zcash bridge quote generated:', quote)
-        setBridgeQuote(quote)
-        setShowQuoteModal(true)
-
+        // Show coming soon message for Zcash bridges
+        showComingSoon('Zcash')
+        setIsGeneratingQuote(false)
+        return
       } catch (error) {
         console.error('Zcash quote generation failed:', error)
         setError(`Quote generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      } finally {
         setIsGeneratingQuote(false)
       }
       return
@@ -604,7 +561,22 @@ const handleBridge = async () => {
 
     } catch (error) {
       console.error('Quote generation failed:', error)
-      setError(`Quote generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+
+      // Convert technical errors to user-friendly coming soon messages
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      let userFriendlyMessage = 'Quote generation failed'
+
+      if (errorMessage.includes('coming soon') || errorMessage.includes('not implemented')) {
+        userFriendlyMessage = '🚀 This bridge integration is coming soon! We\'re working hard to bring you this feature.'
+      } else if (errorMessage.includes('Starkgate')) {
+        userFriendlyMessage = '🚀 StarkNet bridges are coming soon! We\'re integrating with StarkGate for secure SOL↔StarkNet transfers.'
+      } else if (errorMessage.includes('Defuse')) {
+        userFriendlyMessage = '🚀 Defuse bridges are coming soon! We\'re integrating with the Defuse protocol.'
+      } else {
+        userFriendlyMessage = `❌ ${errorMessage}`
+      }
+
+      setError(userFriendlyMessage)
     } finally {
       setIsGeneratingQuote(false)
     }
@@ -736,16 +708,14 @@ const handleBridge = async () => {
 
       const walletAddress = getWalletAddressForChain(sourceChain)
 
-      // Add mock transaction signing for StarkNet
+      // Add transaction signing for StarkNet
       if (sourceChain === 'starknet' && starknetConnected) {
         setBridgingStep(2)
-        setBridgingMessage('Signing StarkNet transaction...')
+        setBridgingMessage('Preparing StarkNet bridge...')
 
-        // Simulate transaction signing delay (increased)
-        await new Promise(resolve => setTimeout(resolve, 4000))
-
-        // Mock successful transaction signing
-        console.log('Mock StarkNet transaction signed successfully')
+        // Show coming soon message for StarkNet bridges
+        showComingSoon('StarkNet')
+        return
       }
 
       // Create bridge transaction request
@@ -817,7 +787,26 @@ const handleBridge = async () => {
 
     } catch (error) {
       console.error('Bridge execution failed:', error)
-      setError(`Bridge execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+
+      // Convert technical errors to user-friendly coming soon messages
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      let userFriendlyMessage = 'Bridge execution failed'
+
+      if (errorMessage.includes('coming soon') || errorMessage.includes('not implemented')) {
+        userFriendlyMessage = '🚀 This bridge integration is coming soon! We\'re working hard to bring you this feature.'
+      } else if (errorMessage.includes('Zcash')) {
+        userFriendlyMessage = '🚀 Zcash bridges are coming soon! We\'re working hard to bring you secure ZEC↔SOL bridging.'
+      } else if (errorMessage.includes('StarkNet') || errorMessage.includes('StarkGate')) {
+        userFriendlyMessage = '🚀 StarkNet bridges are coming soon! We\'re integrating with StarkGate for secure SOL↔StarkNet transfers.'
+      } else if (errorMessage.includes('Near Intents')) {
+        userFriendlyMessage = '🚀 Near Intents bridges are coming soon! We\'re integrating with the Near Intents protocol.'
+      } else if (errorMessage.includes('Defuse')) {
+        userFriendlyMessage = '🚀 Defuse bridges are coming soon! We\'re integrating with the Defuse protocol.'
+      } else {
+        userFriendlyMessage = `❌ ${errorMessage}`
+      }
+
+      setError(userFriendlyMessage)
       setShowBridgingProgress(false)
     } finally {
       setIsBridging(false)
@@ -1905,6 +1894,14 @@ const handleBridge = async () => {
         isOpen={showStarknetWalletModal}
         onClose={() => setShowStarknetWalletModal(false)}
         onSuccess={() => setShowStarknetWalletModal(false)}
+      />
+
+      {/* Coming Soon Modal */}
+      <ComingSoonModal
+        isOpen={modalState.isOpen}
+        onClose={hideComingSoon}
+        feature={modalState.feature}
+        description={modalState.description}
       />
     </div>
   )

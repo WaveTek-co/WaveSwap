@@ -13,6 +13,7 @@ import { Token, SwapStatus } from '@/types/token'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 import { EncifherClient, EncifherUtils } from '@/lib/encifher'
 import { formatTokenAmount } from '@/lib/token-formatting'
+import { clearBalanceCache } from '@/lib/tokens'
 
 interface SwapComponentProps {
   privacyMode: boolean
@@ -70,8 +71,12 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     }
   }, [publicKey])
 
-  // Fetch confidential balances from API when privacy mode is enabled and user is connected
+  // Clear balance cache when privacy mode changes to prevent stale data
   useEffect(() => {
+    console.log('[SwapComponent] Privacy mode changed to:', privacyMode)
+    clearBalanceCache()
+
+    // Fetch confidential balances from API when privacy mode is enabled and user is connected
     if (privacyMode && publicKey) {
       fetchConfidentialBalances()
     } else {
@@ -661,19 +666,47 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       .filter((balance): balance is NonNullable<typeof balance> => balance !== null) // Remove null entries with type guard
   }, [privacyMode, availableTokens, publicKey, apiConfidentialBalances])
 
-  // Get balances
+  // Get balances with debugging
   const inputBalance = safeInputToken?.address ? (balances.get(safeInputToken.address) || '0') : '0'
   const outputBalance = safeOutputToken?.address ? (balances.get(safeOutputToken.address) || '0') : '0'
 
-  const inputBalanceFormatted = safeInputToken ? formatTokenAmount(
-    parseFloat(inputBalance) / Math.pow(10, safeInputToken.decimals || 9),
-    safeInputToken.decimals || 9
-  ) : '0'
+  // Debug logging for balance state changes
+  useEffect(() => {
+    if (safeInputToken && inputBalance) {
+      const lamports = parseFloat(inputBalance)
+      const humanReadable = lamports / Math.pow(10, safeInputToken.decimals || 9)
+      console.log(`[Balance Debug] ${safeInputToken.symbol}: ${inputBalance} lamports (${humanReadable} ${safeInputToken.symbol})`)
 
-  const outputBalanceFormatted = safeOutputToken ? formatTokenAmount(
-    parseFloat(outputBalance) / Math.pow(10, safeOutputToken.decimals || 9),
-    safeOutputToken.decimals || 9
-  ) : '0'
+      // Force a re-render if balance changes
+      if (lamports > 0) {
+        console.log(`[Balance Debug] ✅ Positive balance detected: ${humanReadable} ${safeInputToken.symbol}`)
+      }
+    }
+  }, [inputBalance, safeInputToken])
+
+  const inputBalanceFormatted = safeInputToken ? (() => {
+    try {
+      const lamports = parseFloat(inputBalance)
+      const decimals = safeInputToken.decimals || 9
+      const humanReadable = lamports / Math.pow(10, decimals)
+      return formatTokenAmount(humanReadable, decimals)
+    } catch (error) {
+      console.error('[Balance Debug] Error formatting input balance:', error, inputBalance)
+      return '0'
+    }
+  })() : '0'
+
+  const outputBalanceFormatted = safeOutputToken ? (() => {
+    try {
+      const lamports = parseFloat(outputBalance)
+      const decimals = safeOutputToken.decimals || 9
+      const humanReadable = lamports / Math.pow(10, decimals)
+      return formatTokenAmount(humanReadable, decimals)
+    } catch (error) {
+      console.error('[Balance Debug] Error formatting output balance:', error, outputBalance)
+      return '0'
+    }
+  })() : '0'
 
   const hasInsufficientBalance = safeInputToken && inputAmount && publicKey ? (() => {
     const inputAmountNum = parseFloat(inputAmount)
