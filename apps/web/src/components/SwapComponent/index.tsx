@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { Connection } from '@solana/web3.js'
+import { Connection, PublicKey } from '@solana/web3.js'
+import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token'
 import { ArrowsUpDownIcon, ExclamationTriangleIcon, ArrowDownTrayIcon, WalletIcon, LockClosedIcon } from '@heroicons/react/24/outline'
 import { TokenSelector } from './TokenSelector'
 import { AmountInput } from './AmountInput'
@@ -462,6 +463,12 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     recoverTransaction
   } = useSwap(privacyMode, publicKey)
 
+// Add direct balance fetching as a backup when useSwap hook might not be working
+  const [localBalances, setLocalBalances] = useState<Map<string, string>>(new Map())
+  const [balanceUpdateTrigger, setBalanceUpdateTrigger] = useState(0)
+
+  
+  
   // Handle input amount change
   const handleInputChange = (amount: string) => {
     setInputAmount(amount)
@@ -666,52 +673,121 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       .filter((balance): balance is NonNullable<typeof balance> => balance !== null) // Remove null entries with type guard
   }, [privacyMode, availableTokens, publicKey, apiConfidentialBalances])
 
-  // Get balances with debugging
+  // Get balances with debugging and force re-render
   const inputBalance = safeInputToken?.address ? (balances.get(safeInputToken.address) || '0') : '0'
   const outputBalance = safeOutputToken?.address ? (balances.get(safeOutputToken.address) || '0') : '0'
 
-  // Debug logging for balance state changes
+  // Debug logging and force re-render for positive balances
   useEffect(() => {
-    if (safeInputToken && inputBalance) {
-      const lamports = parseFloat(inputBalance)
-      const humanReadable = lamports / Math.pow(10, safeInputToken.decimals || 9)
-      console.log(`[Balance Debug] ${safeInputToken.symbol}: ${inputBalance} lamports (${humanReadable} ${safeInputToken.symbol})`)
+    if (safeInputToken) {
+      // Show the actual balance being displayed (from local fallback if needed)
+      const actualBalance = inputBalance === '0' && localBalances.has(safeInputToken.address)
+        ? localBalances.get(safeInputToken.address)!
+        : inputBalance
 
-      // Force a re-render if balance changes
-      if (lamports > 0) {
+      const lamports = parseFloat(actualBalance)
+      const humanReadable = lamports / Math.pow(10, safeInputToken.decimals || 9)
+      const source = actualBalance === inputBalance ? "useSwap hook" : "local fallback"
+
+      console.log(`[Balance Debug] ${safeInputToken.symbol}: ${actualBalance} lamports (${humanReadable} ${safeInputToken.symbol}) [source: ${source}]`)
+
+      // Force a re-render if we detect a positive balance but UI might be showing 0
+      if (lamports > 0 && balanceUpdateTrigger === 0) {
         console.log(`[Balance Debug] ✅ Positive balance detected: ${humanReadable} ${safeInputToken.symbol}`)
+        console.log(`[Balance Debug] Triggering re-render to update UI`)
+        // Force re-render to ensure UI updates (only once)
+        setBalanceUpdateTrigger(1)
       }
     }
-  }, [inputBalance, safeInputToken])
+  }, [inputBalance, safeInputToken, balances.size, balanceUpdateTrigger, localBalances])
 
-  const inputBalanceFormatted = safeInputToken ? (() => {
+  // Memoize formatted balances to prevent unnecessary recalculations
+  const inputBalanceFormatted = useMemo(() => {
+    if (!safeInputToken) return '0'
+
+    console.log(`[Balance Debug] inputBalance: ${inputBalance}, localBalances.has(${safeInputToken.address}): ${localBalances.has(safeInputToken.address)}, localBalances.size: ${localBalances.size}`)
+
+    // Use local balance as fallback if main balance is 0
+    const balanceToUse = inputBalance === '0' && localBalances.has(safeInputToken.address)
+      ? localBalances.get(safeInputToken.address)!
+      : inputBalance
+
+    console.log(`[Balance Debug] Using balance: ${balanceToUse} (source: ${balanceToUse === inputBalance ? 'useSwap hook' : 'local fallback'})`)
+
     try {
-      const lamports = parseFloat(inputBalance)
+      const lamports = parseFloat(balanceToUse)
       const decimals = safeInputToken.decimals || 9
       const humanReadable = lamports / Math.pow(10, decimals)
-      return formatTokenAmount(humanReadable, decimals)
-    } catch (error) {
-      console.error('[Balance Debug] Error formatting input balance:', error, inputBalance)
-      return '0'
-    }
-  })() : '0'
 
-  const outputBalanceFormatted = safeOutputToken ? (() => {
+      if (humanReadable > 0) {
+        const source = balanceToUse === inputBalance ? "useSwap" : "local"
+        console.log(`[Balance Debug] Formatting input balance (${source}): ${lamports} → ${humanReadable}`)
+      }
+
+      const formatted = formatTokenAmount(humanReadable, decimals)
+
+      // Ensure we never return '0' when we have a positive balance
+      if (lamports > 0 && formatted === '0') {
+        console.warn(`[Balance Debug] ⚠️ Formatted as 0 but lamports > 0. Fallback to raw display: ${humanReadable}`)
+        return humanReadable.toString()
+      }
+
+      console.log(`[Balance Debug] ✅ FINAL inputBalanceFormatted result: ${formatted}`)
+      return formatted
+    } catch (error) {
+      console.error('[Balance Debug] Error formatting input balance:', error, balanceToUse)
+      // Fallback to direct conversion if formatting fails
+      try {
+        const lamports = parseFloat(balanceToUse)
+        const decimals = safeInputToken.decimals || 9
+        const fallback = (lamports / Math.pow(10, decimals)).toString()
+        console.log(`[Balance Debug] ✅ FINAL inputBalanceFormatted fallback: ${fallback}`)
+        return fallback
+      } catch {
+        console.log(`[Balance Debug] ❌ FINAL inputBalanceFormatted: '0' (all failed)`)
+        return '0'
+      }
+    }
+  }, [inputBalance, safeInputToken, balanceUpdateTrigger, localBalances])
+
+  const outputBalanceFormatted = useMemo(() => {
+    if (!safeOutputToken) return '0'
+
     try {
       const lamports = parseFloat(outputBalance)
       const decimals = safeOutputToken.decimals || 9
       const humanReadable = lamports / Math.pow(10, decimals)
-      return formatTokenAmount(humanReadable, decimals)
+      const formatted = formatTokenAmount(humanReadable, decimals)
+
+      if (lamports > 0 && formatted === '0') {
+        console.warn(`[Balance Debug] ⚠️ Output balance formatted as 0 but lamports > 0: ${humanReadable}`)
+        return humanReadable.toString()
+      }
+
+      return formatted
     } catch (error) {
       console.error('[Balance Debug] Error formatting output balance:', error, outputBalance)
-      return '0'
+      try {
+        const lamports = parseFloat(outputBalance)
+        const decimals = safeOutputToken.decimals || 9
+        return (lamports / Math.pow(10, decimals)).toString()
+      } catch {
+        return '0'
+      }
     }
-  })() : '0'
+  }, [outputBalance, safeOutputToken, balanceUpdateTrigger])
 
   const hasInsufficientBalance = safeInputToken && inputAmount && publicKey ? (() => {
     const inputAmountNum = parseFloat(inputAmount)
     if (isNaN(inputAmountNum) || inputAmountNum <= 0) return false
-    const balanceNum = parseFloat(inputBalance) / Math.pow(10, safeInputToken.decimals || 9)
+
+    // Use the actual balance being displayed (from local fallback if needed)
+    const actualBalance = inputBalance === '0' && localBalances.has(safeInputToken.address)
+      ? localBalances.get(safeInputToken.address)!
+      : inputBalance
+
+    const balanceNum = parseFloat(actualBalance) / Math.pow(10, safeInputToken.decimals || 9)
+    console.log(`[Balance Check] Amount: ${inputAmountNum}, Balance: ${balanceNum}, Insufficient: ${inputAmountNum > balanceNum}`)
     return inputAmountNum > balanceNum
   })() : false
 
@@ -724,6 +800,39 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     !isLoading &&
     !hasInsufficientBalance
   )
+
+  // Create merged balances Map with local fallbacks for child components
+  const mergedBalances = useMemo(() => {
+    const merged = new Map(balances)
+
+    // Merge local fallback balances
+    localBalances.forEach((localBalance, address) => {
+      const currentBalance = merged.get(address) || '0'
+      console.log(`[Balance Merge] ${address}: current=${currentBalance}, local=${localBalance}, using local=${parseFloat(localBalance) > parseFloat(currentBalance)}`)
+
+      // Use local balance if it's greater than current balance (to handle the case where current is 0)
+      if (parseFloat(localBalance) > parseFloat(currentBalance)) {
+        merged.set(address, localBalance)
+      }
+    })
+
+    return merged
+  }, [balances, localBalances])
+
+  // Store correct balance from useSwap hook when available (no more RPC calls)
+  useEffect(() => {
+    const storeBalanceFromHook = () => {
+      if (publicKey && safeInputToken && inputBalance !== '0' && parseFloat(inputBalance) > 0) {
+        console.log(`[Balance Storage] Storing correct balance from useSwap hook: ${inputBalance} for ${safeInputToken.symbol}`)
+        setLocalBalances(prev => new Map(prev.set(safeInputToken.address, inputBalance)))
+      } else if (publicKey && safeInputToken && inputBalance === '0' && localBalances.has(safeInputToken.address)) {
+        console.log(`[Balance Storage] useSwap hook has 0, but we have local balance: ${localBalances.get(safeInputToken.address)}`)
+        setBalanceUpdateTrigger(prev => prev + 1) // Force re-render to use local balance
+      }
+    }
+
+    storeBalanceFromHook()
+  }, [publicKey, safeInputToken, inputBalance])
 
   const isProgressActive = !!(progress && progress.status !== SwapStatus.IDLE && progress.status !== SwapStatus.COMPLETED)
 
@@ -920,12 +1029,21 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                             <button
                               key={label}
                               onClick={() => {
-                                const balanceNum = parseFloat(inputBalance)
+                                // Use the actual balance being displayed (from local fallback if needed)
+                                const actualBalance = inputBalance === '0' && localBalances.has(safeInputToken.address)
+                                  ? localBalances.get(safeInputToken.address)!
+                                  : inputBalance
+
+                                const balanceNum = parseFloat(actualBalance)
+                                console.log(`[Percentage Buttons] ${label} clicked - balance: ${balanceNum} lamports`)
+
                                 if (balanceNum > 0) {
                                   const maxAmount = balanceNum / Math.pow(10, safeInputToken.decimals || 9)
                                   const amountWithFees = maxAmount * value
+                                  console.log(`[Percentage Buttons] Setting amount: ${amountWithFees} (${label} of ${maxAmount})`)
                                   setInputAmount(amountWithFees.toString())
                                 } else {
+                                  console.log(`[Percentage Buttons] Balance is 0, setting amount to 0`)
                                   setInputAmount('0')
                                 }
                                 clearQuote()
@@ -983,7 +1101,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                           onTokenChange={handleInputTokenChange}
                           tokens={optimizedTokens}
                           disabled={isLoading || isProgressActive}
-                          balances={balances}
+                          balances={mergedBalances}
                           isPrivacyMode={privacyMode}
                           isOutputSelector={false}
                         />
@@ -1055,7 +1173,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                           onTokenChange={handleOutputTokenChange}
                           tokens={optimizedTokens}
                           disabled={isLoading || isProgressActive}
-                          balances={balances}
+                          balances={mergedBalances}
                           isPrivacyMode={privacyMode}
                           isOutputSelector={true}
                         />
