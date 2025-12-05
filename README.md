@@ -16,6 +16,8 @@ Swap any SPL tokens with encrypted amounts, zero MEV exposure, and institutional
 
 **[Documentation](https://wave-swap-docs.vercel.app)** • **[Launch App](https://app.waveswap.io)** • **[Discord](https://discord.gg/waveswap)**
 
+> ⚠️ **Important Notice**: WaveSwap is currently in development and not formally audited. Please use with caution and only with amounts you can afford to lose. WavePortal cross-chain bridge will be available soon.
+
 </div>
 
 ## ✨ Features
