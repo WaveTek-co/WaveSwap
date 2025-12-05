@@ -19,9 +19,9 @@ import { TermsGuard } from '@/components/TermsGuard'
 // Using local Helvetica Neue and JetBrains Mono fonts only
 
 export const metadata: Metadata = {
-  title: 'WaveSwap - Privacy-Preserving DEX Aggregator',
-  description: 'Swap any SPL tokens privately with encrypted amounts, zero MEV exposure, and institutional-grade execution on Solana.',
-  keywords: ['Solana', 'DeFi', 'DEX', 'Privacy', 'Swap', 'Cryptocurrency', 'Blockchain', 'WaveTek'],
+  title: 'WaveTek - Privacy-Preserving Interoperable DEX Aggregator',
+  description: 'Swap tokens privately with encrypted amounts, zero MEV exposure, and institutional-grade execution on Solana and multiple other chains.',
+  keywords: ['Solana', 'DeFi', 'DEX', 'Privacy', 'Swap', 'Zcash', 'Blockchain', 'WaveTek'],
   authors: [{ name: 'WaveSwap Team' }],
   creator: 'WaveSwap',
   publisher: 'WaveSwap',
