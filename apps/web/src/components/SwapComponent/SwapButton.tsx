@@ -1,6 +1,6 @@
 'use client'
 
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet } from '@/hooks/useWalletAdapter'
 import { ArrowPathIcon, LockClosedIcon, XMarkIcon, WalletIcon } from '@heroicons/react/24/outline'
 import { ReactNode } from 'react'
 import { SwapProgress, SwapStatus } from '@/types/token'

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { useConnection } from '@solana/wallet-adapter-react'
+import { useConnection } from '@/hooks/useWalletAdapter'
 
 interface QuoteRequest {
   inputMint: string

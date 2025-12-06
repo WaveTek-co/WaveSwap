@@ -1,6 +1,6 @@
 'use client'
 
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet } from '@/hooks/useWalletAdapter'
 import { useEffect, useState } from 'react'
 
 interface HydratedWalletProviderProps {

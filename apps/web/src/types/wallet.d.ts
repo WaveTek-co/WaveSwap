@@ -22,6 +22,17 @@ declare global {
       signAllTransactions: (transactions: any[]) => Promise<any[]>
     }
 
+      // Solflare
+    solflare?: {
+      isSolflare?: boolean
+      isConnected?: () => boolean
+      connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>
+      disconnect: () => Promise<void>
+      getBalance: () => Promise<number>
+      signTransaction: (transaction: any) => Promise<any>
+      signAllTransactions: (transactions: any[]) => Promise<any[]>
+    }
+
     // NEAR
     near?: {
       isSignedIn: () => boolean

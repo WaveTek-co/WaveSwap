@@ -27,18 +27,17 @@
     "@heroicons/react": "^2.0.0",
     "@hot-labs/near-connect": "0.6.8",
     "@jup-ag/api": "^6.0.46",
+    "@jup-ag/wallet-adapter": "^0.2.6",
+    "@ledgerhq/hw-app-solana": "^7.6.0",
+    "@ledgerhq/hw-transport-webusb": "^6.29.13",
     "@near-wallet-selector/core": "9.1.0",
     "@near-wallet-selector/modal-ui": "^10.1.1",
     "@near-wallet-selector/near-wallet": "^8.9.3",
+    "@phantom/browser-sdk": "^1.0.0-beta.26",
+    "@phantom/react-sdk": "^1.0.0-beta.26",
     "@prisma/client": "^5.20.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/spl-token-registry": "^0.2.4574",
-    "@solana/wallet-adapter-backpack": "^0.1.14",
-    "@solana/wallet-adapter-base": "^0.9.27",
-    "@solana/wallet-adapter-phantom": "^0.9.28",
-    "@solana/wallet-adapter-react": "^0.15.35",
-    "@solana/wallet-adapter-react-ui": "^0.9.35",
-    "@solana/wallet-adapter-wallets": "^0.19.32",
     "@solana/web3.js": "^1.98.4",
     "@types/qrcode": "^1.5.6",
     "@types/react": "18.3.12",
@@ -94,9 +93,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "peerDependencies": {
-    "@phantom/browser-sdk": "^1.0.0-beta.22",
-    "@phantom/react-sdk": "^1.0.0-beta.22"
   }
 }

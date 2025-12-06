@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet } from '@/hooks/useWalletAdapter'
 import { Wallet, ChevronDown, ExternalLink } from 'lucide-react'
 
 export function WalletMultiButton() {

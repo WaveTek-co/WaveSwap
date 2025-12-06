@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection, useWallet } from '@/hooks/useWalletAdapter'
 import { PublicKey, Connection, Transaction, VersionedTransaction, Keypair } from '@solana/web3.js'
 import { useThemeConfig } from '@/lib/theme'
 import { createSwapService, SwapServiceConfig, SwapRequest, SwapUtils as ServiceSwapUtils } from '@/services/swap'

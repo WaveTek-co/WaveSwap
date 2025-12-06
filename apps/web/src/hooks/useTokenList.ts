@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { useConnection } from '@solana/wallet-adapter-react'
+import { useConnection } from '@/hooks/useWalletAdapter'
 import { PublicKey } from '@solana/web3.js'
 import { Token } from '@/types/token'
 import { getUserTokens, getDefaultTokens } from '@/lib/tokens'

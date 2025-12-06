@@ -14,7 +14,7 @@
  */
 
 import { Connection, PublicKey, Transaction, VersionedTransaction, sendAndConfirmTransaction } from '@solana/web3.js'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet } from '@/hooks/useWalletAdapter'
 import { JupiterAPI, JupiterQuoteParams, JupiterSwapParams } from '@/lib/jupiter'
 import { formatTokenAmount } from '@/lib/token-formatting'
 import {

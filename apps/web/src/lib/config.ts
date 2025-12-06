@@ -9,6 +9,13 @@ export const config = {
   rpc: {
     url: process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com',
     network: process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet-beta',
+    // Fallback RPC endpoints for redundancy
+    fallbackUrls: [
+      'https://api.mainnet-beta.solana.com',
+      'https://solana-api.projectserum.com',
+      'https://rpc.ankr.com/solana',
+      'https://solana-mainnet.g.alchemy.com/v2/demo'
+    ]
   },
 
   // Jupiter API Configuration
@@ -28,6 +35,7 @@ export const config = {
   swap: {
     defaultSlippageBps: 50, // 0.5%
     maxSlippageBps: 1000,   // 10%
+    maintenanceMode: true, // Maintenance mode toggle
   },
 } as const
 

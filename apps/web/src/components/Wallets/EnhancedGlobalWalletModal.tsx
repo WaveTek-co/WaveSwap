@@ -4,7 +4,7 @@ import { SolanaWalletModal } from './SolanaWalletModal'
 import { EnhancedWalletModal } from './EnhancedWalletModal'
 import { useWalletModal } from '@/contexts/WalletModalContext'
 import { useSolanaWallet } from '@/hooks/useSolanaWallet'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet } from '@/hooks/useWalletAdapter'
 
 export function EnhancedGlobalWalletModal() {
   const { isModalOpen, closeModal } = useWalletModal()

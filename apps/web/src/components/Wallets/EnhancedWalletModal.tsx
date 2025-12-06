@@ -1,19 +1,18 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
-import { useConnection } from '@solana/wallet-adapter-react'
+import { useState, useRef, useEffect } from 'react'
+import { useMultiWallet } from '@/contexts/MultiWalletContext'
 import {
   X,
   Wallet,
-  Check,
   AlertCircle,
   ExternalLink,
   Star,
   ShieldCheck,
   Zap,
   Users,
-  Globe
+  Globe,
+  ChevronDown
 } from 'lucide-react'
 
 interface EnhancedWalletModalProps {
@@ -35,12 +34,36 @@ interface WalletOption {
 }
 
 export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProps) {
-  const { select, wallets, connect, disconnect, publicKey, connecting, connected } = useWallet()
-  const { connection } = useConnection()
+  const {
+    connect,
+    connecting,
+    connected,
+    connection
+  } = useMultiWallet()
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null)
+  const [showOtherWallets, setShowOtherWallets] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
 
+  // Check if wallet is installed (browser detection)
+  const isWalletInstalled = (walletName: string): boolean => {
+    if (typeof window === 'undefined') return false
+
+    switch (walletName.toLowerCase()) {
+      case 'phantom':
+        return !!window.solana?.isPhantom
+      case 'backpack':
+        return !!window.backpack?.isBackpack
+      case 'solflare':
+        return !!window.solflare?.isSolflare
+      case 'jupiter':
+        return true // Jupiter adapter is bundled
+      default:
+        return false
+    }
+  }
+
   const WALLET_OPTIONS: WalletOption[] = [
+    // Primary wallets (top level)
     {
       id: 'phantom',
       name: 'Phantom',
@@ -51,6 +74,62 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
       isRecommended: true,
       features: ['NFT Support', 'Staking', 'DeFi Integration', 'Browser Extension'],
       userCount: '3M+',
+      category: 'browser'
+    },
+    {
+      id: 'google',
+      name: 'Google',
+      description: 'Connect with Google account via Phantom SDK',
+      icon: '/assets/wallets/google.svg',
+      color: '#4285F4',
+      installUrl: 'https://phantom.app/',
+      features: ['Google OAuth', 'Phantom SDK', 'Easy Login'],
+      userCount: '2.5B+',
+      category: 'browser'
+    },
+    {
+      id: 'apple',
+      name: 'Apple',
+      description: 'Connect with Apple ID via Phantom SDK',
+      icon: '/assets/wallets/apple.svg',
+      color: '#000000',
+      installUrl: 'https://phantom.app/',
+      features: ['Apple ID', 'Phantom SDK', 'Secure Login'],
+      userCount: '1B+',
+      category: 'browser'
+    },
+    {
+      id: 'ledger',
+      name: 'Ledger',
+      description: 'Hardware wallet for maximum security',
+      icon: '/assets/wallets/ledger.svg',
+      color: '#000000',
+      installUrl: 'https://www.ledger.com/',
+      features: ['Hardware Security', 'Cold Storage', 'Maximum Security'],
+      userCount: '5M+',
+      category: 'hardware'
+    },
+    // Other wallets (dropdown)
+    {
+      id: 'jupiter',
+      name: 'Jupiter',
+      description: 'Advanced trading and swap features',
+      icon: '/assets/wallets/jupiter.svg',
+      color: '#7B3FF2',
+      installUrl: 'https://station.jup.ag/',
+      features: ['Swaps', 'Limit Orders', 'DCA', 'Bridge'],
+      userCount: '500K+',
+      category: 'browser'
+    },
+    {
+      id: 'backpack',
+      name: 'Backpack',
+      description: 'Developer-focused wallet with xNFTs',
+      icon: '/assets/wallets/backpack.svg',
+      color: '#6366F1',
+      installUrl: 'https://backpack.app/',
+      features: ['xNFT Support', 'Developer Tools', 'SOL Stake'],
+      userCount: '200K+',
       category: 'browser'
     },
     {
@@ -66,18 +145,17 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
     }
   ]
 
-  // Filter available wallets
-  const availableWallets = useMemo(() => {
-    return wallets.map(wallet => {
-      const walletOption = WALLET_OPTIONS.find(option => option.id === wallet.adapter.name.toLowerCase())
-      return {
-        ...wallet,
-        ...walletOption,
-        isInstalled: wallet.readyState === 'Installed'
-      }
-    })
-  }, [wallets])
+  // Primary wallets: Phantom, Google, Apple, Ledger
+  const primaryWallets = WALLET_OPTIONS.filter(wallet =>
+    ['phantom', 'google', 'apple', 'ledger'].includes(wallet.id)
+  )
 
+  // Other wallets for dropdown: Jupiter, Backpack, Solflare
+  const otherWallets = WALLET_OPTIONS.filter(wallet =>
+    ['jupiter', 'backpack', 'solflare'].includes(wallet.id)
+  )
+
+  
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -108,15 +186,8 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
     try {
       setSelectedWallet(walletName)
 
-      // Find the wallet adapter
-      const wallet = availableWallets.find(w => w.adapter.name.toLowerCase() === walletName.toLowerCase())
-      if (!wallet) {
-        throw new Error('Wallet not found')
-      }
-
-      // Select and connect
-      select(wallet.adapter.name)
-      await connect()
+      // Use our MultiWalletContext connect function
+      await connect(walletName)
 
       onClose()
     } catch (error) {
@@ -239,122 +310,290 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
 
             {/* Wallet Grid */}
             <div className="p-8 pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {availableWallets.map((wallet) => {
-                  const isRecommended = wallet.isRecommended
-                  const isInstalled = wallet.readyState === 'Installed'
-                  const isConnected = connected && publicKey && wallet.adapter.name === wallet.adapter.name
-                  const isPending = selectedWallet === wallet.adapter.name.toLowerCase() && connecting
+              {/* Primary Wallets */}
+              <div className="mb-8">
+                <h3 className="text-white font-semibold text-lg mb-4" style={{ fontFamily: 'var(--font-helvetica)' }}>
+                  Popular Wallets
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {primaryWallets.map((wallet) => {
+                    const isInstalled = isWalletInstalled(wallet.id)
+                    const isPending = selectedWallet === wallet.id && connecting
 
-                  return (
-                    <div
-                      key={wallet.adapter.name}
-                      className={`relative ${isRecommended ? 'order-first' : ''}`}
-                    >
-                      {/* Recommended Badge */}
-                      {isRecommended && !isConnected && (
-                        <div className="absolute -top-2 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30 backdrop-blur-sm">
-                          <Star className="w-3 h-3 text-blue-400" />
-                          <span className="text-blue-300 text-xs font-semibold" style={{ fontFamily: 'var(--font-helvetica)' }}>
-                            RECOMMENDED
-                          </span>
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => handleWalletConnect(wallet.adapter.name.toLowerCase())}
-                        disabled={isConnected || isPending || !isInstalled}
-                        className={`w-full group relative overflow-hidden rounded-2xl border transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
-                          isRecommended ? 'ring-2 ring-blue-400/20 ring-offset-2 ring-offset-transparent' : ''
-                        }`}
-                        style={{
-                          background: isConnected
-                            ? `
-                              linear-gradient(135deg,
-                                rgba(34, 197, 94, 0.15) 0%,
-                                rgba(34, 197, 94, 0.08) 50%,
-                                rgba(34, 197, 94, 0.15) 100%
-                              )
-                            `
-                            : isInstalled
-                            ? `
-                              linear-gradient(135deg,
-                                rgba(30, 30, 45, 0.8) 0%,
-                                rgba(45, 45, 65, 0.6) 50%,
-                                rgba(30, 30, 45, 0.8) 100%
-                              )
-                            `
-                            : `
-                              linear-gradient(135deg,
-                                rgba(30, 30, 45, 0.4) 0%,
-                                rgba(45, 45, 65, 0.3) 50%,
-                                rgba(30, 30, 45, 0.4) 100%
-                              )
-                            `,
-                          borderColor: isConnected
-                            ? 'rgba(34, 197, 94, 0.4)'
-                            : isInstalled
-                            ? 'rgba(33, 188, 255, 0.2)'
-                            : 'rgba(55, 65, 81, 0.4)',
-                          cursor: (isConnected || isPending || !isInstalled) ? 'default' : 'pointer',
-                          backdropFilter: 'blur(16px) saturate(1.5)',
-                          boxShadow: isConnected
-                            ? `
-                              0 12px 40px rgba(34, 197, 94, 0.2),
-                              inset 0 1px 0 rgba(255, 255, 255, 0.1)
-                            `
-                            : isInstalled
-                            ? `
-                              0 12px 40px rgba(0, 0, 0, 0.3),
-                              inset 0 1px 0 rgba(255, 255, 255, 0.05)
-                            `
-                            : `
-                              0 8px 24px rgba(0, 0, 0, 0.2)
-                            `,
-                          marginTop: isRecommended ? '0.75rem' : '0'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isConnected && !isPending && isInstalled) {
-                            e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.4)'
-                            e.currentTarget.style.background = `
-                              linear-gradient(135deg,
-                                rgba(33, 188, 255, 0.15) 0%,
-                                rgba(33, 188, 255, 0.08) 50%,
-                                rgba(33, 188, 255, 0.15) 100%
-                              )
-                            `
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isConnected && !isPending && isInstalled) {
-                            e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.2)'
-                            e.currentTarget.style.background = `
-                              linear-gradient(135deg,
-                                rgba(30, 30, 45, 0.8) 0%,
-                                rgba(45, 45, 65, 0.6) 50%,
-                                rgba(30, 30, 45, 0.8) 100%
-                              )
-                            `
-                          }
-                        }}
+                    return (
+                      <div
+                        key={wallet.id}
+                        className={`relative ${wallet.isRecommended ? 'order-first' : ''}`}
                       >
-                        <div className="p-5">
-                          <div className="flex items-start gap-4 mb-4">
-                            {/* Wallet Icon */}
-                            <div className="relative">
+                        {/* Recommended Badge */}
+                        {wallet.isRecommended && !connected && (
+                          <div className="absolute -top-2 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30 backdrop-blur-sm">
+                            <Star className="w-3 h-3 text-blue-400" />
+                            <span className="text-blue-300 text-xs font-semibold" style={{ fontFamily: 'var(--font-helvetica)' }}>
+                              RECOMMENDED
+                            </span>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => handleWalletConnect(wallet.id)}
+                          disabled={isPending}
+                          className={`w-full group relative overflow-hidden rounded-2xl border transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
+                            wallet.isRecommended ? 'ring-2 ring-blue-400/20 ring-offset-2 ring-offset-transparent' : ''
+                          }`}
+                          style={{
+                            background: isInstalled
+                              ? `
+                                linear-gradient(135deg,
+                                  rgba(30, 30, 45, 0.8) 0%,
+                                  rgba(45, 45, 65, 0.6) 50%,
+                                  rgba(30, 30, 45, 0.8) 100%
+                                )
+                              `
+                              : `
+                                linear-gradient(135deg,
+                                  rgba(30, 30, 45, 0.4) 0%,
+                                  rgba(45, 45, 65, 0.3) 50%,
+                                  rgba(30, 30, 45, 0.4) 100%
+                                )
+                              `,
+                            borderColor: isInstalled
+                              ? 'rgba(33, 188, 255, 0.2)'
+                              : 'rgba(55, 65, 81, 0.4)',
+                            cursor: isPending ? 'default' : 'pointer',
+                            backdropFilter: 'blur(16px) saturate(1.5)',
+                            boxShadow: isInstalled
+                              ? `
+                                0 12px 40px rgba(0, 0, 0, 0.3),
+                                inset 0 1px 0 rgba(255, 255, 255, 0.05)
+                              `
+                              : `
+                                0 8px 24px rgba(0, 0, 0, 0.2)
+                              `,
+                            marginTop: wallet.isRecommended ? '0.75rem' : '0'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isPending && isInstalled) {
+                              e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.4)'
+                              e.currentTarget.style.background = `
+                                linear-gradient(135deg,
+                                  rgba(33, 188, 255, 0.15) 0%,
+                                  rgba(33, 188, 255, 0.08) 50%,
+                                  rgba(33, 188, 255, 0.15) 100%
+                                )
+                              `
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isPending && isInstalled) {
+                              e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.2)'
+                              e.currentTarget.style.background = `
+                                linear-gradient(135deg,
+                                  rgba(30, 30, 45, 0.8) 0%,
+                                  rgba(45, 45, 65, 0.6) 50%,
+                                  rgba(30, 30, 45, 0.8) 100%
+                                )
+                              `
+                            }
+                          }}
+                        >
+                          <div className="p-5">
+                            <div className="flex items-start gap-4 mb-4">
+                              {/* Wallet Icon */}
+                              <div className="relative">
+                                <div
+                                  className="w-14 h-14 rounded-xl flex items-center justify-center"
+                                  style={{
+                                    background: wallet.isRecommended
+                                      ? 'rgba(33, 188, 255, 0.15)'
+                                      : 'rgba(255, 255, 255, 0.05)',
+                                    border: wallet.isRecommended
+                                      ? '1px solid rgba(33, 188, 255, 0.3)'
+                                      : '1px solid rgba(255, 255, 255, 0.1)',
+                                    backdropFilter: 'blur(10px)'
+                                  }}
+                                >
+                                  {wallet.icon ? (
+                                    <img
+                                      src={wallet.icon}
+                                      alt={wallet.name}
+                                      className="w-8 h-8 object-contain"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none'
+                                        e.currentTarget.parentElement!.innerHTML = (wallet.name || 'W').charAt(0)
+                                      }}
+                                    />
+                                  ) : (
+                                    <Wallet className="w-6 h-6" style={{ color: wallet.color }} />
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Wallet Info */}
+                              <div className="flex-1 text-left">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3
+                                    className="text-white font-semibold text-base"
+                                    style={{
+                                      fontFamily: 'var(--font-helvetica)',
+                                      fontWeight: 600
+                                    }}
+                                  >
+                                    {wallet.name}
+                                  </h3>
+                                  {getCategoryIcon(wallet.category)}
+                                </div>
+                                {wallet.userCount && (
+                                  <div className="flex items-center gap-1 mb-2">
+                                    <Users className="w-3 h-3 text-white/50" />
+                                    <span className="text-xs text-white/50">{wallet.userCount}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Status/Action */}
+                              <div className="flex items-center">
+                                {isPending ? (
+                                  <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : isInstalled ? (
+                                  <div className="w-6 h-6 rounded-full border-2 border-white/30" />
+                                ) : (
+                                  <ExternalLink className="w-5 h-5 text-blue-400" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Wallet Description */}
+                            <p className="text-sm text-white/70 mb-3 leading-relaxed">
+                              {wallet.description}
+                            </p>
+
+                            {/* Features */}
+                            {wallet.features && (
+                              <div className="flex flex-wrap gap-2 mb-3">
+                                {wallet.features.slice(0, 3).map((feature, index: number) => (
+                                  <span
+                                    key={index}
+                                    className="px-2 py-1 text-xs rounded-full"
+                                    style={{
+                                      background: 'rgba(33, 188, 255, 0.1)',
+                                      color: 'rgba(33, 188, 255, 0.8)',
+                                      border: '1px solid rgba(33, 188, 255, 0.2)'
+                                    }}
+                                  >
+                                    {feature}
+                                  </span>
+                                ))}
+                                {wallet.features.length > 3 && (
+                                  <span className="text-xs text-white/50">+{wallet.features.length - 3} more</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Status Badge */}
+                            <div className="flex items-center justify-between">
+                              {!isInstalled && wallet.category !== 'hardware' && (
+                                <div className="flex items-center gap-2">
+                                  <AlertCircle className="w-4 h-4 text-orange-400" />
+                                  <span className="text-xs text-orange-400">Not Installed</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Other Wallets Dropdown */}
+              <div>
+                <button
+                  onClick={() => setShowOtherWallets(!showOtherWallets)}
+                  className="w-full flex items-center justify-between p-4 rounded-2xl border border-white/10 hover:border-white/20 transition-all duration-300"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(30, 30, 45, 0.6) 0%, rgba(45, 45, 65, 0.4) 50%, rgba(30, 30, 45, 0.6) 100%)',
+                    backdropFilter: 'blur(16px) saturate(1.5)'
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <Wallet className="w-5 h-5 text-white/70" />
+                    <span className="text-white font-medium" style={{ fontFamily: 'var(--font-helvetica)' }}>
+                      Other Wallets
+                    </span>
+                    <span className="text-xs text-white/60 bg-white/10 px-2 py-1 rounded-full">
+                      {otherWallets.length}
+                    </span>
+                  </div>
+                  <ChevronDown
+                    className={`w-5 h-5 text-white/60 transition-transform duration-300 ${
+                      showOtherWallets ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                {showOtherWallets && (
+                  <div className="mt-4 space-y-3">
+                    {otherWallets.map((wallet) => {
+                      const isInstalled = isWalletInstalled(wallet.id)
+                      const isPending = selectedWallet === wallet.id && connecting
+
+                      return (
+                        <button
+                          key={wallet.id}
+                          onClick={() => handleWalletConnect(wallet.id)}
+                          disabled={isPending}
+                          className="w-full group relative overflow-hidden rounded-2xl border transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                          style={{
+                            background: isInstalled
+                              ? `
+                                linear-gradient(135deg,
+                                  rgba(30, 30, 45, 0.8) 0%,
+                                  rgba(45, 45, 65, 0.6) 50%,
+                                  rgba(30, 30, 45, 0.8) 100%
+                                )
+                              `
+                              : `
+                                linear-gradient(135deg,
+                                  rgba(30, 30, 45, 0.4) 0%,
+                                  rgba(45, 45, 65, 0.3) 50%,
+                                  rgba(30, 30, 45, 0.4) 100%
+                                )
+                              `,
+                            borderColor: isInstalled
+                              ? 'rgba(33, 188, 255, 0.2)'
+                              : 'rgba(55, 65, 81, 0.4)',
+                            cursor: isPending ? 'default' : 'pointer',
+                            backdropFilter: 'blur(16px) saturate(1.5)',
+                            boxShadow: isInstalled
+                              ? `
+                                0 8px 24px rgba(0, 0, 0, 0.3),
+                                inset 0 1px 0 rgba(255, 255, 255, 0.05)
+                              `
+                              : `
+                                0 6px 16px rgba(0, 0, 0, 0.2)
+                              `
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isPending && isInstalled) {
+                              e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.4)'
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isPending && isInstalled) {
+                              e.currentTarget.style.borderColor = 'rgba(33, 188, 255, 0.2)'
+                            }
+                          }}
+                        >
+                          <div className="p-4">
+                            <div className="flex items-center gap-4">
+                              {/* Wallet Icon */}
                               <div
-                                className="w-14 h-14 rounded-xl flex items-center justify-center"
+                                className="w-12 h-12 rounded-xl flex items-center justify-center"
                                 style={{
-                                  background: isConnected
-                                    ? 'rgba(34, 197, 94, 0.2)'
-                                    : isRecommended
-                                    ? 'rgba(33, 188, 255, 0.15)'
-                                    : 'rgba(255, 255, 255, 0.05)',
-                                  border: isConnected
-                                    ? '1px solid rgba(34, 197, 94, 0.4)'
-                                    : isRecommended
-                                    ? '1px solid rgba(33, 188, 255, 0.3)'
-                                    : '1px solid rgba(255, 255, 255, 0.1)',
+                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  border: '1px solid rgba(255, 255, 255, 0.1)',
                                   backdropFilter: 'blur(10px)'
                                 }}
                               >
@@ -362,105 +601,51 @@ export function EnhancedWalletModal({ isOpen, onClose }: EnhancedWalletModalProp
                                   <img
                                     src={wallet.icon}
                                     alt={wallet.name}
-                                    className="w-8 h-8 object-contain"
+                                    className="w-6 h-6 object-contain"
                                     onError={(e) => {
                                       e.currentTarget.style.display = 'none'
                                       e.currentTarget.parentElement!.innerHTML = (wallet.name || 'W').charAt(0)
                                     }}
                                   />
                                 ) : (
-                                  <Wallet className="w-6 h-6" style={{ color: wallet.color }} />
+                                  <Wallet className="w-5 h-5" style={{ color: wallet.color }} />
                                 )}
                               </div>
-                              {isConnected && (
-                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center shadow-lg">
-                                  <Check className="w-3 h-3 text-white text-xs" />
-                                </div>
-                              )}
-                            </div>
 
-                            {/* Wallet Info */}
-                            <div className="flex-1 text-left">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3
-                                  className="text-white font-semibold text-base"
-                                  style={{
-                                    fontFamily: 'var(--font-helvetica)',
-                                    fontWeight: 600
-                                  }}
-                                >
-                                  {wallet.name}
-                                </h3>
-                                {getCategoryIcon(wallet.category)}
+                              {/* Wallet Info */}
+                              <div className="flex-1 text-left">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4
+                                    className="text-white font-medium text-sm"
+                                    style={{
+                                      fontFamily: 'var(--font-helvetica)',
+                                      fontWeight: 500
+                                    }}
+                                  >
+                                    {wallet.name}
+                                  </h4>
+                                  {getCategoryIcon(wallet.category)}
+                                </div>
+                                <p className="text-xs text-white/60">{wallet.description}</p>
                               </div>
-                              {wallet.userCount && (
-                                <div className="flex items-center gap-1 mb-2">
-                                  <Users className="w-3 h-3 text-white/50" />
-                                  <span className="text-xs text-white/50">{wallet.userCount}</span>
-                                </div>
-                              )}
-                            </div>
 
-                            {/* Status/Action */}
-                            <div className="flex items-center">
-                              {isPending ? (
-                                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                              ) : isConnected ? (
-                                <Check className="w-6 h-6 text-green-400" />
-                              ) : isInstalled ? (
-                                <div className="w-6 h-6 rounded-full border-2 border-white/30" />
-                              ) : (
-                                <ExternalLink className="w-5 h-5 text-blue-400" />
-                              )}
+                              {/* Status/Action */}
+                              <div className="flex items-center">
+                                {isPending ? (
+                                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : isInstalled ? (
+                                  <div className="w-5 h-5 rounded-full border-2 border-white/30" />
+                                ) : (
+                                  <ExternalLink className="w-4 h-4 text-blue-400" />
+                                )}
+                              </div>
                             </div>
                           </div>
-
-                          {/* Wallet Description */}
-                          <p className="text-sm text-white/70 mb-3 leading-relaxed">
-                            {wallet.description}
-                          </p>
-
-                          {/* Features */}
-                          {wallet.features && (
-                            <div className="flex flex-wrap gap-2 mb-3">
-                              {wallet.features.slice(0, 3).map((feature, index) => (
-                                <span
-                                  key={index}
-                                  className="px-2 py-1 text-xs rounded-full"
-                                  style={{
-                                    background: 'rgba(33, 188, 255, 0.1)',
-                                    color: 'rgba(33, 188, 255, 0.8)',
-                                    border: '1px solid rgba(33, 188, 255, 0.2)'
-                                  }}
-                                >
-                                  {feature}
-                                </span>
-                              ))}
-                              {wallet.features.length > 3 && (
-                                <span className="text-xs text-white/50">+{wallet.features.length - 3} more</span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Status Badge */}
-                          <div className="flex items-center justify-between">
-                            {isConnected && (
-                              <span className="px-3 py-1 text-xs font-semibold bg-green-500/20 text-green-400 rounded-full border border-green-500/30">
-                                Connected
-                              </span>
-                            )}
-                            {!isInstalled && (
-                              <div className="flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 text-orange-400" />
-                                <span className="text-xs text-orange-400">Not Installed</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-                  )
-                })}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

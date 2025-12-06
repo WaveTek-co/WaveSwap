@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection, useWallet } from '@/hooks/useWalletAdapter'
 import { AppHeader } from '@/components/Header/AppHeader'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 import { usePrivacyMode } from '@/contexts/PrivacyContext'

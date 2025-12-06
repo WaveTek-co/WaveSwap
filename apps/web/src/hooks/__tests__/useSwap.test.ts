@@ -35,8 +35,8 @@ vi.mock('@solana/web3.js', () => ({
   Transaction: vi.fn(),
 }))
 
-// Mock the Solana wallet adapter
-vi.mock('@solana/wallet-adapter-react', () => ({
+// Mock the wallet adapter
+vi.mock('@/hooks/useWalletAdapter', () => ({
   useConnection: () => ({
     connection: {},
   }),

@@ -1,15 +1,17 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet, useConnection } from '@/hooks/useWalletAdapter'
 import { Connection, PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token'
-import { ArrowsUpDownIcon, ExclamationTriangleIcon, ArrowDownTrayIcon, WalletIcon, LockClosedIcon } from '@heroicons/react/24/outline'
+import { ArrowsUpDownIcon, ExclamationTriangleIcon, ArrowDownTrayIcon, WalletIcon, LockClosedIcon, WrenchScrewdriverIcon as Tools } from '@heroicons/react/24/outline'
 import { TokenSelector } from './TokenSelector'
 import { AmountInput } from './AmountInput'
 import { SwapButton } from './SwapButton'
 import { WithdrawConfirmModal, WithdrawSuccessModal, WithdrawErrorModal } from '@/components/ui/Modal'
+import { MaintenanceModal } from '@/components/ui/MaintenanceModal'
 import { useSwap } from '@/hooks/useSwap'
+import { config } from '@/lib/config'
 import { Token, SwapStatus } from '@/types/token'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 import { EncifherClient, EncifherUtils } from '@/lib/encifher'
@@ -22,6 +24,7 @@ interface SwapComponentProps {
 
 export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const { publicKey, signMessage } = useWallet()
+  const { connection } = useConnection()
   const theme = useThemeConfig()
   const [activeTab, setActiveTab] = useState<'swap' | 'withdraw'>('swap')
 
@@ -38,10 +41,22 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const [withdrawalTransactionSignature, setWithdrawalTransactionSignature] = useState<string>('')
   const [isWithdrawing, setIsWithdrawing] = useState(false)
 
+  // Maintenance modal state
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false)
+
   // Withdrawal input amounts for each token
   const [withdrawalAmounts, setWithdrawalAmounts] = useState<{ [key: string]: string }>({})
   const [apiConfidentialBalances, setApiConfidentialBalances] = useState<any[]>([])
   const [isLoadingConfidentialBalances, setIsLoadingConfidentialBalances] = useState(false)
+
+  // Check if swap is in maintenance mode
+  const checkMaintenanceMode = useCallback(() => {
+    if (config.swap.maintenanceMode) {
+      setShowMaintenanceModal(true)
+      return true
+    }
+    return false
+  }, [])
 
   // API function to fetch confidential balances
   const fetchConfidentialBalances = useCallback(async () => {
@@ -97,10 +112,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     try {
       console.log('[SwapComponent] Initiating authenticated balance fetch for user:', publicKey.toString())
 
-      // Initialize Encifher client
-      const connection = new Connection(
-        process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
-      )
+      // Use existing connection from wallet adapter
 
       const encifherConfig = EncifherUtils.getConfig()
       if (!encifherConfig) {
@@ -471,6 +483,12 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   
   // Handle input amount change
   const handleInputChange = (amount: string) => {
+    // Check maintenance mode when user tries to interact with swap
+    if (amount && amount !== '0' && parseFloat(amount) > 0) {
+      if (checkMaintenanceMode()) {
+        return // Don't proceed if in maintenance mode
+      }
+    }
     setInputAmount(amount)
   }
 
@@ -546,6 +564,11 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
   // Handle swap execution
   const handleSwap = async () => {
+    // Check maintenance mode before attempting swap
+    if (checkMaintenanceMode()) {
+      return // Don't proceed if in maintenance mode
+    }
+
     try {
       await swap()
     } catch (error) {
@@ -798,7 +821,8 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     inputAmount &&
     parseFloat(inputAmount) > 0 &&
     !isLoading &&
-    !hasInsufficientBalance
+    !hasInsufficientBalance &&
+    !config.swap.maintenanceMode
   )
 
   // Create merged balances Map with local fallbacks for child components
@@ -844,9 +868,32 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   return (
     <div className="w-full max-w-lg sm:max-w-xl mx-auto px-2 xs:px-0">
       <div className="relative">
+        {/* Maintenance Mode Banner */}
+        {config.swap.maintenanceMode && (
+          <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 z-20 w-full max-w-md">
+            <div
+              className="rounded-lg backdrop-blur-sm border border-amber-400/30 animate-pulse"
+              style={{
+                background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.05))',
+                boxShadow: '0 4px 12px rgba(251, 191, 36, 0.2)'
+              }}
+            >
+              <div className="flex items-center justify-center gap-2 px-3 py-2">
+                <Tools className="w-4 h-4 text-amber-400 animate-spin" />
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: '#FCD34D' }}
+                >
+                  UNDER MAINTENANCE
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Privacy Mode Indicator */}
         {privacyMode && (
-          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 z-10">
+          <div className={`absolute ${config.swap.maintenanceMode ? '-top-12' : '-top-3'} left-1/2 transform -translate-x-1/2 z-10`}>
             <div
               className="inline-flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-sm"
               style={{
@@ -1571,6 +1618,17 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           />
         </>
       )}
+
+      {/* Maintenance Modal */}
+      <MaintenanceModal
+        isOpen={showMaintenanceModal}
+        onClose={() => setShowMaintenanceModal(false)}
+        onNotifyMe={() => {
+          // Here you could implement a notification system
+          alert('Thank you! We\'ll notify you when maintenance is complete.')
+          setShowMaintenanceModal(false)
+        }}
+      />
     </div>
   )
 }

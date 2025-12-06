@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet } from '@/hooks/useWalletAdapter'
 import { BridgeTokenSelector } from './BridgeTokenSelector'
 import { BridgeAmountInput } from './BridgeAmountInput'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
