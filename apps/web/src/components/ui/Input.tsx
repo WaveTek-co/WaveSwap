@@ -2,7 +2,8 @@
 
 import React, { forwardRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Eye, EyeOff, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
+import { useThemeWaveLogo } from './ThemeWaveLogo'
 
 export interface InputProps {
   variant?: 'default' | 'ghost' | 'flush'
@@ -50,6 +51,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
   }, ref) => {
     const [showPassword, setShowPassword] = useState(false)
     const [isFocused, setIsFocused] = useState(false)
+    const getWaveLogo = useThemeWaveLogo()
 
     const inputType = showPasswordToggle && type === 'password'
       ? showPassword ? 'text' : 'password'
@@ -120,18 +122,26 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           />
 
           {(rightIcon || showPasswordToggle) && (
-            <div className="absolute right-4 top-1/2 transform -translate-y-1/1/2">
+            <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
               {showPasswordToggle ? (
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                  title={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
+                  <img
+                    src={getWaveLogo()}
+                    alt={showPassword ? 'Hide' : 'Show'}
+                    className={`h-4 w-4 transition-all duration-200 ${
+                      showPassword ? 'opacity-60' : 'opacity-100'
+                    }`}
+                    style={{
+                      filter: showPassword
+                        ? 'brightness(0.7) contrast(0.8)'
+                        : 'brightness(1) contrast(1)'
+                    }}
+                  />
                 </button>
               ) : (
                 rightIcon

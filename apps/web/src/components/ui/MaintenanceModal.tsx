@@ -6,10 +6,9 @@ import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 interface MaintenanceModalProps {
   isOpen: boolean
   onClose: () => void
-  onNotifyMe?: () => void
 }
 
-export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceModalProps) {
+export function MaintenanceModal({ isOpen, onClose }: MaintenanceModalProps) {
   const theme = useThemeConfig()
 
   if (!isOpen) return null
@@ -68,7 +67,7 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
           {/* Modal Content */}
           <div className="relative z-10">
             {/* Header */}
-            <div className="flex items-center justify-between p-8 pb-6 border-b border-white/10">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-white/10">
               <div className="flex items-center gap-4">
                 <div
                   className="w-14 h-14 rounded-2xl flex items-center justify-center animate-pulse"
@@ -104,16 +103,16 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
             </div>
 
             {/* Main Content */}
-            <div className="p-8 pb-6">
+            <div className="p-6 pb-4">
               {/* Maintenance Message */}
-              <div className="text-center mb-8">
-                <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse"
+              <div className="text-center mb-4">
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse"
                   style={{
                     background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.05))',
                     border: '1px solid rgba(251, 191, 36, 0.2)',
                   }}
                 >
-                  <Wrench className="w-10 h-10 text-amber-400" />
+                  <Wrench className="w-8 h-8 text-amber-400" />
                 </div>
 
                 <h3
@@ -126,14 +125,14 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
                   WaveSwap is temporarily down
                 </h3>
 
-                <p className="text-white/70 leading-relaxed mb-6">
+                <p className="text-white/70 leading-relaxed mb-4">
                   We're currently performing essential maintenance to enhance our platform's performance and security.
                   This temporary downtime ensures we can provide you with the best possible trading experience.
                 </p>
 
                 {/* Maintenance Features */}
-                <div className="grid grid-cols-1 gap-4 mb-8">
-                  <div className="flex items-center gap-3 p-4 rounded-xl"
+                <div className="grid grid-cols-1 gap-3 mb-4">
+                  <div className="flex items-center gap-3 p-3 rounded-xl"
                     style={{
                       background: 'rgba(34, 197, 94, 0.08)',
                       border: '1px solid rgba(34, 197, 94, 0.15)'
@@ -148,7 +147,7 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 p-4 rounded-xl"
+                  <div className="flex items-center gap-3 p-3 rounded-xl"
                     style={{
                       background: 'rgba(59, 130, 246, 0.08)',
                       border: '1px solid rgba(59, 130, 246, 0.15)'
@@ -163,7 +162,7 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 p-4 rounded-xl"
+                  <div className="flex items-center gap-3 p-3 rounded-xl"
                     style={{
                       background: 'rgba(168, 85, 247, 0.08)',
                       border: '1px solid rgba(168, 85, 247, 0.15)'
@@ -192,78 +191,10 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
                     <p className="text-amber-200/80 text-xs">Approximately 2-3 hours</p>
                   </div>
                 </div>
-
-                {/* Call to Action */}
-                <div className="space-y-3">
-                  {onNotifyMe && (
-                    <button
-                      onClick={onNotifyMe}
-                      className="w-full px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] text-white"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.1))',
-                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                        backdropFilter: 'blur(16px) saturate(1.5)',
-                        boxShadow: '0 8px 24px rgba(59, 130, 246, 0.2)',
-                        fontFamily: 'var(--font-helvetica)'
-                      }}
-                    >
-                      Notify Me When Ready
-                    </button>
-                  )}
-
-                  <button
-                    onClick={onClose}
-                    className="w-full px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      backdropFilter: 'blur(16px) saturate(1.5)',
-                      fontFamily: 'var(--font-helvetica)'
-                    }}
-                  >
-                    I'll Check Back Later
-                  </button>
-                </div>
-              </div>
-
-              {/* Status Updates */}
-              <div className="border-t border-white/10 pt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-white font-semibold text-sm" style={{ fontFamily: 'var(--font-helvetica)' }}>
-                    Status Updates
-                  </h4>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-                    <span className="text-amber-400 text-xs font-medium">In Progress</span>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-xs">
-                    <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-                      <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                    </div>
-                    <span className="text-white/60">Database optimization completed</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs">
-                    <div className="w-4 h-4 rounded-full bg-amber-400 flex items-center justify-center flex-shrink-0 animate-pulse">
-                      <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                    </div>
-                    <span className="text-white/60">Security patches in progress...</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs">
-                    <div className="w-4 h-4 rounded-full bg-gray-500 flex items-center justify-center flex-shrink-0">
-                      <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                    </div>
-                    <span className="text-white/40">API upgrades pending</span>
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Footer */}
-            <div className="px-8 pb-8">
+            <div className="px-6 pb-4">
               <div className="flex items-center justify-center gap-2 text-xs text-white/40">
                 <AlertCircle className="w-3 h-3" />
                 <span>Thank you for your patience and understanding</span>
@@ -286,6 +217,7 @@ export function MaintenanceModal({ isOpen, onClose, onNotifyMe }: MaintenanceMod
           }
         }
       `}</style>
+      </div>
     </div>
   )
 }
