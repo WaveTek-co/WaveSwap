@@ -17,6 +17,7 @@ init-if-needed = []
 
 [dependencies]
 anchor-lang = "0.31.0"
+anchor-spl = "0.31.0"
 
 [dev-dependencies]
 anchor-client = "0.31.0"

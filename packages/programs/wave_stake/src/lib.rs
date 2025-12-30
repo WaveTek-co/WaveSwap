@@ -1,4 +1,7 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, TokenAccount, TransferChecked};
+use anchor_spl::token_2022;
+use anchor_lang::system_program;
 
 declare_id!("5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ");
 
@@ -120,6 +123,48 @@ pub mod wave_stake {
             .checked_add(amount)
             .ok_or(ErrorCode::MathOverflow)?;
 
+        // Check if staking native SOL (So11111111111111111111111111111111111112)
+        // Native SOL mint is "So11111111111111111111111111111111111111112"
+        let native_sol_mint = Pubkey::from_str_const("So11111111111111111111111111111111111111112");
+        let is_native_sol = pool.stake_mint == native_sol_mint;
+
+        if is_native_sol {
+            // For native SOL, use System Program to transfer lamports to pool authority
+            let transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
+                &ctx.accounts.payer.key(),
+                &ctx.accounts.pool_authority.key(),
+                amount,
+            );
+
+            anchor_lang::solana_program::program::invoke(
+                &transfer_ix,
+                &[
+                    ctx.accounts.payer.to_account_info(),
+                    ctx.accounts.pool_authority.to_account_info(),
+                ],
+            )?;
+
+            msg!("Transferred {} lamports (native SOL) to pool authority", amount);
+        } else {
+            // For SPL tokens, use TransferChecked
+            let transfer_accounts = TransferChecked {
+                from: ctx.accounts.user_token_account.as_ref().unwrap().to_account_info(),
+                to: ctx.accounts.pool_authority_token_account.as_ref().unwrap().to_account_info(),
+                authority: ctx.accounts.payer.to_account_info(),
+                mint: ctx.accounts.stake_mint.to_account_info(),
+            };
+
+            let transfer_ctx = CpiContext::new(
+                ctx.accounts.token_program.as_ref().unwrap().to_account_info(),
+                transfer_accounts,
+            );
+
+            let decimals = ctx.accounts.stake_mint.decimals;
+            token::transfer_checked(transfer_ctx, amount, decimals)?;
+
+            msg!("Transferred {} tokens to pool authority", amount);
+        }
+
         msg!("Staked {} tokens with lock type: {}", amount, lock_type);
         Ok(())
     }
@@ -174,6 +219,50 @@ pub mod wave_stake {
         pool.total_staked = pool.total_staked
             .checked_sub(amount)
             .ok_or(ErrorCode::MathOverflow)?;
+
+        // Check if unstaking native SOL
+        let native_sol_mint = Pubkey::from_str_const("So11111111111111111111111111111111111111112");
+        let is_native_sol = pool.stake_mint == native_sol_mint;
+
+        if is_native_sol {
+            // For native SOL, transfer lamports from pool authority back to user
+            // NOTE: This requires pool_authority to be a PDA or have signed the transaction
+            // If pool_authority is an external wallet, this will fail
+            let transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
+                &ctx.accounts.pool_authority.key(),
+                &ctx.accounts.authority.key(),
+                amount,
+            );
+
+            anchor_lang::solana_program::program::invoke_signed(
+                &transfer_ix,
+                &[
+                    ctx.accounts.pool_authority.to_account_info(),
+                    ctx.accounts.authority.to_account_info(),
+                ],
+                &[],
+            )?;
+
+            msg!("Transferred {} lamports (native SOL) back to user", amount);
+        } else {
+            // For SPL tokens, transfer from pool authority token account to user token account
+            let transfer_accounts = TransferChecked {
+                from: ctx.accounts.pool_authority_token_account.as_ref().unwrap().to_account_info(),
+                to: ctx.accounts.user_token_account.as_ref().unwrap().to_account_info(),
+                authority: ctx.accounts.pool_authority.to_account_info(),
+                mint: ctx.accounts.stake_mint.to_account_info(),
+            };
+
+            let transfer_ctx = CpiContext::new(
+                ctx.accounts.token_program.as_ref().unwrap().to_account_info(),
+                transfer_accounts,
+            );
+
+            let decimals = ctx.accounts.stake_mint.decimals;
+            token::transfer_checked(transfer_ctx, amount, decimals)?;
+
+            msg!("Transferred {} tokens back to user", amount);
+        }
 
         msg!("Unstaked {} tokens", amount);
         msg!("Pending rewards: {}", pending_rewards);
@@ -359,8 +448,27 @@ pub struct Stake<'info> {
     )]
     pub user: Account<'info, User>,
 
+    /// CHECK: Mint account for the stake token
+    pub stake_mint: Account<'info, Mint>,
+
+    /// CHECK: Pool authority account (receives staked tokens/lamports)
+    #[account(mut)]
+    pub pool_authority: AccountInfo<'info>,
+
+    /// CHECK: Pool authority's token account (receives staked SPL tokens)
+    /// Optional: Only required for SPL tokens, not native SOL
+    pub pool_authority_token_account: Option<AccountInfo<'info>>,
+
+    /// CHECK: User's token account
+    /// Optional: Only required for SPL tokens, not native SOL
+    pub user_token_account: Option<AccountInfo<'info>>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    /// CHECK: Token program or Token-2022 program
+    /// Optional: Only required for SPL tokens, not native SOL
+    pub token_program: Option<AccountInfo<'info>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -381,7 +489,28 @@ pub struct Unstake<'info> {
     )]
     pub user: Account<'info, User>,
 
+    /// CHECK: Mint account for the stake token
+    pub stake_mint: Account<'info, Mint>,
+
+    /// CHECK: Pool authority account (holds staked tokens/lamports)
+    #[account(mut)]
+    pub pool_authority: AccountInfo<'info>,
+
+    /// CHECK: Pool authority's token account (holds staked SPL tokens)
+    /// Optional: Only required for SPL tokens, not native SOL
+    pub pool_authority_token_account: Option<AccountInfo<'info>>,
+
+    /// CHECK: User's token account (receives unstaked SPL tokens)
+    /// Optional: Only required for SPL tokens, not native SOL
+    pub user_token_account: Option<AccountInfo<'info>>,
+
     pub authority: Signer<'info>,
+
+    /// CHECK: Token program or Token-2022 program
+    /// Optional: Only required for SPL tokens, not native SOL
+    pub token_program: Option<AccountInfo<'info>>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -518,4 +647,8 @@ pub enum ErrorCode {
     MathOverflow,
     #[msg("No rewards available to claim")]
     NoRewardsAvailable,
+    #[msg("Invalid token mint")]
+    InvalidMint,
+    #[msg("Invalid token program")]
+    InvalidTokenProgram,
 }

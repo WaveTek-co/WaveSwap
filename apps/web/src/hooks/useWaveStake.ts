@@ -204,7 +204,7 @@ export function useWaveStake() {
       console.log('[useWaveStake] Creating stake transaction...')
       const tx = await waveStakeClient.stake(
         poolId,
-        Math.floor(amount * 1e6), // Convert to smallest unit
+        Math.floor(amount * 1e9), // Convert SOL to lamports (1 SOL = 1e9 lamports)
         lockType
       )
 
@@ -219,6 +219,19 @@ export function useWaveStake() {
       tx.instructions.forEach(ix => transaction.add(ix))
 
       console.log('[useWaveStake] Transaction prepared with blockhash:', blockhash)
+      console.log('[useWaveStake] Transaction instructions count:', transaction.instructions.length)
+      console.log('[useWaveStake] Fee payer:', transaction.feePayer?.toString())
+      transaction.instructions.forEach((ix, i) => {
+        console.log(`[useWaveStake] Instruction ${i}:`, {
+          programId: ix.programId.toString(),
+          keys: ix.keys.map(k => ({
+            pubkey: k.pubkey?.toString() || 'UNDEFINED',
+            isSigner: k.isSigner,
+            isWritable: k.isWritable
+          }))
+        })
+      })
+
       console.log('[useWaveStake] Signing transaction...')
       const signedTx = await signTransaction(transaction)
       console.log('[useWaveStake] Transaction signed')
@@ -266,7 +279,7 @@ export function useWaveStake() {
       console.log('[useWaveStake] Creating unstake transaction...')
       const tx = await waveStakeClient.unstake(
         poolId,
-        Math.floor(amount * 1e6)
+        Math.floor(amount * 1e9) // Convert SOL to lamports
       )
 
       console.log('[useWaveStake] Unstake transaction created successfully')

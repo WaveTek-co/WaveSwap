@@ -1,6 +1,7 @@
 import { Connection, PublicKey, Transaction, SystemProgram, TransactionInstruction } from '@solana/web3.js'
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor'
 import { createHash } from 'crypto'
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token'
 
 // WaveStake Program ID (Deployed to Devnet)
 export const WAVE_STAKE_PROGRAM_ID = new PublicKey('5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ')
@@ -211,8 +212,35 @@ export class WaveStakeClient {
 
   async stake(poolId: string, amount: number, lockType: LockType): Promise<Transaction> {
     const provider = this.ensureProvider()
-    const [pool] = getPoolPDA(poolId)
-    const [user] = getUserPDA(poolId, provider.wallet.publicKey)
+
+    console.log('[WaveStakeClient] stake called:', { poolId, amount, lockType })
+
+    // Get PDAs
+    const poolPda = getPoolPDA(poolId)
+    const userPda = getUserPDA(poolId, provider.wallet.publicKey)
+
+    console.log('[WaveStakeClient] poolPda:', poolPda[0].toString())
+    console.log('[WaveStakeClient] userPda:', userPda[0].toString())
+    console.log('[WaveStakeClient] provider.wallet.publicKey:', provider.wallet.publicKey?.toString())
+
+    // Get the pool's stake mint address from pool configuration
+    const tokenMints: { [key: string]: string } = {
+      wave: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+      wealth: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump',
+      gold: 'CuEXgJtrPav6otWubGPMjWVe768CGpuRDDXE1XeR4QJK',
+      zec: '7kHuXpDPfxRss5bhADeqQR27jcXMA7AMiVdWhwF4Cjjz',
+      sol: 'So11111111111111111111111111111111111111112', // Native SOL
+    }
+    const stakeMint = new PublicKey(tokenMints[poolId] || tokenMints.wave)
+    console.log('[WaveStakeClient] stakeMint:', stakeMint.toString())
+
+    // Check if staking native SOL
+    const isNativeSOL = stakeMint.toString() === 'So11111111111111111111111111111111111111112'
+    console.log('[WaveStakeClient] isNativeSOL:', isNativeSOL)
+
+    // Get pool authority (hardcoded for now - should be fetched from pool account)
+    const poolAuthority = new PublicKey('8uSHCQQDycVbjj2qMLm8qS2zKUdgFfN2JEsqWvzUdqEz')
+    console.log('[WaveStakeClient] poolAuthority:', poolAuthority.toString())
 
     // Build instruction data
     const data = Buffer.concat([
@@ -221,24 +249,104 @@ export class WaveStakeClient {
       encodeU8(lockType),
     ])
 
+    // Build keys in the exact order expected by the Rust struct
+    // ALWAYS send all 9 accounts - use dummy accounts for unused ones
+    // 0. pool
+    // 1. user
+    // 2. stake_mint
+    // 3. pool_authority
+    // 4. pool_authority_token_account
+    // 5. user_token_account
+    // 6. payer
+    // 7. token_program
+    // 8. system_program
+
+    let poolAuthorityTokenAccount: PublicKey
+    let userTokenAccount: PublicKey
+
+    if (!isNativeSOL) {
+      // For SPL tokens, get actual token accounts
+      poolAuthorityTokenAccount = getAssociatedTokenAddressSync(
+        stakeMint,
+        poolAuthority,
+        true // allowOffscreen
+      )
+      userTokenAccount = getAssociatedTokenAddressSync(
+        stakeMint,
+        provider.wallet.publicKey,
+        false // don't allow offscreen
+      )
+      console.log('[WaveStakeClient] poolAuthorityTokenAccount:', poolAuthorityTokenAccount.toString())
+      console.log('[WaveStakeClient] userTokenAccount:', userTokenAccount.toString())
+    } else {
+      // For native SOL, use pool authority as dummy token accounts
+      // These won't be used since is_native_sol will be true
+      poolAuthorityTokenAccount = poolAuthority
+      userTokenAccount = provider.wallet.publicKey
+      console.log('[WaveStakeClient] Using dummy accounts for native SOL')
+    }
+
+    const keys = [
+      { pubkey: poolPda[0], isSigner: false, isWritable: true }, // 0: pool
+      { pubkey: userPda[0], isSigner: false, isWritable: true }, // 1: user
+      { pubkey: stakeMint, isSigner: false, isWritable: false }, // 2: stake_mint
+      { pubkey: poolAuthority, isSigner: false, isWritable: true }, // 3: pool_authority
+      { pubkey: poolAuthorityTokenAccount, isSigner: false, isWritable: true }, // 4: pool_authority_token_account
+      { pubkey: userTokenAccount, isSigner: false, isWritable: true }, // 5: user_token_account
+      { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: true }, // 6: payer
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // 7: token_program
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 8: system_program
+    ]
+
+    console.log('[WaveStakeClient] Instruction keys created, count:', keys.length)
+    keys.forEach((k, i) => {
+      const pubkeyStr = k.pubkey?.toString() || 'UNDEFINED'
+      console.log(`[WaveStakeClient] Key ${i}:`, {
+        pubkey: pubkeyStr,
+        signer: k.isSigner,
+        writable: k.isWritable
+      })
+      if (!k.pubkey) {
+        console.error(`[WaveStakeClient] ERROR: Key ${i} has undefined pubkey!`)
+      }
+    })
+
     const ix = new TransactionInstruction({
-      keys: [
-        { pubkey: pool, isSigner: false, isWritable: true },
-        { pubkey: user, isSigner: false, isWritable: true },
-        { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
+      keys,
       programId: WAVE_STAKE_PROGRAM_ID,
       data,
     })
 
+    console.log('[WaveStakeClient] Creating transaction with instruction...')
     return new Transaction().add(ix)
   }
 
   async unstake(poolId: string, amount: number): Promise<Transaction> {
     const provider = this.ensureProvider()
-    const [pool] = getPoolPDA(poolId)
-    const [user] = getUserPDA(poolId, provider.wallet.publicKey)
+
+    const poolPda = getPoolPDA(poolId)
+    const userPda = getUserPDA(poolId, provider.wallet.publicKey)
+
+    console.log('[WaveStakeClient] unstake called:', { poolId, amount })
+
+    // Get the pool's stake mint address from pool configuration
+    const tokenMints: { [key: string]: string } = {
+      wave: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
+      wealth: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump',
+      gold: 'CuEXgJtrPav6otWubGPMjWVe768CGpuRDDXE1XeR4QJK',
+      zec: '7kHuXpDPfxRss5bhADeqQR27jcXMA7AMiVdWhwF4Cjjz',
+      sol: 'So11111111111111111111111111111111111111112', // Native SOL
+    }
+    const stakeMint = new PublicKey(tokenMints[poolId] || tokenMints.wave)
+    console.log('[WaveStakeClient] stakeMint:', stakeMint.toString())
+
+    // Check if unstaking native SOL
+    const isNativeSOL = stakeMint.toString() === 'So11111111111111111111111111111111111111112'
+    console.log('[WaveStakeClient] isNativeSOL:', isNativeSOL)
+
+    // Get pool authority (hardcoded for now)
+    const poolAuthority = new PublicKey('8uSHCQQDycVbjj2qMLm8qS2zKUdgFfN2JEsqWvzUdqEz')
+    console.log('[WaveStakeClient] poolAuthority:', poolAuthority.toString())
 
     // Build instruction data
     const data = Buffer.concat([
@@ -246,12 +354,55 @@ export class WaveStakeClient {
       encodeU64(amount),
     ])
 
+    // Build keys in the exact order expected by the Rust struct
+    // 0. pool
+    // 1. user
+    // 2. stake_mint
+    // 3. pool_authority
+    // 4. pool_authority_token_account
+    // 5. user_token_account
+    // 6. authority
+    // 7. token_program
+    // 8. system_program
+
+    let poolAuthorityTokenAccount: PublicKey
+    let userTokenAccount: PublicKey
+
+    if (!isNativeSOL) {
+      // For SPL tokens, get actual token accounts
+      poolAuthorityTokenAccount = getAssociatedTokenAddressSync(
+        stakeMint,
+        poolAuthority,
+        true // allowOffscreen
+      )
+      userTokenAccount = getAssociatedTokenAddressSync(
+        stakeMint,
+        provider.wallet.publicKey,
+        false // don't allow offscreen
+      )
+      console.log('[WaveStakeClient] poolAuthorityTokenAccount:', poolAuthorityTokenAccount.toString())
+      console.log('[WaveStakeClient] userTokenAccount:', userTokenAccount.toString())
+    } else {
+      // For native SOL, use dummy accounts
+      poolAuthorityTokenAccount = poolAuthority
+      userTokenAccount = provider.wallet.publicKey
+      console.log('[WaveStakeClient] Using dummy accounts for native SOL')
+    }
+
+    const keys = [
+      { pubkey: poolPda[0], isSigner: false, isWritable: true }, // 0: pool
+      { pubkey: userPda[0], isSigner: false, isWritable: true }, // 1: user
+      { pubkey: stakeMint, isSigner: false, isWritable: false }, // 2: stake_mint
+      { pubkey: poolAuthority, isSigner: false, isWritable: true }, // 3: pool_authority
+      { pubkey: poolAuthorityTokenAccount, isSigner: false, isWritable: true }, // 4: pool_authority_token_account
+      { pubkey: userTokenAccount, isSigner: false, isWritable: true }, // 5: user_token_account
+      { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: true }, // 6: authority
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // 7: token_program
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 8: system_program
+    ]
+
     const ix = new TransactionInstruction({
-      keys: [
-        { pubkey: pool, isSigner: false, isWritable: true },
-        { pubkey: user, isSigner: false, isWritable: true },
-        { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-      ],
+      keys,
       programId: WAVE_STAKE_PROGRAM_ID,
       data,
     })

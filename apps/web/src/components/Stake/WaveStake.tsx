@@ -20,6 +20,7 @@ interface StakePool {
   id: string
   name: string
   symbol: string
+  lstSymbol?: string  // Liquid Staking Token symbol (e.g., "waveSOL", "sWAVE")
   mintAddress: string
   apr: number
   bonus30days: number
@@ -85,8 +86,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
 
       try {
         const devnetConnection = new Connection('https://api.devnet.solana.com', 'confirmed')
-        const mainnetConnection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed')
-        const balances: { [key: string]: string } = { wave: '0', wealth: '0', sol: '0' }
+        const balances: { [key: string]: string } = { wave: '0', wealth: '0', gold: '0', zec: '0', sol: '0' }
 
         // Fetch SOL balance from Devnet
         try {
@@ -99,16 +99,18 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
           balances['sol'] = '0'
         }
 
-        // Fetch WAVE and WEALTH from Mainnet
+        // Fetch WAVE, WEALTH, GOLD, ZEC from Devnet (using our test tokens)
         const tokenMints = {
-          wave: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
-          wealth: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump'
+          wave: '6D6DjjiwtWPMCb2tkRVuTDi5esUu2rzHnhpE6z3nyskE',  // 6 decimals
+          wealth: 'Diz52amvNsWFWrA8WnwQMVxSL5asMqL8MhZVSBk8TWcz',  // 6 decimals
+          gold: 'CuEXgJtrPav6otWubGPMjWVe768CGpuRDDXE1XeR4QJK',  // 8 decimals
+          zec: '7kHuXpDPfxRss5bhADeqQR27jcXMA7AMiVdWhwF4Cjjz'  // 8 decimals
         }
 
         for (const [key, mint] of Object.entries(tokenMints)) {
           try {
-            console.log(`[WaveStake] Fetching ${key.toUpperCase()} balance from mainnet...`)
-            const tokenAccounts = await mainnetConnection.getParsedTokenAccountsByOwner(
+            console.log(`[WaveStake] Fetching ${key.toUpperCase()} balance from devnet...`)
+            const tokenAccounts = await devnetConnection.getParsedTokenAccountsByOwner(
               publicKey,
               { mint: new PublicKey(mint) }
             )
@@ -121,7 +123,9 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
               }
             }
 
-            balances[key] = (balance / 1e6).toFixed(2)
+            // WAVE and WEALTH use 6 decimals, GOLD and ZEC use 8 decimals
+            const decimals = (key === 'wave' || key === 'wealth') ? 1e6 : 1e8
+            balances[key] = (balance / decimals).toFixed(2)
             console.log(`[WaveStake] ✅ ${key.toUpperCase()} balance:`, balances[key])
           } catch (error: any) {
             // Token doesn't exist or user has no balance
@@ -140,15 +144,14 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
         }, 100)
       } catch (error) {
         console.error('[WaveStake] ❌ Error fetching balances:', error)
-        setUserBalances({ wave: '0', wealth: '0', sol: '0' })
+        setUserBalances({ wave: '0', wealth: '0', gold: '0', zec: '0', sol: '0' })
       }
     }
 
     fetchBalances()
 
-    // Refresh balances every 10 seconds
-    const interval = setInterval(fetchBalances, 10000)
-    return () => clearInterval(interval)
+    // Only fetch once on connect - refresh page to update balances
+    // This avoids rate limiting issues
   }, [connected, publicKey])
 
   // Use the WaveStake hook for blockchain interactions
@@ -178,60 +181,100 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
     }
   }, [])
 
-  // Pool data from devnet program - use useMemo to prevent recreating on every render
-  const stakePools: StakePool[] = useMemo(() => [
-    {
-      id: 'wave',
-      name: 'WAVE',
-      symbol: 'WAVE',
-      mintAddress: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
-      apr: 28,
-      bonus30days: 8.88,
-      totalStaked: pools['wave'] ? (Number(pools['wave']?.totalStaked) / 1e6).toFixed(0) : '0',
-      tvl: pools['wave'] ? `$${((Number(pools['wave']?.totalStaked) / 1e6) * 0.71).toFixed(1)}M` : '$0',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      description: 'Native governance token with competitive yields',
-      userStaked: privacyMode ? '****' : (userStakes['wave'] ? (Number(userStakes['wave']?.amount) / 1e6).toFixed(2) : '0'),
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0',
-      userBalance: privacyMode ? '****' : userBalances['wave'] || '0'
-    },
-    {
-      id: 'wealth',
-      name: 'WEALTH',
-      symbol: 'WEALTH',
-      mintAddress: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump',
-      apr: 28,
-      bonus30days: 8.88,
-      totalStaked: pools['wealth'] ? (Number(pools['wealth']?.totalStaked) / 1e6).toFixed(0) : '0',
-      tvl: pools['wealth'] ? `$${((Number(pools['wealth']?.totalStaked) / 1e6) * 0.95).toFixed(1)}M` : '$0',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      description: 'High-yield wealth generation token',
-      userStaked: privacyMode ? '****' : (userStakes['wealth'] ? (Number(userStakes['wealth']?.amount) / 1e6).toFixed(2) : '0'),
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0',
-      userBalance: privacyMode ? '****' : userBalances['wealth'] || '0'
-    },
-    {
-      id: 'sol',
-      name: 'SOL',
-      symbol: 'SOL',
-      mintAddress: 'So11111111111111111111111111111111111111112',
-      apr: 15,
-      bonus30days: 5.0,
-      totalStaked: pools['sol'] ? (Number(pools['sol']?.totalStaked) / 1e6).toFixed(0) : '0',
-      tvl: pools['sol'] ? `$${((Number(pools['sol']?.totalStaked) / 1e6) * 145).toFixed(1)}M` : '$0',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      description: 'Stake SOL and earn WAVE rewards',
-      userStaked: privacyMode ? '****' : (userStakes['sol'] ? (Number(userStakes['sol']?.amount) / 1e9).toFixed(4) : '0'),
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0',
-      userBalance: privacyMode ? '****' : userBalances['sol'] || '0'
-    }
-  ], [pools, userStakes, privacyMode, userBalances])
+  // Pool data - All 5 tokens on devnet (using test tokens)
+  const stakePools: StakePool[] = useMemo(() => {
+    console.log('[WaveStake] 🔧 useMemo recalculating stakePools with userBalances:', userBalances)
+
+    const poolsToShow = [
+      {
+        id: 'wave',
+        name: 'WAVE',
+        symbol: 'WAVE',
+        mintAddress: '6D6DjjiwtWPMCb2tkRVuTDi5esUu2rzHnhpE6z3nyskE',  // Devnet test token
+        apr: 28,
+        bonus30days: 8.88,
+        totalStaked: pools['wave'] ? (Number(pools['wave']?.totalStaked) / 1e6).toFixed(0) : '0',
+        tvl: pools['wave'] ? `$${((Number(pools['wave']?.totalStaked) / 1e6) * 0.71).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Native governance token with competitive yields',
+        userStaked: userStakes['wave'] ? (Number(userStakes['wave']?.amount) / 1e6).toFixed(2) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['wave'] || '0'
+      },
+      {
+        id: 'wealth',
+        name: 'WEALTH',
+        symbol: 'WEALTH',
+        mintAddress: 'Diz52amvNsWFWrA8WnwQMVxSL5asMqL8MhZVSBk8TWcz',  // Devnet test token
+        apr: 28,
+        bonus30days: 8.88,
+        totalStaked: pools['wealth'] ? (Number(pools['wealth']?.totalStaked) / 1e6).toFixed(0) : '0',
+        tvl: pools['wealth'] ? `$${((Number(pools['wealth']?.totalStaked) / 1e6) * 0.95).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'High-yield wealth generation token',
+        userStaked: userStakes['wealth'] ? (Number(userStakes['wealth']?.amount) / 1e6).toFixed(2) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['wealth'] || '0'
+      },
+      {
+        id: 'gold',
+        name: 'GOLD',
+        symbol: 'GOLD',
+        mintAddress: 'CuEXgJtrPav6otWubGPMjWVe768CGpuRDDXE1XeR4QJK',  // Devnet test token
+        apr: 20,
+        bonus30days: 6.5,
+        totalStaked: pools['gold'] ? (Number(pools['gold']?.totalStaked) / 1e8).toFixed(0) : '0',
+        tvl: pools['gold'] ? `$${((Number(pools['gold']?.totalStaked) / 1e8) * 2000).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Gold-backed stable value token',
+        userStaked: userStakes['gold'] ? (Number(userStakes['gold']?.amount) / 1e8).toFixed(4) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['gold'] || '0'
+      },
+      {
+        id: 'zec',
+        name: 'ZEC',
+        symbol: 'ZEC',
+        mintAddress: '7kHuXpDPfxRss5bhADeqQR27jcXMA7AMiVdWhwF4Cjjz',  // Devnet test token
+        apr: 18,
+        bonus30days: 5.5,
+        totalStaked: pools['zec'] ? (Number(pools['zec']?.totalStaked) / 1e8).toFixed(0) : '0',
+        tvl: pools['zec'] ? `$${((Number(pools['zec']?.totalStaked) / 1e8) * 35).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Privacy-focused cryptocurrency',
+        userStaked: userStakes['zec'] ? (Number(userStakes['zec']?.amount) / 1e8).toFixed(4) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['zec'] || '0'
+      },
+      {
+        id: 'sol',
+        name: 'SOL',
+        symbol: 'SOL',
+        mintAddress: 'So11111111111111111111111111111111111111112',
+        apr: 15,
+        bonus30days: 5.0,
+        totalStaked: pools['sol'] ? (Number(pools['sol']?.totalStaked) / 1e9).toFixed(4) : '0',
+        tvl: pools['sol'] ? `$${((Number(pools['sol']?.totalStaked) / 1e9) * 145).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Stake SOL and earn WAVE rewards',
+        userStaked: userStakes['sol'] ? (Number(userStakes['sol']?.amount) / 1e9).toFixed(4) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['sol'] || '0'
+      }
+    ]
+
+    return poolsToShow
+  }, [pools, userStakes, userBalances])
 
   const currentPool = stakePools.find(pool => pool.id === selectedPool)
 
@@ -993,9 +1036,7 @@ function StakeModal({
                   {activeTab === 'deposit' ? 'Amount to Deposit' : 'Amount to Withdraw'}
                 </label>
                 <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
-                  Balance: {privacyMode ? '****' : (
-                    activeTab === 'deposit' ? (pool.userBalance || '0').toString() : (pool.userStaked || '0').toString()
-                  )} {pool.symbol}
+                  Balance: {activeTab === 'deposit' ? (pool.userBalance || '0').toString() : (pool.userStaked || '0').toString()} {pool.symbol}
                 </div>
               </div>
 
@@ -1037,7 +1078,7 @@ function StakeModal({
               {/* Quick Select Buttons */}
               <div className="flex gap-2">
                 <button
-                  onClick={() => setAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.25).toString())}
+                  onClick={() => setStakeAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.25).toFixed(4))}
                   disabled={isProcessing || !connected}
                   className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                   style={{
@@ -1049,7 +1090,7 @@ function StakeModal({
                   25%
                 </button>
                 <button
-                  onClick={() => setAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.5).toString())}
+                  onClick={() => setStakeAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.5).toFixed(4))}
                   disabled={isProcessing || !connected}
                   className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                   style={{
@@ -1061,7 +1102,7 @@ function StakeModal({
                   50%
                 </button>
                 <button
-                  onClick={() => setAmount((activeTab === 'deposit' ? pool.userBalance || '0' : pool.userStaked || '0').toString())}
+                  onClick={() => setStakeAmount((activeTab === 'deposit' ? pool.userBalance || '0' : pool.userStaked || '0').toString())}
                   disabled={isProcessing || !connected}
                   className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                   style={{
