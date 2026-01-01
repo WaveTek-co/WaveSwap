@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         inputToken: validatedData.inputToken,
         outputToken: validatedData.outputToken,
         inputAmount: BigInt(validatedData.inputAmount),
-        feeBps: 50, // Default fee
+        feeBps: validatedData.privacyMode ? 20 : 0, // 0.2% for private, 0% for standard
         privacyMode: validatedData.privacyMode,
         slippageBps: validatedData.slippageBps,
         status: 'ENCRYPTED_PENDING',

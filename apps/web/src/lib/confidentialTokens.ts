@@ -242,9 +242,9 @@ export class ConfidentialTokenService {
     const isUnwrapping = fromToken.isConfidentialToken && !toToken.isConfidentialToken
 
     // For wrap/unwrap operations, conversion rate is 1:1 minus fees
-    const conversionRate = 0.999 // 0.1% fee
+    const conversionRate = 0.998 // 0.2% fee
     const outputAmount = (parseFloat(amount) * conversionRate).toString()
-    const feeAmount = (parseFloat(amount) * 0.001).toString()
+    const feeAmount = (parseFloat(amount) * 0.002).toString()
 
     return {
       inputToken: fromToken,

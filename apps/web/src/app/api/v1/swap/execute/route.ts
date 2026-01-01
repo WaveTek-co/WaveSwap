@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JupiterAPI } from '@/lib/jupiter'
 import { ArciumClient } from '@/lib/arcium'
+import { FeeCollectionService } from '@/lib/feeCollection'
 import { Connection, PublicKey, clusterApiUrl } from '@solana/web3.js'
 import { config } from '@/lib/config'
 
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
     const connection = new Connection(config.rpc.url)
     const jupiterApi = new JupiterAPI(connection)
     const arciumClient = new ArciumClient(connection, process.env.ARCIUM_API_KEY)
+    const feeCollectionService = new FeeCollectionService(connection)
 
     console.log('Executing swap:', { userPublicKey, privacyMode, swapMode: privacyMode ? 'private' : 'normal' })
 
@@ -91,13 +93,42 @@ export async function POST(request: NextRequest) {
       })
 
       const swapTransaction = await jupiterApi.prepareTransaction(swapResponse)
-      transactions.push({ type: 'swap', transaction: swapTransaction })
+
+      // Add fee collection to the swap transaction
+      const userPubkey = new PublicKey(userPublicKey)
+      let transactionWithFees
+
+      // Handle both legacy and versioned transactions
+      if ('version' in swapTransaction) {
+        // VersionedTransaction - for now, skip fee collection for versioned transactions
+        console.warn('[FeeCollection] Skipping fee collection for versioned transaction (not yet supported)')
+        transactionWithFees = swapTransaction
+      } else {
+        // Legacy Transaction - add fee collection
+        transactionWithFees = await feeCollectionService.addFeesToTransaction(
+          swapTransaction,
+          quote.inputMint,
+          quote.outAmount,
+          userPubkey,
+          privacyMode
+        )
+      }
+
+      transactions.push({ type: 'swap', transaction: transactionWithFees })
 
       const swapStep = executionSteps[currentStep - 1]
       if (swapStep) {
         swapStep.status = 'completed'
       }
-      console.log('Swap transaction prepared')
+
+      // Calculate and log fee collection details
+      const feeDetails = feeCollectionService.calculateFee(quote.outAmount, privacyMode)
+      console.log('Swap transaction prepared with fees:', {
+        inputMint: quote.inputMint,
+        outputAmount: quote.outAmount,
+        privacyMode,
+        ...feeDetails
+      })
 
       // Step 3: Privacy mode - Unwrap output tokens
       if (privacyMode) {
@@ -135,7 +166,12 @@ export async function POST(request: NextRequest) {
           inputAmount: quote.inAmount,
           outputAmount: quote.outAmount,
           slippageBps: quote.slippageBps,
-          priceImpactPct: quote.priceImpactPct
+          priceImpactPct: quote.priceImpactPct,
+          feeCollection: {
+            ...feeDetails,
+            feeCollected: !('version' in swapTransaction), // Indicates if fees were actually added
+            feeWallet: feeCollectionService.getFeeWallet().toString()
+          }
         }
       })
 

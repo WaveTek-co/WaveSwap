@@ -1,0 +1,391 @@
+{
+  "version": "0.1.0",
+  "name": "wave_stake",
+  "address": "5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ",
+  "instructions": [
+    {
+      "name": "initialize",
+      "accounts": [
+        {
+          "name": "globalState",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "authority",
+          "type": "publicKey"
+        }
+      ]
+    },
+    {
+      "name": "createPool",
+      "accounts": [
+        {
+          "name": "globalState",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "poolId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "stakeMint",
+          "type": "publicKey"
+        },
+        {
+          "name": "lstMint",
+          "type": "publicKey"
+        },
+        {
+          "name": "rewardMint",
+          "type": "publicKey"
+        },
+        {
+          "name": "rewardPerSecond",
+          "type": "u64"
+        },
+        {
+          "name": "lockDuration",
+          "type": "u64"
+        },
+        {
+          "name": "lockBonusPercentage",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "stake",
+      "accounts": [
+        {
+          "name": "pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "lockType",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "unstake",
+      "accounts": [
+        {
+          "name": "pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claimRewards",
+      "accounts": [
+        {
+          "name": "pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "updatePool",
+      "accounts": [
+        {
+          "name": "pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "newRewardPerSecond",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "newLockDuration",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "newLockBonusPercentage",
+          "type": {
+            "option": "u16"
+          }
+        }
+      ]
+    },
+    {
+      "name": "closeUserAccount",
+      "accounts": [
+        {
+          "name": "pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "userWallet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GlobalState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "type": "publicKey"
+          },
+          {
+            "name": "poolCount",
+            "type": "u64"
+          }
+        ]
+      },
+      "discriminator": [45, 218, 126, 212, 156, 238, 27, 217]
+    },
+    {
+      "name": "Pool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "poolId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "stakeMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "lstMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "rewardMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "rewardPerSecond",
+            "type": "u64"
+          },
+          {
+            "name": "lockDuration",
+            "type": "u64"
+          },
+          {
+            "name": "lockBonusPercentage",
+            "type": "u16"
+          },
+          {
+            "name": "totalStaked",
+            "type": "u64"
+          },
+          {
+            "name": "totalRewardDistributed",
+            "type": "u64"
+          },
+          {
+            "name": "lastUpdateTimestamp",
+            "type": "i64"
+          },
+          {
+            "name": "authority",
+            "type": "publicKey"
+          }
+        ]
+      },
+      "discriminator": [98, 75, 188, 79, 142, 167, 154, 157]
+    },
+    {
+      "name": "User",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "lockType",
+            "type": "u8"
+          },
+          {
+            "name": "lockStartTimestamp",
+            "type": "i64"
+          },
+          {
+            "name": "lockEndTimestamp",
+            "type": "i64"
+          },
+          {
+            "name": "bonusMultiplier",
+            "type": "u16"
+          },
+          {
+            "name": "lastRewardClaimTimestamp",
+            "type": "i64"
+          }
+        ]
+      },
+      "discriminator": [163, 157, 141, 198, 102, 210, 57, 169]
+    }
+  ],
+  "types": [],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount provided"
+    },
+    {
+      "code": 6001,
+      "name": "InsufficientStake",
+      "msg": "Insufficient staked amount"
+    },
+    {
+      "code": 6002,
+      "name": "StillInLockPeriod",
+      "msg": "Still in lock period"
+    },
+    {
+      "code": 6003,
+      "name": "MathOverflow",
+      "msg": "Math overflow occurred"
+    },
+    {
+      "code": 6004,
+      "name": "NoRewardsAvailable",
+      "msg": "No rewards available to claim"
+    }
+  ]
+}

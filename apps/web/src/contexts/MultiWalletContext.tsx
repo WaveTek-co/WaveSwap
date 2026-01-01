@@ -1,7 +1,37 @@
 'use client'
 
-import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo } from 'react'
+import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect } from 'react'
 import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js'
+import { UnifiedWalletProvider } from '@jup-ag/wallet-adapter'
+import dynamic from 'next/dynamic'
+import * as LedgerSolana from '@ledgerhq/hw-app-solana'
+import * as LedgerTransport from '@ledgerhq/hw-transport-webusb'
+
+// Wallet interface declarations
+declare global {
+  interface Window {
+    backpack?: {
+      connect(): Promise<{ publicKey: PublicKey }>
+      disconnect(): Promise<void>
+      signTransaction(transaction: Transaction): Promise<Transaction>
+      signAllTransactions(transactions: Transaction[]): Promise<Transaction[]>
+    }
+    solflare?: {
+      connect(): Promise<{ publicKey: PublicKey }>
+      disconnect(): Promise<void>
+      signTransaction(transaction: Transaction): Promise<Transaction>
+      signAllTransactions(transactions: Transaction[]): Promise<Transaction[]>
+    }
+    jupiter?: {
+      connect(): Promise<{ publicKey: PublicKey }>
+      disconnect(): Promise<void>
+      signTransaction(transaction: Transaction): Promise<Transaction>
+      signAllTransactions(transactions: Transaction[]): Promise<Transaction[]>
+    }
+    ethereum?: any // For WalletConnect compatibility
+  }
+}
+
 import {
   PhantomProvider,
   usePhantom,
@@ -13,6 +43,10 @@ import {
   lightTheme,
   AddressType
 } from '@phantom/react-sdk'
+import { BackpackWalletAdapter } from '@solana/wallet-adapter-backpack'
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
+import getSolflare from '@solflare-wallet/sdk'
+import { SignClient } from '@walletconnect/sign-client'
 import { config } from '@/lib/config'
 import { useThemeConfig } from '@/lib/theme'
 
@@ -27,6 +61,11 @@ interface MultiWalletContextType {
 
   // Available wallets
   availableWallets: string[]
+
+  // Wallet adapters
+  backpackAdapter: BackpackWalletAdapter | null
+  solflareAdapter: SolflareWalletAdapter | null
+  walletConnectClient: any | null
 
   // Error handling and configuration state
   error: string | null
@@ -60,7 +99,7 @@ const validatePhantomConfig = (): PhantomSDKConfig => {
   }
 
   return {
-    providers: ["google", "apple", "injected"],
+    providers: ["google", "apple", "injected", "phantom"],
     addressTypes: [AddressType.solana],
     appId: appId,
     embeddedWalletType: "user-wallet",
@@ -80,7 +119,9 @@ try {
 
   // Fallback configuration for development
   PHANTOM_CONFIG = {
-    providers: ["google", "apple", "injected"],
+    providers: ["google", "apple", "injected", "phantom"
+      
+    ],
     addressTypes: [AddressType.solana],
     appId: "dev-fallback-app-id",
     embeddedWalletType: "user-wallet",
@@ -92,6 +133,16 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
+
+  // Wallet adapters
+  const [backpackAdapter, setBackpackAdapter] = useState<BackpackWalletAdapter | null>(null)
+  const [solflareAdapter, setSolflareAdapter] = useState<SolflareWalletAdapter | null>(null)
+  const [walletConnectClient, setWalletConnectClient] = useState<any>(null)
+
+  // Additional wallet connection state for non-Phantom wallets
+  const [currentWalletType, setCurrentWalletType] = useState<string | null>(null)
+  const [externalPublicKey, setExternalPublicKey] = useState<PublicKey | null>(null)
+  const [externalConnected, setExternalConnected] = useState(false)
 
   // Create enhanced Solana connection with fallback RPC support
   const connection = useMemo(() => {
@@ -155,13 +206,17 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
   const { disconnect, isDisconnecting } = useDisconnect()
   const { solana } = useSolana()
 
-  // Get the first address as publicKey
+  // Get the first address as publicKey (from Phantom SDK or external wallets)
   const publicKey = useMemo(() => {
+    // Priority: Phantom SDK addresses first, then external wallet connections
     if (addresses && addresses.length > 0) {
       return new PublicKey(addresses[0].address)
     }
+    if (externalPublicKey) {
+      return externalPublicKey
+    }
     return null
-  }, [addresses])
+  }, [addresses, externalPublicKey])
 
   // Available wallets with expanded options
   const availableWallets = useMemo(() => {
@@ -170,10 +225,42 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
       "google",
       "apple",
       "ledger",
-      "jupiter",
       "backpack",
-      "solflare"
+      "solflare",
+      "walletconnect"
     ]
+  }, [])
+
+  // Initialize wallet adapters
+  useEffect(() => {
+    const initializeWalletAdapters = async () => {
+      try {
+        // Initialize Backpack adapter
+        if (typeof window !== 'undefined') {
+          const backpack = new BackpackWalletAdapter()
+          setBackpackAdapter(backpack)
+
+          // Initialize Solflare adapter
+          const solflare = new SolflareWalletAdapter()
+          setSolflareAdapter(solflare)
+
+          // Initialize WalletConnect client
+          try {
+            const wcClient = await SignClient.init({
+              projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'default-project-id',
+              relayUrl: 'wss://relay.walletconnect.com'
+            })
+            setWalletConnectClient(wcClient)
+          } catch (wcError) {
+            console.warn('WalletConnect initialization failed:', wcError)
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to initialize wallet adapters:', error)
+      }
+    }
+
+    initializeWalletAdapters()
   }, [])
 
   const clearError = useCallback(() => {
@@ -222,6 +309,8 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
       console.log('Successfully fetched balance:', balance, 'lamports')
       return balance
     } catch (err) {
+      console.error('Balance fetch error:', { error: err, publicKey: publicKey.toString() })
+
       let errorMessage: string
 
       if (err instanceof Error) {
@@ -241,7 +330,7 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
         errorMessage = 'An unexpected error occurred while fetching balance'
       }
 
-      console.error('Balance fetch error:', { error: err, publicKey: publicKey.toString() })
+  
       setError(errorMessage)
       throw new Error(errorMessage)
     }
@@ -266,11 +355,14 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
         console.warn('Using fallback configuration due to initialization error:', configInitializationError.message)
       }
 
-      console.log(`Attempting to connect with wallet: ${walletName}`)
+      console.log('=== Starting Phantom SDK wallet connection ===')
+      console.log('Wallet name:', walletName)
+      console.log('PHANTOM_CONFIG:', PHANTOM_CONFIG)
 
       // Handle different wallet types
       switch (walletName.toLowerCase()) {
-        case 'phantom':
+        case 'phantom-embedded':
+        case 'phantom-injected':
         case 'google':
         case 'apple': {
           // Phantom SDK wallets
@@ -282,7 +374,10 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
             case 'apple':
               provider = 'apple'
               break
-            case 'phantom':
+            case 'phantom-embedded':
+              provider = 'phantom'
+              break
+            case 'phantom-injected':
               provider = 'injected'
               break
             default:
@@ -298,49 +393,194 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
             provider: provider
           }
 
-          await connect(authOptions)
-          console.log(`Successfully connected with Phantom SDK provider: ${provider}`)
+          console.log('Provider mapped to:', provider)
+          console.log('Auth options created:', authOptions)
+          console.log('Current phantom extension detected:', !!(window as any).phantom?.solana)
+          console.log('About to call connect() function...')
+
+          try {
+            console.log('Calling connect with authOptions:', authOptions)
+            const result = await connect(authOptions)
+            console.log('Connect returned:', result)
+            console.log(`Successfully connected with Phantom SDK provider: ${provider}`)
+          } catch (error) {
+            console.log('=== ERROR CAUGHT ===')
+            console.log('Error object:', error)
+            console.log('Error type:', typeof error)
+            console.log('Error message:', error?.message)
+            console.log('Error name:', error?.name)
+            console.log('Error stack:', error?.stack)
+            console.log('Stringified error:', JSON.stringify(error, null, 2))
+            throw error
+          }
           break
         }
 
         case 'jupiter': {
-          // Jupiter wallet - redirect to Jupiter Station
-          throw new Error('Jupiter wallet integration is not available yet. Please use Jupiter Station directly at https://station.jup.ag/ for swapping.')
+          try {
+            // Connect to Jupiter wallet extension using proper API
+            if (typeof window !== 'undefined') {
+              // Try to detect Jupiter wallet extension
+              const jupiter = (window as any).jupiter
+
+              if (!jupiter) {
+                throw new Error('Jupiter wallet is not installed. Please install it from Chrome Web Store.')
+              }
+
+              console.log('Connecting to Jupiter wallet...')
+              const response = await jupiter.connect()
+              console.log('Jupiter wallet connected:', response)
+
+              // Get public key
+              const publicKey = response.publicKey || response
+              if (!publicKey) {
+                throw new Error('No public key returned from Jupiter wallet')
+              }
+
+              // Update connection state
+              setCurrentWalletType('jupiter')
+              setExternalConnected(true)
+              setExternalPublicKey(new PublicKey(publicKey.toString()))
+
+              console.log(`Successfully connected to Jupiter wallet: ${publicKey.toString()}`)
+            } else {
+              throw new Error('Window object not available.')
+            }
+          } catch (error: any) {
+            console.error('Jupiter wallet connection failed:', error)
+            throw new Error(`Jupiter wallet connection failed: ${error.message || 'Unknown error'}`)
+          }
+          break
         }
 
         case 'backpack': {
-          // Backpack wallet - direct window.solana
-          if (typeof window === 'undefined' || !window.solana) {
+          // Backpack wallet
+          if (typeof window !== 'undefined' && !(window as any).backpack) {
             throw new Error('Backpack wallet is not installed. Please install it first.')
           }
 
           try {
-            await window.solana.connect()
-            console.log('Successfully connected with Backpack wallet')
-          } catch (error) {
-            throw new Error('Failed to connect to Backpack wallet')
+            console.log('Connecting to Backpack wallet...')
+            const backpack = (window as any).backpack
+
+            // Connect to Backpack
+            const response = await backpack.connect()
+            console.log('Backpack wallet connected:', response)
+
+            // Get public key
+            const publicKey = response.publicKey || response
+            if (!publicKey) {
+              throw new Error('No public key returned from Backpack wallet')
+            }
+
+            // Update connection state
+            setCurrentWalletType('backpack')
+            setExternalConnected(true)
+            setExternalPublicKey(new PublicKey(publicKey.toString()))
+
+            console.log(`Successfully connected to Backpack wallet: ${publicKey.toString()}`)
+          } catch (error: any) {
+            console.error('Backpack wallet connection failed:', error)
+            throw new Error(`Backpack wallet connection failed: ${error.message || 'Unknown error'}`)
           }
           break
         }
 
         case 'solflare': {
-          // Solflare wallet - check for window.solflare
-          if (typeof window === 'undefined' || !window.solflare) {
+          // Solflare wallet
+          if (typeof window !== 'undefined' && !(window as any).solflare) {
             throw new Error('Solflare wallet is not installed. Please install it first.')
           }
 
           try {
-            await window.solflare.connect()
-            console.log('Successfully connected with Solflare wallet')
+            console.log('Connecting to Solflare wallet...')
+            const solflare = (window as any).solflare
+
+            // Connect to Solflare
+            const response = await solflare.connect()
+            console.log('Solflare wallet connected:', response)
+
+            // Get public key
+            const publicKey = response.publicKey || response
+            if (!publicKey) {
+              throw new Error('No public key returned from Solflare wallet')
+            }
+
+            // Update connection state
+            setCurrentWalletType('solflare')
+            setExternalConnected(true)
+            setExternalPublicKey(new PublicKey(publicKey.toString()))
+
+            console.log(`Successfully connected to Solflare wallet: ${publicKey.toString()}`)
+          } catch (error: any) {
+            console.error('Solflare wallet connection failed:', error)
+            throw new Error(`Solflare wallet connection failed: ${error.message || 'Unknown error'}`)
+          }
+          break
+        }
+
+        case 'walletconnect': {
+          // WalletConnect integration
+          if (!walletConnectClient) {
+            throw new Error('WalletConnect client not initialized. Please try again.')
+          }
+
+          try {
+            const { uri } = await walletConnectClient.pair({
+              uri: 'wc:a281567ba3e5547182f53e41806fd7a3cf4123c06433e5b53ae1c4ec8b7ae38f@2?relay-protocol=irn&symKey=339dfd8d6717cb378d664c5bc8c20eea5cd6b3392d3edc84129dd85b2f1a4791&publicKey=4ac19e31ba3329cac6131ebaa4a1a7a8d2f1ab3b3ce1ba0d9c698c7e4edbbcb3'
+            })
+
+            if (uri) {
+              // For mobile, we would open deep link
+              // For desktop, show QR code
+              throw new Error(`WalletConnect QR code: ${uri}. Please scan with your mobile wallet.`)
+            }
+
+            console.log('Successfully initiated WalletConnect connection')
           } catch (error) {
-            throw new Error('Failed to connect to Solflare wallet')
+            if (error instanceof Error && !error.message.includes('QR code')) {
+              throw new Error(`Failed to connect with WalletConnect: ${error.message}`)
+            }
+            throw error
           }
           break
         }
 
         case 'ledger': {
-          // Ledger hardware wallet
-          throw new Error('Ledger support is coming soon. Please use Phantom, Jupiter, or other supported wallets.')
+          // Ledger hardware wallet using existing packages
+          if (typeof window === 'undefined') {
+            throw new Error('Ledger connection requires browser environment.')
+          }
+
+          try {
+            // Check if WebUSB is supported
+            const nav = navigator as any
+            if (!nav.usb) {
+              throw new Error('WebUSB is not supported in this browser. Please use Chrome or Edge.')
+            }
+
+            // Import Ledger libraries dynamically
+            const ledgerSolana = await import('@ledgerhq/hw-app-solana')
+            const ledgerTransport = await import('@ledgerhq/hw-transport-webusb')
+
+            const transport = await (ledgerTransport as any).TransportWebUSB?.create()
+            const appSolana = new ledgerSolana.default(transport)
+
+            // Get public key
+            const result = await (appSolana as any).getPublicKey("44'/501'/0'/0'")
+            console.log('Successfully connected with Ledger')
+            console.log('Ledger address:', result.address)
+
+            // Close transport
+            await transport.close()
+
+            throw new Error('Ledger hardware wallet detected. Full Ledger integration coming soon.')
+          } catch (error) {
+            if (error instanceof Error && error.message.includes('No device selected')) {
+              throw new Error('Please connect your Ledger device and unlock it.')
+            }
+            throw new Error(`Ledger connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          }
         }
 
         default:
@@ -348,27 +588,16 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
       }
 
     } catch (err) {
-      let errorMessage: string
+      console.error('Wallet connection error:', err)
 
+      let errorMessage = 'Connection failed'
       if (err instanceof Error) {
-        // Handle specific wallet errors
-        if (err.message.includes('User rejected') || err.message.includes('User cancelled')) {
-          errorMessage = 'Connection cancelled by user'
-        } else if (err.message.includes('not installed')) {
-          errorMessage = err.message
-        } else if (err.message.includes('not ready') || err.message.includes('not unlocked')) {
-          errorMessage = 'Wallet is not ready. Please ensure it is installed and unlocked.'
-        } else if (err.message.includes('Network error')) {
-          errorMessage = 'Network error occurred. Please check your connection and try again.'
-        } else {
-          errorMessage = `Connection failed: ${err.message}`
-        }
-      } else {
-        errorMessage = 'An unexpected error occurred while connecting to wallet'
+        errorMessage = err.message
+      } else if (typeof err === 'string') {
+        errorMessage = err
       }
 
       setError(errorMessage)
-      console.error('Wallet connection error:', { walletName, error: err, errorMessage })
       throw new Error(errorMessage)
     } finally {
       setConnecting(false)
@@ -382,7 +611,17 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
 
     try {
       console.log('Attempting to disconnect wallet')
-      await disconnect()
+
+      // Clear external wallet states
+      setExternalConnected(false)
+      setExternalPublicKey(null)
+      setCurrentWalletType(null)
+
+      // Disconnect Phantom SDK if connected
+      if (isConnected) {
+        await disconnect()
+      }
+
       console.log('Successfully disconnected wallet')
     } catch (err) {
       let errorMessage: string
@@ -406,12 +645,12 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
     } finally {
       setDisconnecting(false)
     }
-  }, [disconnect])
+  }, [disconnect, isConnected])
 
   const contextValue: MultiWalletContextType = {
     connection,
     publicKey,
-    connected: isConnected,
+    connected: isConnected || externalConnected,
     connecting: connecting || isConnecting,
     disconnecting: disconnecting || isDisconnecting,
     error,
@@ -419,6 +658,9 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
     isUsingFallbackConfig: !!configInitializationError,
     wallet: solana || null,
     availableWallets,
+    backpackAdapter,
+    solflareAdapter,
+    walletConnectClient,
     connect: handleConnect,
     disconnect: handleDisconnect,
     signMessage: solana?.signMessage ? solana.signMessage.bind(solana) : (() => Promise.reject(new Error('Not available'))),

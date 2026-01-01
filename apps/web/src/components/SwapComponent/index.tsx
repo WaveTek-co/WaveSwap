@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useWallet, useConnection } from '@/hooks/useWalletAdapter'
 import { Connection, PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token'
-import { ArrowsUpDownIcon, ExclamationTriangleIcon, ArrowDownTrayIcon, WalletIcon, LockClosedIcon, WrenchScrewdriverIcon as Tools } from '@heroicons/react/24/outline'
+import { ArrowsUpDownIcon, ExclamationTriangleIcon, ArrowDownTrayIcon, WalletIcon, LockClosedIcon } from '@heroicons/react/24/outline'
 import { TokenSelector } from './TokenSelector'
 import { AmountInput } from './AmountInput'
 import { SwapButton } from './SwapButton'
@@ -134,7 +134,42 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
       // Step 2: Sign the message with user's wallet
       const messageBytes = new TextEncoder().encode(msgPayload.msgHash)
-      const signatureArray = await signMessage(messageBytes)
+      const signatureResult = await signMessage(messageBytes)
+
+      console.log('[SwapComponent] Signature result type:', typeof signatureResult)
+      console.log('[SwapComponent] Signature result:', signatureResult)
+
+      let signatureArray: Uint8Array
+
+      // Handle different wallet adapter signature formats
+      if (signatureResult instanceof Uint8Array) {
+        signatureArray = signatureResult
+      } else if (Array.isArray(signatureResult)) {
+        signatureArray = new Uint8Array(signatureResult)
+      } else if (typeof signatureResult === 'string') {
+        // If it's already a base64 string or hex string, convert it
+        try {
+          // Try base64 first
+          const decoded = Buffer.from(signatureResult, 'base64')
+          signatureArray = new Uint8Array(decoded)
+        } catch {
+          // Try hex
+          const hexString = (signatureResult as string).replace('0x', '')
+          const decoded = Buffer.from(hexString, 'hex')
+          signatureArray = new Uint8Array(decoded)
+        }
+      } else if (signatureResult && typeof signatureResult === 'object') {
+        // Some adapters return an object with signature property
+        const signatureObj = signatureResult as any
+        if (signatureObj.signature) {
+          signatureArray = new Uint8Array(signatureObj.signature)
+        } else {
+          throw new Error(`Unknown signature format: ${JSON.stringify(signatureResult)}`)
+        }
+      } else {
+        throw new Error(`Unsupported signature type: ${typeof signatureResult}`)
+      }
+
       const signature = Buffer.from(signatureArray).toString('base64')
 
       console.log('[SwapComponent] User signed message successfully')
@@ -362,6 +397,16 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
             const parsedAmount = parseFloat(amountAsString)
             const hasBalance = amountAsString && amountAsString !== '0' && parsedAmount > 0
 
+            console.log(`[SwapComponent] Token ${index} (${tokenAddress}) filter check:`, {
+              balanceObject: balance,
+              rawAmount: amount,
+              parsedAmount,
+              hasBalance,
+              amountType: typeof amount,
+              tokenAddressInBalance: tokenAddress in (balance || {}),
+              finalDecision: hasBalance ? 'KEEP' : 'FILTER OUT'
+            })
+
             if (!hasBalance) {
               console.log(`[SwapComponent] Filtering out token ${tokenAddress} - zero balance`)
               return false
@@ -480,7 +525,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const [balanceUpdateTrigger, setBalanceUpdateTrigger] = useState(0)
 
   
-  
+
   // Handle input amount change
   const handleInputChange = (amount: string) => {
     // Check maintenance mode when user tries to interact with swap
@@ -673,7 +718,14 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       .filter((apiBalance: any) => {
         // Only include tokens that can actually be withdrawn (positive balance and doesn't require authentication)
         // Authentication-required tokens will be handled in the empty state UI, not in the withdrawal list
-        return apiBalance.amount > 0 && apiBalance.requiresAuth !== true
+        const amount = parseFloat(apiBalance.amount) || 0
+        console.log(`[SwapComponent] Filtering balance for display: ${apiBalance.tokenSymbol || apiBalance.tokenAddress}`, {
+          amount: apiBalance.amount,
+          parsedAmount: amount,
+          requiresAuth: apiBalance.requiresAuth,
+          willShow: amount > 0 && apiBalance.requiresAuth !== true
+        })
+        return amount > 0 && apiBalance.requiresAuth !== true
       })
       .map((apiBalance: any) => {
         const token = availableTokens.find(t => t.address === apiBalance.tokenAddress)
@@ -699,6 +751,19 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   // Get balances with debugging and force re-render
   const inputBalance = safeInputToken?.address ? (balances.get(safeInputToken.address) || '0') : '0'
   const outputBalance = safeOutputToken?.address ? (balances.get(safeOutputToken.address) || '0') : '0'
+
+  // Debug: Log balance state changes
+  useEffect(() => {
+    if (publicKey && safeInputToken) {
+      console.log(`[Balance State] Wallet: ${publicKey.toString().slice(0, 8)}...`)
+      console.log(`[Balance State] Token: ${safeInputToken.symbol} (${safeInputToken.address})`)
+      console.log(`[Balance State] Raw balance from useSwap: "${inputBalance}"`)
+      console.log(`[Balance State] Total balances in Map: ${balances.size}`)
+      if (balances.size > 0) {
+        console.log(`[Balance State] All balances:`, Array.from(balances.entries()))
+      }
+    }
+  }, [publicKey, safeInputToken, inputBalance, balances.size])
 
   // Debug logging and force re-render for positive balances
   useEffect(() => {
@@ -868,32 +933,10 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   return (
     <div className="w-full max-w-lg sm:max-w-xl mx-auto px-2 xs:px-0">
       <div className="relative">
-        {/* Maintenance Mode Banner */}
-        {config.swap.maintenanceMode && (
-          <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 z-20 w-full max-w-md">
-            <div
-              className="rounded-lg backdrop-blur-sm border border-amber-400/30 animate-pulse"
-              style={{
-                background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.05))',
-                boxShadow: '0 4px 12px rgba(251, 191, 36, 0.2)'
-              }}
-            >
-              <div className="flex items-center justify-center gap-2 px-3 py-2">
-                <Tools className="w-4 h-4 text-amber-400 animate-spin" />
-                <span
-                  className="text-xs font-bold"
-                  style={{ color: '#FCD34D' }}
-                >
-                  UNDER MAINTENANCE
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
+  
         {/* Privacy Mode Indicator */}
         {privacyMode && (
-          <div className={`absolute ${config.swap.maintenanceMode ? '-top-12' : '-top-3'} left-1/2 transform -translate-x-1/2 z-10`}>
+          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 z-10">
             <div
               className="inline-flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-sm"
               style={{
@@ -1113,7 +1156,13 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
                         className="text-xs"
                         style={{ color: theme.colors.textMuted }}
                       >
-                        Balance: {inputBalanceFormatted}
+                        {!publicKey ? (
+                          'Connect wallet to see balance'
+                        ) : inputBalanceFormatted === '0' ? (
+                          `Balance: 0 ${safeInputToken?.symbol || ''}`
+                        ) : (
+                          `Balance: ${inputBalanceFormatted} ${safeInputToken?.symbol || ''}`
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1623,11 +1672,6 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       <MaintenanceModal
         isOpen={showMaintenanceModal}
         onClose={() => setShowMaintenanceModal(false)}
-        onNotifyMe={() => {
-          // Here you could implement a notification system
-          alert('Thank you! We\'ll notify you when maintenance is complete.')
-          setShowMaintenanceModal(false)
-        }}
       />
     </div>
   )

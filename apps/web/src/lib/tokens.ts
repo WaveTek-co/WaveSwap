@@ -4,8 +4,9 @@
  */
 
 import { Connection, PublicKey } from '@solana/web3.js'
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, getAccount } from '@solana/spl-token'
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { Token } from '@/types/token'
+import { config } from '@/lib/config'
 
 // Helper function to get local fallback icon path
 function getLocalFallbackIcon(symbol: string, address: string): string | null {
@@ -462,42 +463,44 @@ export async function getTokenBalance(
 
     // Handle SOL balance - also check for wrapped SOL (WSOL)
     if (mint === 'So11111111111111111111111111111111111111112') {
-      console.log(`[getTokenBalance] Fetching SOL balance from RPC: ${connection.rpcEndpoint}`)
+      console.log(`[getTokenBalance] Fetching SOL balance via server proxy`)
+
       try {
-        const lamports = await connection.getBalance(walletAddress)
-        balance = lamports.toString()
-        const solAmount = parseFloat(lamports.toString()) / 1e9
-        console.log(`[getTokenBalance] SOL balance fetched: ${balance} lamports (${solAmount} SOL)`)
+        const response = await fetch(
+          `/api/v1/balance?wallet=${walletAddress.toString()}&mint=${mint}&commitment=confirmed`
+        )
+
+        if (!response.ok) {
+          throw new Error(`Balance API returned ${response.status}: ${response.statusText}`)
+        }
+
+        const data = await response.json()
+
+        if (!data.success) {
+          throw new Error(`Balance API error: ${data.error}`)
+        }
+
+        balance = data.balance
+        const lamports = data.lamports || 0
+        const solAmount = parseFloat(balance) / 1e9
+
+        console.log(`[getTokenBalance] ✅ SOL balance fetched via proxy: ${balance} lamports (${solAmount} SOL)`)
 
         // Log for debugging the actual values
         if (solAmount > 0) {
           console.log(`[getTokenBalance] ✅ User has SOL balance: ${solAmount} SOL (${balance} lamports)`)
         } else {
-          console.log(`[getTokenBalance] ⚠️ SOL balance is 0 or less`)
+          console.log(`[getTokenBalance] ⚠️ SOL balance is 0`)
         }
 
-        // If SOL balance is 0, also check for wrapped SOL
-        if (balance === '0') {
-          console.log(`[getTokenBalance] SOL balance is 0, checking for wrapped SOL`)
-          try {
-            const wsolMint = new PublicKey('So11111111111111111111111111111111111111112')
-            const tokenAccount = await getAssociatedTokenAddress(wsolMint, walletAddress)
-            console.log(`[getTokenBalance] WSOL token account address: ${tokenAccount.toString()}`)
-
-            const account = await getAccount(connection, tokenAccount)
-            const wsolBalance = account.amount.toString()
-            const wsolAmount = parseFloat(wsolBalance) / 1e9
-            console.log(`[getTokenBalance] WSOL balance found: ${wsolBalance} lamports (${wsolAmount} SOL)`)
-            if (wsolBalance !== '0') {
-              balance = wsolBalance
-              console.log(`[getTokenBalance] Using WSOL balance instead of SOL balance`)
-            }
-          } catch (wsolError) {
-            console.log(`[getTokenBalance] No WSOL account found: ${wsolError}`)
-          }
-        }
-      } catch (solError) {
-        console.error(`[getTokenBalance] Error fetching SOL balance:`, solError)
+      } catch (proxyError) {
+        console.error(`[getTokenBalance] Proxy balance fetch error:`, proxyError)
+        console.error(`[getTokenBalance] Proxy Error details:`, {
+          message: proxyError?.message,
+          name: proxyError?.name,
+          stack: proxyError?.stack,
+          walletAddress: walletAddress.toString()
+        })
         balance = '0'
       }
     }
@@ -509,27 +512,31 @@ export async function getTokenBalance(
     // Validate that mint is a valid public key before creating PublicKey
     else {
       try {
-        console.log(`[getTokenBalance] Fetching SPL token balance for ${mint}`)
-        const mintPubkey = new PublicKey(mint)
+        console.log(`[getTokenBalance] Fetching SPL token balance via server proxy for ${mint}`)
 
-        // Handle SPL token balance using proper SPL token methods
-        const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletAddress)
-        console.log(`[getTokenBalance] Token account address: ${tokenAccount.toString()}`)
+        const response = await fetch(
+          `/api/v1/balance?wallet=${walletAddress.toString()}&mint=${mint}&commitment=confirmed`
+        )
 
-        try {
-          const account = await getAccount(connection, tokenAccount)
-          balance = account.amount.toString()
-          console.log(`[getTokenBalance] SPL token balance fetched: ${balance}`)
-        } catch (accountError) {
-          console.log(`[getTokenBalance] Token account doesn't exist for ${mint}, setting balance to 0`)
-          // Token account doesn't exist
-          balance = '0'
+        if (!response.ok) {
+          throw new Error(`Balance API returned ${response.status}: ${response.statusText}`)
         }
-      } catch (pubkeyError) {
-        console.error(`[getTokenBalance] Invalid mint address ${mint}:`, pubkeyError)
-                balance = '0'
+
+        const data = await response.json()
+
+        if (!data.success) {
+          throw new Error(`Balance API error: ${data.error}`)
+        }
+
+        balance = data.balance
+        console.log(`[getTokenBalance] ✅ SPL token balance fetched via proxy: ${balance}`)
+
+      } catch (proxyError) {
+        console.error(`[getTokenBalance] Proxy SPL balance fetch error:`, proxyError)
+        balance = '0'
       }
-    }
+
+      }
 
     // Cache the result
     balanceCache.set(cacheKey, { balance, timestamp: Date.now() })
@@ -537,8 +544,17 @@ export async function getTokenBalance(
 
     return balance
   } catch (error) {
-    console.error(`[getTokenBalance] Error fetching balance for ${mint}:`, error)
-        return '0'
+    console.error(`[getTokenBalance] Top-level error fetching balance for ${mint}:`, error)
+    console.error(`[getTokenBalance] Top-level error details:`, {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+      walletAddress: walletAddress.toString(),
+      mint: mint
+    })
+
+    // No mock fallbacks - return 0 if balance fetching fails
+    return '0'
   }
 }
 
@@ -548,6 +564,10 @@ export async function getTokenBalance(
 export function clearBalanceCache(): void {
   balanceCache.clear()
 }
+
+/**
+ * Get a fallback connection if the current connection times out
+ */
 
 /**
  * Check if a string is valid base58 format

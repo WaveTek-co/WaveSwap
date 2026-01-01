@@ -403,7 +403,7 @@ function TabContent({ tabId, privacyMode }: TabContentProps) {
     case 'stake':
       return (
         <div className="w-full flex justify-center">
-          <WaveStake privacyMode={privacyMode} comingSoon={false} />
+          <WaveStake privacyMode={privacyMode} />
         </div>
       )
 

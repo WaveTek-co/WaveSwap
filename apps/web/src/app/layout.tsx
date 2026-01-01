@@ -21,24 +21,29 @@ import { TermsGuard } from '@/components/TermsGuard'
 // Using local Helvetica Neue and JetBrains Mono fonts only
 
 export const metadata: Metadata = {
-  title: 'WaveTek - Privacy-Preserving Interoperable DEX Aggregator',
+  title: 'WaveSwap - Privacy-Preserving Interoperable DEX Aggregator',
   description: 'Swap tokens privately with encrypted amounts, zero MEV exposure, and institutional-grade execution on Solana and multiple other chains.',
   keywords: ['Solana', 'DeFi', 'DEX', 'Privacy', 'Swap', 'Zcash', 'Blockchain', 'WaveTek'],
   authors: [{ name: 'WaveSwap Team' }],
   creator: 'WaveSwap',
   publisher: 'WaveSwap',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_API_URL || 'https://wavetek-v2.vercel.app'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_API_URL || 'https://waveswap.live'),
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
   openGraph: {
-    title: 'WaveSwap - Private Solana Swaps',
-    description: 'Swap SPL tokens privately with encrypted amounts on Solana with zero MEV exposure',
-    url: 'https://wavetek-v2.vercel.app',
+    title: 'WaveSwap - Privacy-Preserving Interoperable DEX Aggregator',
+    description: 'Swap tokens privately with encrypted amounts, zero MEV exposure.',
+    url: 'https://waveswap.live',
     siteName: 'WaveSwap by WaveTek',
     images: [
       {
         url: '/banner.jpg',
         width: 1200,
         height: 630,
-        alt: 'WaveSwap - Private Solana Swaps with Zero MEV',
+        alt: 'WaveTek - Private Solana Swaps with Zero MEV',
       },
     ],
     locale: 'en_US',

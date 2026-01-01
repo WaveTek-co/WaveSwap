@@ -182,3 +182,5 @@ yarn.lock
 pnpm-lock.yaml
 
 TODO.md
+
+packages/programs/wave_stake/.keys

@@ -85,15 +85,8 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
 
   const sources = getReliableSources(logoURI || '')
 
-  console.log(`[TokenIcon] Processing ${symbol} icon:`, {
-    logoURI,
-    sources,
-    sourcesCount: sources.length
-  })
-
+  
   const handleError = () => {
-    console.log(`[TokenIcon] Error loading icon for ${symbol} from source:`, sources[currentSource])
-
     // Try next source if available
     if (currentSource < sources.length - 1) {
       setCurrentSource(currentSource + 1)
@@ -179,7 +172,6 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
             }}
             onError={() => {
               // If local fallback fails, try original URL
-              console.log(`[TokenIcon] Local fallback failed for ${symbol}, trying original URL`)
               const originalURL = getTokenOriginalURL(symbol, mint)
               if (originalURL) {
                 setShowFallback(false) // Reset to try original URL
@@ -226,7 +218,6 @@ export function TokenIcon({ symbol, mint, logoURI, size = 40, className = '' }: 
             crossOrigin="anonymous"
             onError={() => {
               // If original URL fails, show text fallback
-              console.log(`[TokenIcon] Original URL failed for ${symbol}, showing text fallback`)
               setShowFallback(true)
             }}
           />

@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Connection, PublicKey } from '@solana/web3.js'
 import { DefiClient, SignedSwapParams, DefiClientConfig } from 'encifher-swap-sdk'
 import { PrismaClient, SwapStatus } from '@prisma/client'
+import { config } from '@/lib/config'
 
 const prisma = new PrismaClient()
 
@@ -56,7 +57,7 @@ export async function POST(
           inputToken: body.orderDetails.inMint,
           outputToken: body.orderDetails.outMint,
           inputAmount: BigInt(body.orderDetails.amountIn),
-          feeBps: 50, // Default fee
+          feeBps: 20, // 0.2% fee for private swaps
           privacyMode: true, // Private swap
           slippageBps: 50, // Default slippage
           status: SwapStatus.ENCRYPTED_PENDING,
@@ -81,7 +82,7 @@ export async function POST(
 
     // Get environment variables
     const encifherKey = process.env.ENCIFHER_SDK_KEY || process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
-    const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    const rpcUrl = config.rpc.url
 
     if (!encifherKey) {
       return NextResponse.json(

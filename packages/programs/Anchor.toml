@@ -4,9 +4,11 @@ skip-lint = false
 
 [programs.localnet]
 waveswap_swap_registry = "SwapRegistry111111111111111111111111111"
+wave_stake = "5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ"
 
 [programs.devnet]
 waveswap_swap_registry = "SwapRegistry111111111111111111111111111"
+wave_stake = "5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ"
 
 [registry]
 url = "https://api.apr.dev"

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { DefiClient, OrderStatusParams, DefiClientConfig } from 'encifher-swap-sdk'
+import { config } from '@/lib/config'
 
 export async function POST(
   request: NextRequest
@@ -29,7 +30,7 @@ export async function POST(
 
     // Get environment variables
     const encifherKey = process.env.ENCIFHER_SDK_KEY || process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
-    const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    const rpcUrl = config.rpc.url
 
     if (!encifherKey) {
       return NextResponse.json(

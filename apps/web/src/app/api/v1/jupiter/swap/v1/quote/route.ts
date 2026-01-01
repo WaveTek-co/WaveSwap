@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { JupiterAPI } from '@/lib/jupiter'
 import { Connection } from '@solana/web3.js'
+import { config } from '@/lib/config'
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,11 +21,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Initialize connection and Jupiter API
-    const connection = new Connection(
-      process.env.SOLANA_RPC_ENDPOINT || 'https://api.devnet.solana.com',
-      'confirmed'
-    )
+    // Initialize connection and Jupiter API using configured RPC
+    const connection = new Connection(config.rpc.url, 'confirmed')
 
     const jupiterApi = JupiterAPI.createClient(connection)
 

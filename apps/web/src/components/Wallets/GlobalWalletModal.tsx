@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useWallet } from '@/hooks/useWalletAdapter'
-import { useThemeConfig, createGlassStyles } from '@/lib/theme'
+import { useThemeConfig } from '@/lib/theme'
 import { useGlobalModal } from '@/contexts/GlobalModalContext'
-import { X, ChevronDown } from 'lucide-react'
+import { X } from 'lucide-react'
+import { ThemeWaveLogo } from '@/components/ui/ThemeWaveLogo'
 
 export function GlobalWalletModal() {
   const { connect, connecting } = useWallet()
@@ -202,13 +203,13 @@ export function GlobalWalletModal() {
               `
             }}
           >
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" style={{ color: theme.colors.primary, filter: `drop-shadow(0 0 8px ${theme.colors.primary}40)` }}>
-              {/* Wave logo - stylized waves */}
-              <path d="M4 16C4 16 8 8 16 8C24 8 28 16 28 16C28 16 24 24 16 24C8 24 4 16 4 16Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M16 20C18.2091 20 20 18.2091 20 16C20 13.7909 18.2091 12 16 12C13.7909 12 12 13.7909 12 16C12 18.2091 13.7909 20 16 20Z" fill={theme.colors.primary + '20'} stroke="currentColor" strokeWidth="2"/>
-              <path d="M6 16C8 12 10 10 13 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.7"/>
-              <path d="M26 16C24 12 22 10 19 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.7"/>
-            </svg>
+            <ThemeWaveLogo
+            size={32}
+            style={{
+              borderRadius: '50%',
+              objectFit: 'cover'
+            }}
+          />
           </div>
           <h2
             style={{
@@ -238,11 +239,11 @@ export function GlobalWalletModal() {
           </p>
         </div>
 
-        {/* Wallet Options */}
+        {/* Main Wallet Options */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }} className="relative z-10">
-          {/* Phantom Wallet */}
+          {/* Phantom Injected Wallet */}
           <button
-            onClick={() => handleConnect('phantom')}
+            onClick={() => handleConnect('phantom-injected')}
             disabled={connecting}
             className="transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] relative overflow-hidden"
             style={{
@@ -310,20 +311,6 @@ export function GlobalWalletModal() {
               }
             }}
           >
-            {/* Enhanced hover gradient overlay */}
-            <div
-              className="absolute inset-0 opacity-0 transition-opacity duration-300 pointer-events-none"
-              style={{
-                background: `
-                  linear-gradient(135deg,
-                    ${theme.colors.primary}20 0%,
-                    ${theme.colors.primary}05 50%,
-                    transparent 100%
-                  )
-                `
-              }}
-            />
-
             <div
               style={{
                 width: '40px',
@@ -348,9 +335,9 @@ export function GlobalWalletModal() {
               />
             </div>
             <div style={{ textAlign: 'left', flex: 1 }}>
-              <div style={{ fontWeight: 600, marginBottom: '2px', fontSize: '15px' }}>Continue with Phantom</div>
+              <div style={{ fontWeight: 600, marginBottom: '2px', fontSize: '15px' }}>Phantom Wallet</div>
               <div style={{ fontSize: '13px', color: theme.colors.textMuted, fontWeight: 400, lineHeight: 1.3 }}>
-                Connect your Phantom wallet
+                Browser extension - Most popular Solana wallet
               </div>
             </div>
             {connecting && (
@@ -372,7 +359,7 @@ export function GlobalWalletModal() {
           <button
             onClick={() => handleConnect('google')}
             disabled={connecting}
-            className="transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] relative overflow-hidden"
+            className="transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98]"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -417,11 +404,6 @@ export function GlobalWalletModal() {
                   0 8px 20px ${theme.colors.primary}30,
                   inset 0 1px 0 rgba(255, 255, 255, 0.2)
                 `
-                // Add hover gradient overlay
-                const hoverOverlay = e.currentTarget.querySelector('.hover-gradient-overlay') as HTMLElement
-                if (hoverOverlay) {
-                  hoverOverlay.style.opacity = '1'
-                }
               }
             }}
             onMouseLeave={(e) => {
@@ -440,28 +422,9 @@ export function GlobalWalletModal() {
                   inset 0 1px 0 rgba(255, 255, 255, 0.1),
                   inset 0 -1px 0 rgba(0, 0, 0, 0.1)
                 `
-                // Remove hover gradient overlay
-                const hoverOverlay = e.currentTarget.querySelector('.hover-gradient-overlay') as HTMLElement
-                if (hoverOverlay) {
-                  hoverOverlay.style.opacity = '0'
-                }
               }
             }}
           >
-            {/* Enhanced hover gradient overlay */}
-            <div
-              className="hover-gradient-overlay absolute inset-0 opacity-0 transition-opacity duration-300 pointer-events-none"
-              style={{
-                background: `
-                  linear-gradient(135deg,
-                    ${theme.colors.primary}20 0%,
-                    ${theme.colors.primary}05 50%,
-                    transparent 100%
-                  )
-                `
-              }}
-            />
-
             <div
               style={{
                 width: '40px',
@@ -510,7 +473,7 @@ export function GlobalWalletModal() {
           <button
             onClick={() => handleConnect('apple')}
             disabled={connecting}
-            className="transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] relative overflow-hidden"
+            className="transition-all duration-300 ease-out hover:scale-[1.02] active:scale-[0.98]"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -555,11 +518,6 @@ export function GlobalWalletModal() {
                   0 8px 20px ${theme.colors.primary}30,
                   inset 0 1px 0 rgba(255, 255, 255, 0.2)
                 `
-                // Add hover gradient overlay
-                const hoverOverlay = e.currentTarget.querySelector('.apple-hover-gradient-overlay') as HTMLElement
-                if (hoverOverlay) {
-                  hoverOverlay.style.opacity = '1'
-                }
               }
             }}
             onMouseLeave={(e) => {
@@ -578,28 +536,9 @@ export function GlobalWalletModal() {
                   inset 0 1px 0 rgba(255, 255, 255, 0.1),
                   inset 0 -1px 0 rgba(0, 0, 0, 0.1)
                 `
-                // Remove hover gradient overlay
-                const hoverOverlay = e.currentTarget.querySelector('.apple-hover-gradient-overlay') as HTMLElement
-                if (hoverOverlay) {
-                  hoverOverlay.style.opacity = '0'
-                }
               }
             }}
           >
-            {/* Enhanced hover gradient overlay */}
-            <div
-              className="apple-hover-gradient-overlay absolute inset-0 opacity-0 transition-opacity duration-300 pointer-events-none"
-              style={{
-                background: `
-                  linear-gradient(135deg,
-                    ${theme.colors.primary}20 0%,
-                    ${theme.colors.primary}05 50%,
-                    transparent 100%
-                  )
-                `
-              }}
-            />
-
             <div
               style={{
                 width: '40px',
@@ -640,6 +579,508 @@ export function GlobalWalletModal() {
               />
             )}
           </button>
+        </div>
+
+        {/* Other Wallets Grid */}
+        <div style={{ marginTop: '20px' }} className="relative z-10">
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '12px'
+          }}>
+            <div style={{
+              height: '1px',
+              flex: 1,
+              background: `${theme.colors.primary}20`
+            }} />
+            <span style={{
+              fontSize: '12px',
+              color: theme.colors.textMuted,
+              fontFamily: 'var(--font-helvetica)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}>
+              Or connect with
+            </span>
+            <div style={{
+              height: '1px',
+              flex: 1,
+              background: `${theme.colors.primary}20`
+            }} />
+          </div>
+
+          {/* Scrollable Wallet Grid */}
+          <div
+            style={{
+              maxHeight: '160px',
+              overflowY: 'auto',
+              paddingRight: '8px',
+              scrollbarWidth: 'thin',
+              scrollbarColor: `${theme.colors.primary}30 transparent`
+            }}
+            className="wallet-grid-scroll"
+          >
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: '12px'
+            }}>
+              {/* First Row - 3 wallets */}
+              <button
+                onClick={() => handleConnect('backpack')}
+                disabled={connecting}
+                className="transition-all duration-300 ease-out hover:scale-[1.05] active:scale-[0.95] relative"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 12px',
+                  borderRadius: '12px',
+                  border: `2px solid ${theme.colors.primary}40`,
+                  background: `
+                    linear-gradient(135deg,
+                      ${theme.colors.primary}15 0%,
+                      ${theme.colors.surface}ee 50%,
+                      ${theme.colors.primary}10 100%
+                    )
+                  `,
+                  cursor: connecting ? 'not-allowed' : 'pointer',
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  transition: 'all 0.3s ease',
+                  minWidth: '0',
+                  position: 'relative',
+                  boxShadow: `
+                    0 8px 24px rgba(171, 159, 242, 0.3),
+                    0 4px 12px ${theme.colors.primary}20,
+                    inset 0 1px 0 rgba(255, 255, 255, 0.2)
+                  `,
+                }}
+                onMouseEnter={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `
+                      linear-gradient(135deg,
+                        ${theme.colors.primary}25 0%,
+                        ${theme.colors.primary}15 50%,
+                        ${theme.colors.primary}20 100%
+                      )
+                    `
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}50`
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                    e.currentTarget.style.boxShadow = `
+                      0 12px 32px rgba(171, 159, 242, 0.4),
+                      0 6px 16px ${theme.colors.primary}30,
+                      inset 0 1px 0 rgba(255, 255, 255, 0.3)
+                    `
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `
+                      linear-gradient(135deg,
+                        ${theme.colors.primary}15 0%,
+                        ${theme.colors.surface}ee 50%,
+                        ${theme.colors.primary}10 100%
+                      )
+                    `
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}40`
+                    e.currentTarget.style.transform = 'scale(1)'
+                    e.currentTarget.style.boxShadow = `
+                      0 8px 24px rgba(171, 159, 242, 0.3),
+                      0 4px 12px ${theme.colors.primary}20,
+                      inset 0 1px 0 rgba(255, 255, 255, 0.2)
+                    `
+                  }
+                }}
+              >
+                {/* Popular Badge */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '-6px',
+                    right: '-6px',
+                    background: 'linear-gradient(135deg, #9945FF, #AB9FF2)',
+                    color: 'white',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    padding: '2px 6px',
+                    borderRadius: '6px',
+                    fontFamily: 'var(--font-helvetica)',
+                    boxShadow: '0 2px 8px rgba(153, 69, 255, 0.4)',
+                    zIndex: 10
+                  }}
+                >
+                  Popular
+                </div>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #AB9FF2, #9945FF)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: `
+                      0 4px 12px rgba(171, 159, 242, 0.4),
+                      inset 0 1px 0 rgba(255, 255, 255, 0.3)
+                    `,
+                    filter: 'drop-shadow(0 0 8px rgba(171, 159, 242, 0.3))'
+                  }}
+                >
+                  <img
+                    src="/assets/Phantom/Phantom-Icon-Purple.svg"
+                    alt="Phantom"
+                    style={{ width: '20px', height: '20px' }}
+                  />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: theme.colors.textPrimary,
+                  fontFamily: 'var(--font-helvetica)',
+                  fontWeight: 600,
+                  textAlign: 'center',
+                  lineHeight: '1.2'
+                }}>
+                  Phantom
+                  <br />
+                  <span style={{
+                    fontSize: '9px',
+                    color: theme.colors.textMuted,
+                    fontWeight: 400,
+                    opacity: 0.8
+                  }}>
+                    (Injected)
+                  </span>
+                </span>
+              </button>
+
+              {/* Backpack Wallet */}
+              <button
+                onClick={() => handleConnect('backpack')}
+                disabled={connecting}
+                className="transition-all duration-300 ease-out hover:scale-[1.05] active:scale-[0.95]"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 12px',
+                  borderRadius: '12px',
+                  border: `1px solid ${theme.colors.primary}15`,
+                  background: `${theme.colors.surface}60`,
+                  cursor: connecting ? 'not-allowed' : 'pointer',
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  transition: 'all 0.3s ease',
+                  minWidth: '0'
+                }}
+                onMouseEnter={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.primary}15`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}25`
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.surface}60`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}15`
+                    e.currentTarget.style.transform = 'scale(1)'
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'rgba(99, 102, 241, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <img
+                    src="/assets/backpack.png"
+                    alt="Backpack"
+                    style={{ width: '20px', height: '20px', objectFit: 'contain' }}
+                  />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: theme.colors.textPrimary,
+                  fontFamily: 'var(--font-helvetica)',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  lineHeight: '1.2'
+                }}>
+                  Backpack
+                </span>
+              </button>
+
+              {/* Jupiter Wallet */}
+              <button
+                onClick={() => handleConnect('jupiter')}
+                disabled={connecting}
+                className="transition-all duration-300 ease-out hover:scale-[1.05] active:scale-[0.95]"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 12px',
+                  borderRadius: '12px',
+                  border: `1px solid ${theme.colors.primary}15`,
+                  background: `${theme.colors.surface}60`,
+                  cursor: connecting ? 'not-allowed' : 'pointer',
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  transition: 'all 0.3s ease',
+                  minWidth: '0'
+                }}
+                onMouseEnter={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.primary}15`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}25`
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.surface}60`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}15`
+                    e.currentTarget.style.transform = 'scale(1)'
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <img
+                    src="/assets/jupiter.png"
+                    alt="Jupiter"
+                    style={{ width: '20px', height: '20px', objectFit: 'contain' }}
+                  />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: theme.colors.textPrimary,
+                  fontFamily: 'var(--font-helvetica)',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  lineHeight: '1.2'
+                }}>
+                  Jupiter
+                </span>
+              </button>
+
+              {/* Solflare Wallet */}
+              <button
+                onClick={() => handleConnect('solflare')}
+                disabled={connecting}
+                className="transition-all duration-300 ease-out hover:scale-[1.05] active:scale-[0.95]"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 12px',
+                  borderRadius: '12px',
+                  border: `1px solid ${theme.colors.primary}15`,
+                  background: `${theme.colors.surface}60`,
+                  cursor: connecting ? 'not-allowed' : 'pointer',
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  transition: 'all 0.3s ease',
+                  minWidth: '0'
+                }}
+                onMouseEnter={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.primary}15`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}25`
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.surface}60`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}15`
+                    e.currentTarget.style.transform = 'scale(1)'
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'rgba(251, 191, 36, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <img
+                    src="/assets/Solflare/SolflareYellow.svg"
+                    alt="Solflare"
+                    style={{ width: '20px', height: '20px', objectFit: 'contain' }}
+                  />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: theme.colors.textPrimary,
+                  fontFamily: 'var(--font-helvetica)',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  lineHeight: '1.2'
+                }}>
+                  Solflare
+                </span>
+              </button>
+
+              {/* WalletConnect */}
+              <button
+                onClick={() => handleConnect('walletconnect')}
+                disabled={connecting}
+                className="transition-all duration-300 ease-out hover:scale-[1.05] active:scale-[0.95]"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 12px',
+                  borderRadius: '12px',
+                  border: `1px solid ${theme.colors.primary}15`,
+                  background: `${theme.colors.surface}60`,
+                  cursor: connecting ? 'not-allowed' : 'pointer',
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  transition: 'all 0.3s ease',
+                  minWidth: '0'
+                }}
+                onMouseEnter={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.primary}15`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}25`
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.surface}60`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}15`
+                    e.currentTarget.style.transform = 'scale(1)'
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <img
+                    src="/assets/walletconnect.svg"
+                    alt="WalletConnect"
+                    style={{ width: '20px', height: '20px', objectFit: 'contain' }}
+                  />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: theme.colors.textPrimary,
+                  fontFamily: 'var(--font-helvetica)',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  lineHeight: '1.2'
+                }}>
+                  WalletConnect
+                </span>
+              </button>
+
+              
+              {/* Second Row - Additional wallet */}
+              {/* Ledger Wallet */}
+              <button
+                onClick={() => handleConnect('ledger')}
+                disabled={connecting}
+                className="transition-all duration-300 ease-out hover:scale-[1.05] active:scale-[0.95]"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 12px',
+                  borderRadius: '12px',
+                  border: `1px solid ${theme.colors.primary}15`,
+                  background: `${theme.colors.surface}60`,
+                  cursor: connecting ? 'not-allowed' : 'pointer',
+                  backdropFilter: 'blur(12px) saturate(1.5)',
+                  transition: 'all 0.3s ease',
+                  minWidth: '0'
+                }}
+                onMouseEnter={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.primary}15`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}25`
+                    e.currentTarget.style.transform = 'scale(1.05)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!connecting) {
+                    e.currentTarget.style.background = `${theme.colors.surface}60`
+                    e.currentTarget.style.borderColor = `${theme.colors.primary}15`
+                    e.currentTarget.style.transform = 'scale(1)'
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: 'rgba(99, 102, 241, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <img
+                    src="/assets/ledger.jpg"
+                    alt="Ledger"
+                    style={{ width: '20px', height: '20px', objectFit: 'contain' }}
+                  />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  color: theme.colors.textPrimary,
+                  fontFamily: 'var(--font-helvetica)',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  lineHeight: '1.2'
+                }}>
+                  Ledger
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

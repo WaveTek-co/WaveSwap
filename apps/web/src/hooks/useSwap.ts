@@ -1004,24 +1004,86 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             throw new Error('Wallet does not support transaction signing')
           }
 
-          const signedDepositTxn = await signTransaction(depositTxn)
+          console.log('[Private Swap] Starting deposit transaction signing...')
+          let signedDepositTxn
+          try {
+            // Add timeout to prevent hanging
+            signedDepositTxn = await Promise.race([
+              signTransaction(depositTxn),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Transaction signing timed out after 30 seconds')), 30000)
+              )
+            ])
+            console.log('[Private Swap] Deposit transaction signed successfully')
+          } catch (signError) {
+            console.error('[Private Swap] Failed to sign deposit transaction:', signError)
+            throw new Error(`Failed to sign deposit transaction: ${signError.message}`)
+          }
 
-          // Get latest blockhash for transaction (as shown in documentation)
+          // Get latest blockhash for transaction using server-side proxy to avoid client-side timeout issues
+          console.log('[Private Swap] Getting latest blockhash via server proxy...')
+
+          const blockhashResponse = await Promise.race([
+            fetch('/api/v1/blockhash'),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Failed to get blockhash from server: timeout after 30 seconds')), 30000)
+            )
+          ])
+
+          if (!blockhashResponse.ok) {
+            throw new Error(`Blockhash API error: ${blockhashResponse.status} - ${blockhashResponse.statusText}`)
+          }
+
+          const blockhashData = await blockhashResponse.json()
+
+          if (!blockhashData.success) {
+            throw new Error(`Blockhash API failed: ${blockhashData.error}`)
+          }
+
           const {
             context: { slot: minContextSlot },
-            value: { blockhash, lastValidBlockHeight },
-          } = await connection.getLatestBlockhashAndContext()
+            blockhash,
+            lastValidBlockHeight,
+          } = blockhashData
 
-          depositSignature = await connection.sendRawTransaction(
-            signedDepositTxn.serialize(),
-            {
-              minContextSlot,
-              preflightCommitment: 'confirmed',
-              maxRetries: 3
-            }
-          )
+          console.log('[Private Swap] Blockhash received via proxy:', blockhash)
+          console.log('[Private Swap] Latest blockhash received')
 
-          console.log('[Private Swap] Deposit transaction sent:', depositSignature)
+          console.log('[Private Swap] Sending deposit transaction via server proxy...')
+
+          // Use server-side proxy to avoid client-side network timeouts
+          const depositSendResponse = await Promise.race([
+            fetch('/api/v1/send-transaction', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify({
+                serializedTransaction: signedDepositTxn.serialize().toString('base64'),
+                minContextSlot,
+                preflightCommitment: 'confirmed',
+                maxRetries: 3
+              })
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Failed to send deposit transaction: timeout after 45 seconds')), 45000)
+            )
+          ])
+
+          if (!depositSendResponse.ok) {
+            const errorText = await depositSendResponse.text()
+            throw new Error(`Deposit transaction API error: ${depositSendResponse.status} - ${errorText}`)
+          }
+
+          const depositResult = await depositSendResponse.json()
+
+          if (!depositResult.success) {
+            throw new Error(`Deposit transaction failed: ${depositResult.error}`)
+          }
+
+          depositSignature = depositResult.signature
+          console.log('[Private Swap] Deposit transaction sent via proxy:', depositSignature)
 
           // Confirm deposit transaction with proper block height checking (as per documentation)
           let depositConfirmation
@@ -1128,7 +1190,21 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           }
 
           // Sign and execute swap transaction
-          const signedSwapTxn = await signTransaction(swapTxn)
+          console.log('[Private Swap] Starting swap transaction signing...')
+          let signedSwapTxn
+          try {
+            // Add timeout to prevent hanging
+            signedSwapTxn = await Promise.race([
+              signTransaction(swapTxn),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Swap transaction signing timed out after 30 seconds')), 30000)
+              )
+            ])
+            console.log('[Private Swap] Swap transaction signed successfully')
+          } catch (signError) {
+            console.error('[Private Swap] Failed to sign swap transaction:', signError)
+            throw new Error(`Failed to sign swap transaction: ${signError.message}`)
+          }
 
           const signedSwapParams: SignedSwapParams = {
             serializedTxn: Buffer.from(signedSwapTxn.serialize()).toString('base64'),
@@ -1143,14 +1219,20 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           }
 
           // Execute swap transaction using our API endpoint (not direct SDK call)
-          const executeResponse = await fetch('/api/v1/swap/execute-private', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify(signedSwapParams)
-          })
+          console.log('[Private Swap] Executing swap via API...')
+          const executeResponse = await Promise.race([
+            fetch('/api/v1/swap/execute-private', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(signedSwapParams)
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Swap execution API timeout after 60 seconds')), 60000)
+            )
+          ])
 
           if (!executeResponse.ok) {
             const errorData = await executeResponse.text()
@@ -1337,14 +1419,27 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Optimized batch balance fetching
   const fetchMultipleBalances = useCallback(async (tokens: Token[]): Promise<Map<string, string>> => {
-    if (!publicKey || !connection || tokens.length === 0) return new Map()
+    console.log(`[useSwap] fetchMultipleBalances called with ${tokens.length} tokens`)
+    console.log(`[useSwap] publicKey: ${publicKey?.toString()}`)
+    console.log(`[useSwap] connection: ${!!connection}`)
 
-    const balancePromises = tokens.map(async (token) => {
+    if (!publicKey || !connection || tokens.length === 0) {
+      console.log(`[useSwap] Returning empty Map - missing:`, {
+        publicKey: !!publicKey,
+        connection: !!connection,
+        tokensCount: tokens.length
+      })
+      return new Map()
+    }
+
+    const balancePromises = tokens.map(async (token, index) => {
       try {
+        console.log(`[useSwap] Starting balance fetch for token ${index + 1}/${tokens.length}: ${token.address} (${token.symbol})`)
         const balance = await getTokenBalance(connection, publicKey, token.address)
+        console.log(`[useSwap] ✅ Balance fetched for ${token.symbol}: ${balance}`)
         return [token.address, balance] as [string, string]
       } catch (error) {
-        console.warn(`Failed to fetch balance for ${token.address}:`, error)
+        console.error(`[useSwap] ❌ Failed to fetch balance for ${token.address} (${token.symbol}):`, error)
         return [token.address, '0'] as [string, string]
       }
     })
@@ -1352,13 +1447,18 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
     const results = await Promise.allSettled(balancePromises)
     const newBalances = new Map<string, string>()
 
-    results.forEach((result) => {
+    console.log(`[useSwap] Processing ${results.length} balance fetch results...`)
+    results.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value) {
         const [address, balance] = result.value
         newBalances.set(address, balance)
+        console.log(`[useSwap] ✅ Result ${index}: ${address} -> ${balance}`)
+      } else {
+        console.error(`[useSwap] ❌ Balance fetch failed:`, result)
       }
     })
 
+    console.log(`[useSwap] Final balances Map created with ${newBalances.size} entries:`, Object.fromEntries(newBalances))
     return newBalances
   }, [publicKey, connection])
 
@@ -1499,7 +1599,6 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
       // Also force a second refresh after a short delay to ensure SOL balance is caught
       setTimeout(() => {
-        console.log('[useSwap] Secondary balance refresh to catch SOL balance')
         refreshBalances()
       }, 2000)
     }

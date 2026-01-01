@@ -149,6 +149,33 @@ anchor deploy --provider.cluster devnet
 3. **Arcium** - Using Arcium's confidential SPL tokens and Dark Pools for Wave Staking
 4. **Jupiter** - Best-in-class liquidity routing
 
+---
+
+## 💎 WaveStake - Liquid Staking Protocol
+
+**📖 [Full Documentation](./docs/README.md)** | **[Status](./docs/STATUS.md)** | **[Deployment Guide](./docs/mainnet-deployment.md)**
+
+WaveStake allows users to stake tokens and earn rewards while receiving Liquid Staking Tokens (LST) in return.
+
+### Features
+- ✅ Multi-token staking (SOL, WAVE, GOLD, WEALTH, ZEC)
+- ✅ Flexible & Locked staking options
+- ✅ Automatic reward distribution
+- ✅ LST tokens: waveSOL, sWAVE, sGOLD, sWEALTH, sZEC
+- ✅ Token-2022 compatible
+
+### Current Status
+- **v1.1** on devnet - All features working ✅
+- Mainnet pending security audit 🚧
+- [Full deployment checklist](./docs/mainnet-deployment.md)
+
+### Quick Links
+- **[Program Architecture](./docs/program-architecture.md)** - Technical deep dive
+- **[Operations Guide](./docs/operations-guide.md)** - Day-to-day operations
+- **[Changelog](./docs/CHANGELOG.md)** - Version history & bug fixes
+
+---
+
 ### System Flow
 
 1. **Token Wrapping** - SPL → Confidential SPL (encrypted amounts)

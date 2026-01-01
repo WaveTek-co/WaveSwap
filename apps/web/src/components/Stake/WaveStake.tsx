@@ -1,10 +1,15 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
 import { CurrencyDollarIcon, InformationCircleIcon, ArrowTrendingUpIcon, LockClosedIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { ComingSoon } from '@/components/ui/ComingSoon'
 import { TokenIcon } from '@/components/TokenIcon'
+import { useWaveStake } from '@/hooks/useWaveStake'
+import { useWallet } from '@/hooks/useWalletAdapter'
+import { LockType } from '@/lib/staking-client'
+import { toast } from 'sonner'
+import { Connection, PublicKey } from '@solana/web3.js'
 
 interface WaveStakeProps {
   privacyMode: boolean
@@ -15,6 +20,7 @@ interface StakePool {
   id: string
   name: string
   symbol: string
+  lstSymbol?: string  // Liquid Staking Token symbol (e.g., "waveSOL", "sWAVE")
   mintAddress: string
   apr: number
   bonus30days: number
@@ -28,6 +34,7 @@ interface StakePool {
   userStaked?: string
   userRewards?: string
   userSecureBag?: string
+  userBalance?: string
 }
 
 interface StakingAction {
@@ -50,7 +57,8 @@ const getJupiterIconUrl = (symbol: string): string | null => {
 
 export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
   const theme = useThemeConfig()
-  const [selectedPool, setSelectedPool] = useState<string>('ZEC')
+  const { connected, publicKey } = useWallet()
+  const [selectedPool, setSelectedPool] = useState<string>('wave')
   const [stakeAmount, setStakeAmount] = useState<string>('')
   const [activeModal, setActiveModal] = useState<'stake' | 'secureBag' | null>(null)
   const [activeAction, setActiveAction] = useState<'deposit' | 'withdraw' | 'claim'>('deposit')
@@ -58,7 +66,106 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
   const [showComingSoonModal, setShowComingSoonModal] = useState(false)
   const [comingSoonAction, setComingSoonAction] = useState<string>('')
   const [isPoolDropdownOpen, setIsPoolDropdownOpen] = useState(false)
+  const [userBalances, setUserBalances] = useState<{ [key: string]: string }>({
+    wave: '0',
+    wealth: '0',
+    sol: '0'
+  })
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Fetch user token balances when wallet connects
+  useEffect(() => {
+    const fetchBalances = async () => {
+      console.log('[WaveStake] Fetching balances, connected:', connected, 'publicKey:', publicKey?.toString())
+
+      if (!connected || !publicKey) {
+        console.log('[WaveStake] No wallet connected, setting balances to 0')
+        setUserBalances({ wave: '0', wealth: '0', sol: '0' })
+        return
+      }
+
+      try {
+        const devnetConnection = new Connection('https://api.devnet.solana.com', 'confirmed')
+        const balances: { [key: string]: string } = { wave: '0', wealth: '0', gold: '0', zec: '0', sol: '0' }
+
+        // Fetch SOL balance from Devnet
+        try {
+          console.log('[WaveStake] Fetching SOL balance from devnet for wallet:', publicKey.toString())
+          const solBalance = await devnetConnection.getBalance(publicKey)
+          balances['sol'] = (solBalance / 1e9).toFixed(4)
+          console.log('[WaveStake] ✅ SOL balance fetched:', balances['sol'], '(raw:', solBalance, 'lamports)')
+        } catch (error) {
+          console.error('[WaveStake] ❌ Error fetching SOL balance:', error)
+          balances['sol'] = '0'
+        }
+
+        // Fetch WAVE, WEALTH, GOLD, ZEC from Devnet (using our test tokens)
+        const tokenMints = {
+          wave: '6D6DjjiwtWPMCb2tkRVuTDi5esUu2rzHnhpE6z3nyskE',  // 6 decimals
+          wealth: 'Diz52amvNsWFWrA8WnwQMVxSL5asMqL8MhZVSBk8TWcz',  // 6 decimals
+          gold: 'CuEXgJtrPav6otWubGPMjWVe768CGpuRDDXE1XeR4QJK',  // 8 decimals
+          zec: '7kHuXpDPfxRss5bhADeqQR27jcXMA7AMiVdWhwF4Cjjz'  // 8 decimals
+        }
+
+        for (const [key, mint] of Object.entries(tokenMints)) {
+          try {
+            console.log(`[WaveStake] Fetching ${key.toUpperCase()} balance from devnet...`)
+            const tokenAccounts = await devnetConnection.getParsedTokenAccountsByOwner(
+              publicKey,
+              { mint: new PublicKey(mint) }
+            )
+
+            let balance = 0
+            for (const account of tokenAccounts.value) {
+              const parsedData = account.account.data.parsed
+              if (parsedData && parsedData.info.tokenAmount) {
+                balance += Number(parsedData.info.tokenAmount.amount) || 0
+              }
+            }
+
+            // WAVE and WEALTH use 6 decimals, GOLD and ZEC use 8 decimals
+            const decimals = (key === 'wave' || key === 'wealth') ? 1e6 : 1e8
+            balances[key] = (balance / decimals).toFixed(2)
+            console.log(`[WaveStake] ✅ ${key.toUpperCase()} balance:`, balances[key])
+          } catch (error: any) {
+            // Token doesn't exist or user has no balance
+            console.log(`[WaveStake] ℹ️ Token ${key}: No balance or token not found`)
+            balances[key] = '0'
+          }
+        }
+
+        console.log('[WaveStake] 🎯 Final balances to set:', balances)
+        console.log('[WaveStake] 📊 Calling setUserBalances with:', balances)
+        setUserBalances(balances)
+
+        // Verify the state was updated
+        setTimeout(() => {
+          console.log('[WaveStake] ⏱️ State update timeout check - balances should be updated now')
+        }, 100)
+      } catch (error) {
+        console.error('[WaveStake] ❌ Error fetching balances:', error)
+        setUserBalances({ wave: '0', wealth: '0', gold: '0', zec: '0', sol: '0' })
+      }
+    }
+
+    fetchBalances()
+
+    // Only fetch once on connect - refresh page to update balances
+    // This avoids rate limiting issues
+  }, [connected, publicKey])
+
+  // Use the WaveStake hook for blockchain interactions
+  const {
+    userStakes,
+    pools,
+    loading,
+    stake,
+    unstake,
+    claimRewards,
+    canUnstake,
+    getLockTimeRemaining,
+    calculatePendingRewards,
+  } = useWaveStake()
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -74,78 +181,100 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
     }
   }, [])
 
-  // Pool data with professional information
-  const stakePools: StakePool[] = [
-    {
-      id: 'ZEC',
-      name: 'ZEC',
-      symbol: 'ZEC',
-      mintAddress: 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS',
-      apr: 18,
-      bonus30days: 4,
-      totalStaked: '890K',
-      tvl: '$15.2M',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      isComingSoon: true,
-      description: 'Privacy-focused cryptocurrency with competitive yields and extra WEALTH rewards',
-      userStaked: privacyMode ? '****' : '0',
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0'
-    },
-    {
-      id: 'WAVE',
-      name: 'WAVE',
-      symbol: 'WAVE',
-      mintAddress: '4AGxpKxYnw7g1ofvYDs5Jq2a1ek5kB9jS2NTUaippump',
-      apr: 28,
-      bonus30days: 8.88,
-      totalStaked: '12.5M',
-      tvl: '$8.9M',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      isComingSoon: true,
-      description: 'Native governance token with competitive yields',
-      userStaked: privacyMode ? '****' : '0',
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0'
-    },
-    {
-      id: 'WEALTH',
-      name: 'WEALTH',
-      symbol: 'WEALTH',
-      mintAddress: 'BSxPC3Vu3X6UCtEEAYyhxAEo3rvtS4dgzzrvnERDpump',
-      apr: 28,
-      bonus30days: 8.88,
-      totalStaked: '3.8M',
-      tvl: '$4.2M',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      isComingSoon: true,
-      description: 'High-yield wealth generation token',
-      userStaked: privacyMode ? '****' : '0',
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0'
-    },
-    {
-      id: 'GOLD',
-      name: 'GOLD',
-      symbol: 'GOLD',
-      mintAddress: 'GoLDppdjB1vDTPSGxyMJFqdnj134yH6Prg9eqsGDiw6A',
-      apr: 8,
-      bonus30days: 2.80,
-      totalStaked: '1.2M',
-      tvl: '$2.1M',
-      lockPeriod: 0,
-      isSecureBagAvailable: true,
-      isComingSoon: true,
-      description: 'Gold, but better with oro.finance',
-      oroFinanceUrl: 'https://oro.finance',
-      userStaked: privacyMode ? '****' : '0',
-      userRewards: privacyMode ? '****' : '0',
-      userSecureBag: privacyMode ? '****' : '0'
-    }
-  ]
+  // Pool data - All 5 tokens on devnet (using test tokens)
+  const stakePools: StakePool[] = useMemo(() => {
+    console.log('[WaveStake] 🔧 useMemo recalculating stakePools with userBalances:', userBalances)
+
+    const poolsToShow = [
+      {
+        id: 'wave',
+        name: 'WAVE',
+        symbol: 'WAVE',
+        mintAddress: '6D6DjjiwtWPMCb2tkRVuTDi5esUu2rzHnhpE6z3nyskE',  // Devnet test token
+        apr: 28,
+        bonus30days: 8.88,
+        totalStaked: pools['wave'] ? (Number(pools['wave']?.totalStaked) / 1e6).toFixed(0) : '0',
+        tvl: pools['wave'] ? `$${((Number(pools['wave']?.totalStaked) / 1e6) * 0.71).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Native governance token with competitive yields',
+        userStaked: userStakes['wave'] ? (Number(userStakes['wave']?.amount) / 1e6).toFixed(2) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['wave'] || '0'
+      },
+      {
+        id: 'wealth',
+        name: 'WEALTH',
+        symbol: 'WEALTH',
+        mintAddress: 'Diz52amvNsWFWrA8WnwQMVxSL5asMqL8MhZVSBk8TWcz',  // Devnet test token
+        apr: 28,
+        bonus30days: 8.88,
+        totalStaked: pools['wealth'] ? (Number(pools['wealth']?.totalStaked) / 1e6).toFixed(0) : '0',
+        tvl: pools['wealth'] ? `$${((Number(pools['wealth']?.totalStaked) / 1e6) * 0.95).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'High-yield wealth generation token',
+        userStaked: userStakes['wealth'] ? (Number(userStakes['wealth']?.amount) / 1e6).toFixed(2) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['wealth'] || '0'
+      },
+      {
+        id: 'gold',
+        name: 'GOLD',
+        symbol: 'GOLD',
+        mintAddress: 'CuEXgJtrPav6otWubGPMjWVe768CGpuRDDXE1XeR4QJK',  // Devnet test token
+        apr: 20,
+        bonus30days: 6.5,
+        totalStaked: pools['gold'] ? (Number(pools['gold']?.totalStaked) / 1e8).toFixed(0) : '0',
+        tvl: pools['gold'] ? `$${((Number(pools['gold']?.totalStaked) / 1e8) * 2000).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Gold-backed stable value token',
+        userStaked: userStakes['gold'] ? (Number(userStakes['gold']?.amount) / 1e8).toFixed(4) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['gold'] || '0'
+      },
+      {
+        id: 'zec',
+        name: 'ZEC',
+        symbol: 'ZEC',
+        mintAddress: '7kHuXpDPfxRss5bhADeqQR27jcXMA7AMiVdWhwF4Cjjz',  // Devnet test token
+        apr: 18,
+        bonus30days: 5.5,
+        totalStaked: pools['zec'] ? (Number(pools['zec']?.totalStaked) / 1e8).toFixed(0) : '0',
+        tvl: pools['zec'] ? `$${((Number(pools['zec']?.totalStaked) / 1e8) * 35).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Privacy-focused cryptocurrency',
+        userStaked: userStakes['zec'] ? (Number(userStakes['zec']?.amount) / 1e8).toFixed(4) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['zec'] || '0'
+      },
+      {
+        id: 'sol',
+        name: 'SOL',
+        symbol: 'SOL',
+        mintAddress: 'So11111111111111111111111111111111111111112',
+        apr: 15,
+        bonus30days: 5.0,
+        totalStaked: pools['sol'] ? (Number(pools['sol']?.totalStaked) / 1e9).toFixed(4) : '0',
+        tvl: pools['sol'] ? `$${((Number(pools['sol']?.totalStaked) / 1e9) * 145).toFixed(1)}M` : '$0',
+        lockPeriod: 0,
+        isSecureBagAvailable: true,
+        description: 'Stake SOL and earn WAVE rewards',
+        userStaked: userStakes['sol'] ? (Number(userStakes['sol']?.amount) / 1e9).toFixed(4) : '0',
+        userRewards: '0',
+        userSecureBag: '0',
+        userBalance: userBalances['sol'] || '0'
+      }
+    ]
+
+    return poolsToShow
+  }, [pools, userStakes, userBalances])
 
   const currentPool = stakePools.find(pool => pool.id === selectedPool)
 
@@ -596,13 +725,8 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => {
-                  if (currentPool.isComingSoon) {
-                    setComingSoonAction(`${currentPool.name} staking`)
-                    setShowComingSoonModal(true)
-                  } else {
-                    setActiveModal('stake')
-                    setActiveAction('deposit')
-                  }
+                  setActiveModal('stake')
+                  setActiveAction('deposit')
                 }}
                 className="py-3 px-4 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
                 style={{
@@ -619,7 +743,6 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                     inset 0 1px 0 rgba(255, 255, 255, 0.1)
                   `,
                   color: theme.name === 'stealth' ? '#000000' : 'white',
-                  opacity: currentPool.isComingSoon ? 0.7 : 1,
                   cursor: 'pointer'
                 }}
               >
@@ -629,12 +752,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
               {currentPool.isSecureBagAvailable && (
                 <button
                   onClick={() => {
-                    if (currentPool.isComingSoon) {
-                      setComingSoonAction(`${currentPool.name} Staking`)
-                      setShowComingSoonModal(true)
-                    } else {
-                      setActiveModal('secureBag')
-                    }
+                    setActiveModal('secureBag')
                   }}
                   className="py-3 px-4 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] relative"
                   style={{
@@ -651,7 +769,6 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                       inset 0 1px 0 rgba(255, 255, 255, 0.1)
                     `,
                     color: 'white',
-                    opacity: currentPool.isComingSoon ? 0.7 : 1,
                     cursor: 'pointer'
                   }}
                 >
@@ -659,12 +776,12 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
                 </button>
               )}
             </div>
-            {/* Placeholder Notice */}
+            {/* Devnet Notice */}
         <div
           className="text-center text-xs"
           style={{ color: theme.colors.textMuted, opacity: 0.7 }}
         >
-          <span>Yield numbers are placeholders</span>
+          <span>Connected to Solana Devnet • Program ID: 5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ</span>
         </div>
           </div>
         </div>
@@ -679,6 +796,9 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
           privacyMode={privacyMode}
           setComingSoonAction={setComingSoonAction}
           setShowComingSoonModal={setShowComingSoonModal}
+          stake={stake}
+          unstake={unstake}
+          claimRewards={claimRewards}
         />
       )}
 
@@ -691,6 +811,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
           calculateSecureBagEarnings={calculateSecureBagEarnings}
           setComingSoonAction={setComingSoonAction}
           setShowComingSoonModal={setShowComingSoonModal}
+          stake={stake}
         />
       )}
 
@@ -749,7 +870,10 @@ function StakeModal({
   theme,
   privacyMode,
   setComingSoonAction,
-  setShowComingSoonModal
+  setShowComingSoonModal,
+  stake,
+  unstake,
+  claimRewards
 }: {
   pool: StakePool
   onClose: () => void
@@ -757,9 +881,80 @@ function StakeModal({
   privacyMode: boolean
   setComingSoonAction?: (action: string) => void
   setShowComingSoonModal?: (show: boolean) => void
+  stake: (poolId: string, amount: number, lockType: number) => Promise<any>
+  unstake: (poolId: string, amount: number) => Promise<any>
+  claimRewards: (poolId: string) => Promise<any>
 }) {
+  const { connected } = useWallet()
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw' | 'claim'>('deposit')
   const [amount, setAmount] = useState('')
+  const [isProcessing, setIsProcessing] = useState(false)
+
+  const handleStake = async () => {
+    if (!connected) {
+      toast.error('Please connect your wallet first')
+      return
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const result = await stake(pool.id, parseFloat(amount), LockType.FLEXIBLE)
+      toast.success(`Successfully staked! Signature: ${result.signature}`)
+      setAmount('')
+    } catch (error: any) {
+      console.error('Stake error:', error)
+      toast.error(error.message || 'Failed to stake')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleUnstake = async () => {
+    if (!connected) {
+      toast.error('Please connect your wallet first')
+      return
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const result = await unstake(pool.id, parseFloat(amount))
+      toast.success(`Successfully unstaked! Signature: ${result.signature}`)
+      setAmount('')
+    } catch (error: any) {
+      console.error('Unstake error:', error)
+      toast.error(error.message || 'Failed to unstake')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleClaim = async () => {
+    if (!connected) {
+      toast.error('Please connect your wallet first')
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const result = await claimRewards(pool.id)
+      toast.success(`Successfully claimed rewards! Signature: ${result.signature}`)
+    } catch (error: any) {
+      console.error('Claim error:', error)
+      toast.error(error.message || 'Failed to claim rewards')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -836,16 +1031,22 @@ function StakeModal({
           {/* Content based on active tab */}
           {activeTab !== 'claim' && (
             <div className="space-y-3">
-              <label className="text-sm font-medium" style={{ color: theme.colors.textSecondary }}>
-                {activeTab === 'deposit' ? 'Amount to Deposit' : 'Amount to Withdraw'}
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium" style={{ color: theme.colors.textSecondary }}>
+                  {activeTab === 'deposit' ? 'Amount to Deposit' : 'Amount to Withdraw'}
+                </label>
+                <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
+                  Balance: {activeTab === 'deposit' ? (pool.userBalance || '0').toString() : (pool.userStaked || '0').toString()} {pool.symbol}
+                </div>
+              </div>
+
               <div className="relative">
                 <input
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder=""
-                  className="w-full px-4 py-4 rounded-xl bg-transparent"
+                  placeholder="0.00"
+                  className="w-full px-4 py-4 pr-32 rounded-xl bg-transparent"
                   style={{
                     background: `${theme.colors.surface}40`,
                     borderWidth: '1px',
@@ -872,6 +1073,46 @@ function StakeModal({
                     {pool.symbol}
                   </span>
                 </div>
+              </div>
+
+              {/* Quick Select Buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setStakeAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.25).toFixed(4))}
+                  disabled={isProcessing || !connected}
+                  className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                  style={{
+                    background: `${theme.colors.surface}60`,
+                    border: `1px solid ${theme.colors.border}`,
+                    color: theme.colors.textPrimary
+                  }}
+                >
+                  25%
+                </button>
+                <button
+                  onClick={() => setStakeAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.5).toFixed(4))}
+                  disabled={isProcessing || !connected}
+                  className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                  style={{
+                    background: `${theme.colors.surface}60`,
+                    border: `1px solid ${theme.colors.border}`,
+                    color: theme.colors.textPrimary
+                  }}
+                >
+                  50%
+                </button>
+                <button
+                  onClick={() => setStakeAmount((activeTab === 'deposit' ? pool.userBalance || '0' : pool.userStaked || '0').toString())}
+                  disabled={isProcessing || !connected}
+                  className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                  style={{
+                    background: `${theme.colors.surface}60`,
+                    border: `1px solid ${theme.colors.border}`,
+                    color: theme.colors.textPrimary
+                  }}
+                >
+                  MAX
+                </button>
               </div>
             </div>
           )}
@@ -902,17 +1143,25 @@ function StakeModal({
               `,
               border: `1px solid ${theme.colors.primary}30`,
               boxShadow: `0 8px 24px ${theme.colors.primary}30`,
-              cursor: pool.isComingSoon ? 'pointer' : activeTab === 'claim' ? 'pointer' : (amount && parseFloat(amount) > 0) ? 'pointer' : 'not-allowed'
+              cursor: !connected ? 'not-allowed' : 'pointer'
             }}
-            disabled={pool.isComingSoon ? false : activeTab !== 'claim' && (!amount || parseFloat(amount) <= 0)}
-            onClick={() => {
-              if (pool.isComingSoon) {
-                setComingSoonAction && setComingSoonAction(`${pool.name} ${activeTab === 'deposit' ? 'staking' : activeTab === 'withdraw' ? 'unstaking' : 'rewards claiming'}`)
-                setShowComingSoonModal && setShowComingSoonModal(true)
+            disabled={isProcessing || !connected || (activeTab !== 'claim' && (!amount || parseFloat(amount) <= 0))}
+            onClick={async () => {
+              if (!connected) {
+                toast.error('Please connect your wallet first')
+                return
+              }
+
+              if (activeTab === 'deposit') {
+                await handleStake()
+              } else if (activeTab === 'withdraw') {
+                await handleUnstake()
+              } else if (activeTab === 'claim') {
+                await handleClaim()
               }
             }}
           >
-            {activeTab === 'deposit' ? 'Stake' : activeTab === 'withdraw' ? 'Withdraw' : 'Claim Rewards'}
+            {isProcessing ? 'Processing...' : activeTab === 'deposit' ? 'Stake' : activeTab === 'withdraw' ? 'Withdraw' : 'Claim Rewards'}
           </button>
         </div>
       </div>
@@ -928,7 +1177,8 @@ function SecureBagModal({
   calculateEarnings,
   calculateSecureBagEarnings,
   setComingSoonAction,
-  setShowComingSoonModal
+  setShowComingSoonModal,
+  stake
 }: {
   pool: StakePool
   onClose: () => void
@@ -937,8 +1187,35 @@ function SecureBagModal({
   calculateSecureBagEarnings: (amount: string) => number
   setComingSoonAction?: (action: string) => void
   setShowComingSoonModal?: (show: boolean) => void
+  stake: (poolId: string, amount: number, lockType: number) => Promise<any>
 }) {
+  const { connected } = useWallet()
   const [amount, setAmount] = useState('')
+  const [isProcessing, setIsProcessing] = useState(false)
+
+  const handleSecureBag = async () => {
+    if (!connected) {
+      toast.error('Please connect your wallet first')
+      return
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      const result = await stake(pool.id, parseFloat(amount), LockType.LOCKED_30_DAYS)
+      toast.success(`Successfully created Secure Bag! Signature: ${result.signature}`)
+      setAmount('')
+    } catch (error: any) {
+      console.error('Secure Bag error:', error)
+      toast.error(error.message || 'Failed to create secure bag')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
 
   const regularEarnings = amount ? calculateEarnings(amount, pool.apr, 30) : 0
   const bonusEarnings = amount ? calculateSecureBagEarnings(amount) : 0
@@ -1114,17 +1391,18 @@ function SecureBagModal({
               `,
               border: `1px solid ${theme.colors.success}30`,
               boxShadow: `0 8px 24px ${theme.colors.success}30`,
-              cursor: pool.isComingSoon ? 'pointer' : amount && parseFloat(amount) > 0 ? 'pointer' : 'not-allowed'
+              cursor: !connected ? 'not-allowed' : 'pointer'
             }}
-            disabled={pool.isComingSoon ? false : !amount || parseFloat(amount) <= 0}
-            onClick={() => {
-              if (pool.isComingSoon) {
-                setComingSoonAction && setComingSoonAction(`${pool.name} Secure The Bag`)
-                setShowComingSoonModal && setShowComingSoonModal(true)
+            disabled={isProcessing || !connected || (!amount || parseFloat(amount) <= 0)}
+            onClick={async () => {
+              if (!connected) {
+                toast.error('Please connect your wallet first')
+                return
               }
+              await handleSecureBag()
             }}
           >
-            Secure The Bag &#128274;
+            {isProcessing ? 'Processing...' : 'Secure The Bag &#128274;'}
           </button>
         </div>
       </div>

@@ -233,8 +233,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Calculate privacy fee (0.1%) - this is the only fee
-    const privacyFeeBps = 10 // 0.1% = 10 basis points
+    // Calculate privacy fee (0.2%) - this is the only fee
+    const privacyFeeBps = 20 // 0.2% = 20 basis points
     const privacyFeeAmount = Math.floor((parseInt(quote.outAmount) * privacyFeeBps) / 10000).toString()
     const outAmountAfterFee = (parseInt(quote.outAmount) - parseInt(privacyFeeAmount)).toString()
 

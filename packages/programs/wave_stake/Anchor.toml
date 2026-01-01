@@ -1,0 +1,31 @@
+[toolchain]
+
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+wave_stake = "5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ"
+
+[programs.devnet]
+wave_stake = "5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ"
+
+[programs.mainnet]
+wave_stake = "5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Devnet"
+wallet = ".keys/deployer-keypair.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[test]
+startup_wait = 5000
+
+[[test.genesis]]
+address = "WAVESTAKE1111111111111111111111111111111"
+program = "wave_stake"

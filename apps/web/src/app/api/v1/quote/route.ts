@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       slippageBps: validatedData.slippageBps,
       privacyMode: validatedData.privacyMode,
       routeId: 1, // Mock route
-      feeBps: 50,
+      feeBps: validatedData.privacyMode ? 20 : 0, // 0.2% for private, 0% for standard
       timestamp: new Date().toISOString(),
     }
 
