@@ -4,7 +4,9 @@ import { createHash } from 'crypto'
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token'
 
 // WaveStake Program ID (Deployed to Devnet)
-export const WAVE_STAKE_PROGRAM_ID = new PublicKey('5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ')
+// v1.1 - Fixed account size issues, removed init_if_needed
+// Deployed: 2025-12-30
+export const WAVE_STAKE_PROGRAM_ID = new PublicKey('6Gah3kZjZ9f9q4CUmF8BAc7ZXuACFDbLFWNTmWGS5CoZ')
 
 // PDAs
 export function getGlobalStatePDA(): [PublicKey, number] {
@@ -442,10 +444,61 @@ export class WaveStakeClient {
   }
 
   async fetchUserStake(poolId: string): Promise<any> {
-    // For now, return null. Account deserialization requires the Program class
-    // or manual Borsh deserialization which is complex
-    console.log('[WaveStake] fetchUserStake called - returning null (needs implementation)')
-    return null
+    const provider = this.ensureProvider()
+    const userPdaResult = getUserPDA(poolId, provider.wallet.publicKey)
+
+    if (!userPdaResult || !userPdaResult[0]) {
+      console.error('[WaveStake] Failed to derive user PDA')
+      return null
+    }
+
+    const [userPda] = userPdaResult
+
+    try {
+      console.log('[WaveStake] fetchUserStake for pool:', poolId, 'userPda:', userPda.toString())
+
+      const accountInfo = await this.connection.getAccountInfo(userPda)
+
+      if (!accountInfo || !accountInfo.data) {
+        console.log('[WaveStake] No user account found')
+        return null
+      }
+
+      // Decode the user account data
+      // User struct: discriminator(8) + bump(1) + amount(8) + lock_type(1) + lock_start(8) + lock_end(8) + bonus(2) + last_claim(8)
+      const data = Buffer.from(accountInfo.data)
+
+      if (data.length < 36) {
+        console.error('[WaveStake] Invalid user account data length:', data.length)
+        return null
+      }
+
+      // Skip 8-byte discriminator
+      const userData = data.slice(8)
+
+      // Parse as little-endian
+      const amount = userData.readBigUInt64LE(1)
+      const lockType = userData.readUInt8(9)
+      const lockStartTimestamp = userData.readBigUInt64LE(10)
+      const lockEndTimestamp = userData.readBigUInt64LE(18)
+      const bonusMultiplier = userData.readUInt16LE(26)
+      const lastRewardClaimTimestamp = Number(userData.readBigUInt64LE(28))
+
+      const result = {
+        amount: amount.toString(),
+        lockType,
+        lockStartTimestamp: Number(lockStartTimestamp),
+        lockEndTimestamp: Number(lockEndTimestamp),
+        bonusMultiplier,
+        lastRewardClaimTimestamp,
+      }
+
+      console.log('[WaveStake] User stake data:', result)
+      return result
+    } catch (error) {
+      console.error('[WaveStake] Error fetching user stake:', error)
+      return null
+    }
   }
 
   async fetchGlobalState(): Promise<any> {
@@ -453,6 +506,46 @@ export class WaveStakeClient {
     // or manual Borsh deserialization which is complex
     console.log('[WaveStake] fetchGlobalState called - returning null (needs implementation)')
     return null
+  }
+
+  async closeUserAccount(poolId: string): Promise<string> {
+    const provider = this.ensureProvider()
+
+    const [poolPda] = getPoolPDA(poolId)
+    const [userPda] = getUserPDA(poolId, provider.wallet.publicKey)
+
+    console.log('[WaveStake] closeUserAccount called for pool:', poolId)
+    console.log('[WaveStake] poolPda:', poolPda.toString())
+    console.log('[WaveStake] userPda:', userPda.toString())
+
+    // Close user account instruction
+    const instruction = {
+      keys: [
+        { pubkey: poolPda, isSigner: false, isWritable: true },
+        { pubkey: userPda, isSigner: false, isWritable: true },
+        { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: true },
+      ],
+      programId: WAVE_STAKE_PROGRAM_ID,
+      data: Buffer.from(new Uint8Array([221, 30, 232, 141, 22, 241, 136, 73])), // close_user_account discriminator
+    }
+
+    const transaction = new Transaction()
+    transaction.add(instruction)
+
+    const { blockhash } = await this.connection.getLatestBlockhash()
+    transaction.recentBlockhash = blockhash
+    transaction.feePayer = provider.wallet.publicKey
+
+    console.log('[WaveStake] Transaction created, signing...')
+    const signedTransaction = await provider.wallet.signTransaction(transaction)
+
+    console.log('[WaveStake] Sending close transaction...')
+    const signature = await this.connection.sendRawTransaction(signedTransaction.serialize())
+
+    console.log('[WaveStake] Close transaction sent:', signature)
+    await this.connection.confirmTransaction(signature, 'confirmed')
+
+    return signature
   }
 }
 

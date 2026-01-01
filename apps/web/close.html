@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Close Stake Accounts</title>
+  <script type="module">
+    import { Connection, PublicKey } from 'https://esm.sh/@solana/web3.js@latest'
+    import { getWalletAdapter } from './src/lib/wallet-adapter.ts'
+
+    const WAVE_STAKE_PROGRAM_ID = new PublicKey('5fJF7FV29wZG6Azg1GLesEQVnGFdWHkFiauBaLCkqFZJ')
+
+    async function closeAccount(poolId) {
+      const wallet = getWalletAdapter()
+      const connection = new Connection('https://api.devnet.solana.com')
+      const poolPda = PublicKey.findProgramAddressSync(
+        [Buffer.from('pool'), Buffer.alloc(32, poolId)],
+        WAVE_STAKE_PROGRAM_ID
+      )[0]
+
+      const userPda = PublicKey.findProgramAddressSync(
+        [Buffer.from('user'), poolPda.toBuffer(), wallet.publicKey.toBuffer()],
+        WAVE_STAKE_PROGRAM_ID
+      )[0]
+
+      const instruction = {
+        keys: [
+          { pubkey: poolPda, isSigner: false, isWritable: true },
+          { pubkey: userPda, isSigner: false, isWritable: true },
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+        ],
+        programId: WAVE_STAKE_PROGRAM_ID,
+        data: Buffer.from(new Uint8Array([221, 30, 232, 141, 22, 241, 136, 73])),
+      }
+
+      const transaction = new Transaction().add(instruction)
+      transaction.feePayer = wallet.publicKey
+      const { blockhash } = await connection.getLatestBlockhash()
+      transaction.recentBlockhash = blockhash
+
+      const signed = await wallet.signTransaction(transaction)
+      const sig = await connection.sendRawTransaction(signed.serialize())
+      await connection.confirmTransaction(sig)
+
+      console.log(`${poolId.toUpperCase()} closed:`, sig)
+      alert(`${poolId.toUpperCase()} account closed!`)
+    }
+
+    window.closeSol = () => closeAccount('sol')
+    window.closeWave = () => closeAccount('wave')
+  </script>
+</head>
+<body>
+  <h1>Close Corrupted Stake Accounts</h1>
+  <button onclick="closeSol()">Close SOL Account</button>
+  <button onclick="closeWave()">Close WAVE Account</button>
+</body>
+</html>
