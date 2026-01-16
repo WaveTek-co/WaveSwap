@@ -146,7 +146,8 @@ Migration will be provided if needed. Will maintain backward compatibility where
 
 ## Contributors
 
-- [@vivek] - Lead Developer
+- [@AlexanderGreyDT] - Lead Developer
+- [@subhdotsol] - Developer 
 - WaveTek Team - Architecture and Review
 
 ## Support

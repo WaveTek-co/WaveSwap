@@ -317,8 +317,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **WaveSwap**: [waveswap.live](https://waveswap.live)
 - **Secure The Bag**: [securethebag.fun](https://securethebag.fun)
 - **Documentation**: [wave-swap-docs.vercel.app](https://wave-swap-docs.vercel.app)
-- **Twitter**: [@securethebag](https://twitter.com/securethebag)
-- **Email**: [vivek@wavetek.io](mailto:vivek@wavetek.io)
+- **X**: [@securethebag](https://twitter.com/securethebag)
+- **Email**: [rahim@wavetek.io](mailto:rahim@wavetek.io)
 
 ---
 
