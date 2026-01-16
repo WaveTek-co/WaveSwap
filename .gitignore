@@ -184,3 +184,10 @@ pnpm-lock.yaml
 TODO.md
 
 packages/programs/wave_stake/.keys
+
+#docs
+context.md
+key-file.md
+LOCAL-SETUP-GUIDE.md
+QUICK-START.md
+SWAP-FLOW-GUIDE.md
