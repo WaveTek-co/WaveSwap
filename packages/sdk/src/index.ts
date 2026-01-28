@@ -15,6 +15,9 @@ export { SwapService } from './services/swap'
 export { ProgramService } from './services/program'
 export { WebSocketService } from './services/websocket'
 
+// Stealth SDK exports (OceanVault integration)
+export * from './stealth'
+
 // Re-export commonly used types
 export type {
   SwapRequest,
