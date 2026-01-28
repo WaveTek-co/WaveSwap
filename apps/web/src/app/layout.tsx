@@ -10,6 +10,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { TermsProvider } from '@/contexts/TermsContext'
 import { NearWalletProvider } from '@/providers/NearWalletProvider'
 import { StarknetWalletProvider } from '@/providers/StarknetWalletProvider'
+import { OceanVaultProvider } from '@/providers/OceanVaultProvider'
 import { WalletModalProvider } from '@/contexts/WalletModalContext'
 import { WalletProvider } from '@/contexts/WalletContext'
 import { GlobalModalProvider } from '@/contexts/GlobalModalContext'
@@ -92,29 +93,31 @@ export default function RootLayout({
                         <WalletErrorBoundary>
                           <MultiWalletProvider>
                             <GlobalModalProvider>
-                            <WaveSwapProvider>
-                            <div className="relative min-h-screen text-foreground w-full flex flex-col">
-                              <div className="theme-background fixed inset-0"></div>
-                              <div className="relative z-[1] flex-1">
-                                <TermsGuard>
-                                  {children}
-                                </TermsGuard>
-                              </div>
-                              <div className="relative z-[1]">
-                                <Footer />
-                              </div>
-                              <PrivacyReminder />
-                              <GlobalWalletModal />
-                            </div>
-                            </WaveSwapProvider>
+                              <WaveSwapProvider>
+                                <OceanVaultProvider network="devnet">
+                                  <div className="relative min-h-screen text-foreground w-full flex flex-col">
+                                    <div className="theme-background fixed inset-0"></div>
+                                    <div className="relative z-[1] flex-1">
+                                      <TermsGuard>
+                                        {children}
+                                      </TermsGuard>
+                                    </div>
+                                    <div className="relative z-[1]">
+                                      <Footer />
+                                    </div>
+                                    <PrivacyReminder />
+                                    <GlobalWalletModal />
+                                  </div>
+                                </OceanVaultProvider>
+                              </WaveSwapProvider>
                             </GlobalModalProvider>
                           </MultiWalletProvider>
                         </WalletErrorBoundary>
                       </StarknetWalletProvider>
-                  </NearWalletProvider>
-                </NoSSRProvider>
-              </WalletProvider>
-            </WalletModalProvider>
+                    </NearWalletProvider>
+                  </NoSSRProvider>
+                </WalletProvider>
+              </WalletModalProvider>
             </TermsProvider>
           </PrivacyProvider>
         </ThemeProvider>

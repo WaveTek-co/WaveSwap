@@ -21,6 +21,7 @@ import {
   CheckCircle,
   Settings
 } from 'lucide-react'
+import { OceanVaultPanel } from '@/components/OceanVault'
 
 export function UserDashboard() {
   const router = useRouter()
@@ -530,6 +531,11 @@ export function UserDashboard() {
                 </button>
               </div>
             </div>
+
+            {/* OceanVault Stealth Vault Section */}
+            {connected && (
+              <OceanVaultPanel />
+            )}
           </div>
         </main>
       </div>
