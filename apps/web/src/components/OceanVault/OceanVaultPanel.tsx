@@ -148,8 +148,8 @@ export function OceanVaultPanel() {
                         key={tab}
                         onClick={() => setActiveTab(tab as any)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab
-                                ? 'bg-primary-500 text-white'
-                                : 'bg-white/5 text-white/60 hover:bg-white/10'
+                            ? 'bg-primary-500 text-white'
+                            : 'bg-white/5 text-white/60 hover:bg-white/10'
                             }`}
                     >
                         {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -222,10 +222,15 @@ export function OceanVaultPanel() {
                                             {vault.registryPda.toBase58().slice(0, 8)}...
                                         </span>
                                     </div>
+                                    {!vault.isInitialized && (
+                                        <div className="text-xs text-yellow-400/80 mt-2">
+                                            Vault ready locally. On-chain registration happens on first transaction.
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
-                            {!vault?.isInitialized && (
+                            {!vault && (
                                 <button
                                     onClick={handleCreateVault}
                                     disabled={isCreatingVault}
