@@ -270,7 +270,7 @@ export function useStealthSwap() {
   const [lastSwap, setLastSwap] = useState<StealthSwapResult | null>(null)
   const [error, setError] = useState<Error | null>(null)
 
-  // Supported tokens
+  // Supported tokens - Use mainnet mints for Jupiter API (it only works on mainnet)
   const supportedTokens = useMemo(() => [
     {
       mint: new PublicKey('So11111111111111111111111111111111111111112'),
@@ -279,15 +279,17 @@ export function useStealthSwap() {
       decimals: 9,
     },
     {
-      mint: new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'),
+      // Mainnet USDC - Jupiter only works on mainnet
+      mint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
       symbol: 'USDC',
-      name: 'USD Coin (Devnet)',
+      name: 'USD Coin',
       decimals: 6,
     },
     {
-      mint: new PublicKey('EJwZgeZrdC8TXTQbQBoL6bfuAnFUUy1PVCMB4DYPzVaS'),
+      // Mainnet USDT
+      mint: new PublicKey('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'),
       symbol: 'USDT',
-      name: 'Tether (Devnet)',
+      name: 'Tether USD',
       decimals: 6,
     },
   ], [])

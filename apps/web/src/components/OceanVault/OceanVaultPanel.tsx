@@ -28,7 +28,7 @@ export function OceanVaultPanel() {
     } = useOceanVault()
 
     const { isTransferring, sendTransfer, lookupRecipient, lastTransfer } = useStealthTransfer()
-    const { quote, isQuoting, getQuote, executeSwap, isSwapping, supportedTokens } = useStealthSwap()
+    const { quote, isQuoting, getQuote, executeSwap, isSwapping, supportedTokens, error: swapError } = useStealthSwap()
     const { calculateFee, formatFee } = useFees()
 
     // Local state for forms
@@ -349,6 +349,12 @@ export function OceanVaultPanel() {
                                 <span>Fee</span>
                                 <span>{formatFee(quote.estimatedFee)}</span>
                             </div>
+                        </div>
+                    )}
+
+                    {swapError && (
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                            <p className="text-sm text-red-400">{swapError.message}</p>
                         </div>
                     )}
 
