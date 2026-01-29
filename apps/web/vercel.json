@@ -1,6 +1,6 @@
 {
   "installCommand": "bun install",
-  "buildCommand": "cd ../.. && bun run build:sdk && cd apps/web && bun run build",
+  "buildCommand": "bun run --cwd ../../packages/sdk build && bun run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
   "headers": [
