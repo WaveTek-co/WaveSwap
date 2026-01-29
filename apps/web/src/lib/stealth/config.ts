@@ -31,6 +31,12 @@ export const StealthDiscriminators = {
   CREATE_VAULT_TOKEN_ACCOUNT: 0x05,
   UPLOAD_CIPHERTEXT_CHUNK: 0x06,
   FINALIZE_ANNOUNCEMENT: 0x07,
+  // Privacy-preserving mixer and relayer
+  INITIALIZE_MIXER_POOL: 0x08,
+  DEPOSIT_TO_MIXER: 0x09,
+  EXECUTE_MIXER_TRANSFER: 0x0a,
+  INITIALIZE_RELAYER_AUTH: 0x0b,
+  CLAIM_VIA_RELAYER: 0x0c,
 };
 
 // DeFi instruction discriminators
@@ -64,6 +70,38 @@ export function deriveRegistryPda(owner: PublicKey): [PublicKey, number] {
 export function deriveAnnouncementPda(sender: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("announcement"), sender.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Privacy-preserving announcement PDA (derived from nonce, not sender)
+export function deriveAnnouncementPdaFromNonce(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("announcement"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Mixer pool PDA (singleton)
+export function deriveMixerPoolPda(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("mixer-pool")],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Deposit record PDA (derived from nonce)
+export function deriveDepositRecordPda(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("mixer-deposit"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Relayer authorization PDA
+export function deriveRelayerAuthPda(relayerPubkey: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("relayer-auth"), relayerPubkey.toBytes()],
     PROGRAM_IDS.STEALTH
   );
 }

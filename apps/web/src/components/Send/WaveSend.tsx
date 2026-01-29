@@ -15,6 +15,7 @@ import { ComingSoon } from '@/components/ui/ComingSoon'
 import { TokenIcon } from '@/components/TokenIcon'
 import { useWallet } from '@/hooks/useWalletAdapter'
 import { useWaveSend } from '@/hooks/useWaveSend'
+import { useAutoClaim } from '@/hooks/useAutoClaim'
 import { toast } from 'sonner'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
 
@@ -71,8 +72,20 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
     register,
     send,
     checkRecipientRegistered,
+    claimByVault,
     clearError,
   } = useWaveSend()
+
+  // Auto-claim hook - scans for and auto-claims incoming payments
+  const {
+    isScanning,
+    pendingClaims,
+    totalPendingAmount,
+    claimHistory,
+    startScanning,
+    lastScanTime,
+    error: autoClaimError,
+  } = useAutoClaim()
 
   const [selectedToken, setSelectedToken] = useState<string>('sol')
   const [amount, setAmount] = useState<string>('')
@@ -80,6 +93,8 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
   const [isTokenDropdownOpen, setIsTokenDropdownOpen] = useState(false)
   const [recipientRegistered, setRecipientRegistered] = useState<boolean | null>(null)
   const [checkingRecipient, setCheckingRecipient] = useState(false)
+  const [vaultToClaim, setVaultToClaim] = useState<string>('')
+  const [isClaiming, setIsClaiming] = useState(false)
   const [userBalances, setUserBalances] = useState<{ [key: string]: string }>({
     wave: '0',
     wealth: '0',
@@ -261,6 +276,20 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
     })
   }, [connected, isValidRecipient, isValidAmount, hasEnoughBalance, isSending, isInitializing, privacyMode, isInitialized, recipientRegistered, canSend])
 
+  // Show toast when payments are claimed
+  useEffect(() => {
+    const newlyClaimed = claimHistory.filter(
+      c => Date.now() - c.timestamp < 5000 // Show toast for claims in last 5 seconds
+    )
+    for (const claim of newlyClaimed) {
+      const solAmount = Number(claim.amount) / LAMPORTS_PER_SOL
+      toast.success(`Auto-claimed ${solAmount.toFixed(4)} SOL!`, {
+        description: `Tx: ${claim.signature.slice(0, 8)}...${claim.signature.slice(-8)}`,
+        id: claim.signature, // Prevent duplicate toasts
+      })
+    }
+  }, [claimHistory])
+
   // Handle initialize keys
   const handleInitialize = useCallback(async () => {
     console.log('[WaveSend UI] handleInitialize called')
@@ -439,6 +468,93 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
               ) : 'Register Now'}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Incoming Payments Banner - Auto-claim status */}
+      {privacyMode && connected && (pendingClaims.length > 0 || isScanning) && (
+        <div
+          className="p-4 rounded-xl"
+          style={{
+            background: `${theme.colors.success}10`,
+            border: `1px solid ${theme.colors.success}30`
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {isScanning && (
+                <ArrowPathIcon className="w-4 h-4 animate-spin" style={{ color: theme.colors.success }} />
+              )}
+              <span className="text-sm font-medium" style={{ color: theme.colors.success }}>
+                {isScanning ? 'Scanning for Payments...' : 'Incoming Payments'}
+              </span>
+            </div>
+            {totalPendingAmount > BigInt(0) && (
+              <span className="text-sm font-bold" style={{ color: theme.colors.success }}>
+                {(Number(totalPendingAmount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+              </span>
+            )}
+          </div>
+
+          {pendingClaims.length > 0 && (
+            <div className="space-y-2 mt-3">
+              {pendingClaims.slice(0, 3).map((claim) => (
+                <div
+                  key={claim.vaultAddress}
+                  className="flex items-center justify-between p-2 rounded-lg"
+                  style={{ background: `${theme.colors.surface}40` }}
+                >
+                  <div>
+                    <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
+                      From: {claim.sender.slice(0, 4)}...{claim.sender.slice(-4)}
+                    </div>
+                    <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
+                      {(Number(claim.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                    </div>
+                  </div>
+                  <div
+                    className="px-2 py-1 rounded text-xs font-medium"
+                    style={{
+                      background: claim.status === 'claimed' ? `${theme.colors.success}20` :
+                                  claim.status === 'claiming' ? `${theme.colors.info}20` :
+                                  claim.status === 'failed' ? `${theme.colors.error}20` :
+                                  `${theme.colors.warning}20`,
+                      color: claim.status === 'claimed' ? theme.colors.success :
+                             claim.status === 'claiming' ? theme.colors.info :
+                             claim.status === 'failed' ? theme.colors.error :
+                             theme.colors.warning
+                    }}
+                  >
+                    {claim.status === 'claimed' ? 'Claimed' :
+                     claim.status === 'claiming' ? 'Claiming...' :
+                     claim.status === 'failed' ? 'Failed' :
+                     'Auto-claiming...'}
+                  </div>
+                </div>
+              ))}
+              {pendingClaims.length > 3 && (
+                <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
+                  +{pendingClaims.length - 3} more payments
+                </div>
+              )}
+            </div>
+          )}
+
+          {lastScanTime && (
+            <div className="text-xs mt-2" style={{ color: theme.colors.textMuted }}>
+              Last scan: {lastScanTime.toLocaleTimeString()}
+            </div>
+          )}
+
+          {!isScanning && pendingClaims.length === 0 && (
+            <button
+              onClick={startScanning}
+              className="mt-2 text-xs font-medium transition-opacity hover:opacity-80"
+              style={{ color: theme.colors.success }}
+            >
+              Scan Again
+            </button>
+          )}
         </div>
       )}
 

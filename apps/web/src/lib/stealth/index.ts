@@ -47,3 +47,6 @@ export type {
   WaveSwapParams,
   SwapQuote,
 } from "./types";
+
+export { StealthScanner } from "./scanner";
+export type { DetectedPayment, ScannerConfig } from "./scanner";

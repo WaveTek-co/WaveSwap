@@ -34,6 +34,7 @@ export interface UseWaveSendReturn {
     tokenMint?: string
   }) => Promise<SendResult>
   checkRecipientRegistered: (address: string) => Promise<boolean>
+  claimByVault: (vaultAddress: string) => Promise<{ success: boolean; signature?: string; error?: string }>
 
   // Utilities
   clearError: () => void
@@ -299,6 +300,41 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
   }, [])
 
+  // Claim by vault address (manual claim)
+  const claimByVault = useCallback(
+    async (vaultAddress: string): Promise<{ success: boolean; signature?: string; error?: string }> => {
+      if (!walletAdapter) {
+        return { success: false, error: 'Wallet not connected' }
+      }
+
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const result = await client.claimByVaultAddress(walletAdapter, vaultAddress)
+        console.log('[WaveSend] claim result:', result)
+
+        if (!result.success) {
+          setError(result.error || 'Claim failed')
+        }
+
+        return {
+          success: result.success,
+          signature: result.signature,
+          error: result.error,
+        }
+      } catch (err) {
+        console.error('[WaveSend] claim error:', err)
+        const message = err instanceof Error ? err.message : 'Claim failed'
+        setError(message)
+        return { success: false, error: message }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [walletAdapter, client]
+  )
+
   return {
     isInitialized,
     isRegistered,
@@ -310,6 +346,7 @@ export function useWaveSend(): UseWaveSendReturn {
     register,
     send,
     checkRecipientRegistered,
+    claimByVault,
     clearError,
   }
 }
