@@ -95,7 +95,10 @@ export function useWaveSend(): UseWaveSendReturn {
 
   // Initialize stealth keys from wallet signature
   const initializeKeys = useCallback(async (): Promise<boolean> => {
+    console.log('[WaveSend] initializeKeys called')
+
     if (!signMessage) {
+      console.error('[WaveSend] signMessage not available')
       setError('Wallet does not support message signing')
       return false
     }
@@ -104,7 +107,13 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
 
     try {
+      console.log('[WaveSend] Calling client.initializeKeys...')
       const keys = await client.initializeKeys(signMessage)
+      console.log('[WaveSend] Keys generated successfully:', {
+        spendPubkey: Buffer.from(keys.spendPubkey).toString('hex').slice(0, 16) + '...',
+        viewPubkey: Buffer.from(keys.viewPubkey).toString('hex').slice(0, 16) + '...',
+      })
+
       setStealthKeys(keys)
       setIsInitialized(true)
 
@@ -117,8 +126,10 @@ export function useWaveSend(): UseWaveSendReturn {
         })
       )
 
+      console.log('[WaveSend] Keys initialized and stored')
       return true
     } catch (err) {
+      console.error('[WaveSend] initializeKeys error:', err)
       const message = err instanceof Error ? err.message : 'Failed to initialize keys'
       setError(message)
       return false
@@ -181,7 +192,10 @@ export function useWaveSend(): UseWaveSendReturn {
       amount: string
       tokenMint?: string
     }): Promise<SendResult> => {
+      console.log('[WaveSend] send called with params:', params)
+
       if (!walletAdapter) {
+        console.error('[WaveSend] walletAdapter not available')
         return { success: false, error: 'Wallet not connected' }
       }
 
@@ -213,6 +227,12 @@ export function useWaveSend(): UseWaveSendReturn {
           ? BigInt(Math.floor(amountFloat * LAMPORTS_PER_SOL))
           : BigInt(Math.floor(amountFloat * 1e6)) // Assume 6 decimals for SPL tokens
 
+        console.log('[WaveSend] Sending stealth transfer:', {
+          recipient: recipientWallet.toBase58(),
+          amount: amount.toString(),
+          isSol,
+        })
+
         const sendParams: WaveSendParams = {
           recipientWallet,
           amount,
@@ -220,6 +240,7 @@ export function useWaveSend(): UseWaveSendReturn {
         }
 
         const result = await client.waveSend(walletAdapter, sendParams)
+        console.log('[WaveSend] waveSend result:', result)
 
         if (!result.success) {
           setError(result.error || 'Send failed')
@@ -227,6 +248,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
         return result
       } catch (err) {
+        console.error('[WaveSend] send error:', err)
         const message = err instanceof Error ? err.message : 'Send failed'
         setError(message)
         return { success: false, error: message }
