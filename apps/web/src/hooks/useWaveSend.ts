@@ -47,13 +47,18 @@ export function useWaveSend(): UseWaveSendReturn {
   const [error, setError] = useState<string | null>(null)
   const [stealthKeys, setStealthKeys] = useState<StealthKeyPair | null>(null)
 
-  // Initialize the stealth client
+  // Initialize the stealth client with DEVNET connection
+  // Note: We create our own devnet connection because the app's connection might be mainnet
+  const devnetConnection = useMemo(() => {
+    return new Connection('https://api.devnet.solana.com', 'confirmed')
+  }, [])
+
   const client = useMemo(() => {
     return new WaveStealthClient({
-      connection,
+      connection: devnetConnection,
       network: 'devnet',
     })
-  }, [connection])
+  }, [devnetConnection])
 
   // Create wallet adapter object for SDK
   const walletAdapter = useMemo(() => {
