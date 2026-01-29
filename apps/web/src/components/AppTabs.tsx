@@ -7,6 +7,7 @@ import Settings from './Settings'
 import { HistoryTab } from './HistoryTab'
 import { WavePortal } from './Bridge/WavePortalNew'
 import { WaveStake } from './Stake/WaveStake'
+import { WaveSend } from './Send/WaveSend'
 import { CleanWalletButton } from '@/components/Wallets/CleanWalletButton'
 import { HeliusSearchBar } from './HeliusSearchBar'
 
@@ -17,7 +18,8 @@ import {
   LinkIcon,
   SparklesIcon,
   CurrencyDollarIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  PaperAirplaneIcon
 } from '@heroicons/react/24/outline'
 import { Switch } from '@headlessui/react'
 import { useThemeConfig, createGlassStyles } from '@/lib/theme'
@@ -31,8 +33,161 @@ interface TabContentProps {
 function TabContent({ tabId, privacyMode }: TabContentProps) {
   const [showInfoModal, setShowInfoModal] = useState(false)
   const [showBridgeInfoModal, setShowBridgeInfoModal] = useState(false)
+  const [showSendInfoModal, setShowSendInfoModal] = useState(false)
   const theme = useThemeConfig()
   switch (tabId) {
+    case 'send':
+      return (
+        <div className="w-full">
+          {/* Header Section - between tabs and send component */}
+          <div className="w-full max-w-xs sm:max-w-md md:max-w-lg lg:max-w-xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2
+                  className="text-xl sm:text-2xl font-bold"
+                  style={{ color: theme.colors.textPrimary }}
+                >
+                  Private Transfer
+                </h2>
+                <div className="flex items-center gap-1 mt-1">
+                  <span
+                    className="text-xs sm:text-sm"
+                    style={{ color: theme.colors.textMuted }}
+                  >
+                    Powered by
+                  </span>
+                  <a
+                    href="https://github.com/AlexGreyEntropy/OceanVault-WaveTek"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs sm:text-sm font-medium transition-all duration-200 hover:opacity-80"
+                    style={{ color: theme.colors.primary }}
+                  >
+                    OceanVault
+                  </a>
+                </div>
+              </div>
+
+              {/* Info Button */}
+              <button
+                onClick={() => setShowSendInfoModal(true)}
+                className="p-2 rounded-lg transition-all duration-200 hover:scale-105"
+                style={{
+                  ...createGlassStyles(theme),
+                  border: `1px solid ${theme.colors.primary}20`,
+                  background: `${theme.colors.primary}10`
+                }}
+              >
+                <InformationCircleIcon
+                  className="h-5 w-5"
+                  style={{ color: theme.colors.primary }}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="w-full flex justify-center">
+            <WaveSend privacyMode={privacyMode} />
+          </div>
+
+          {/* Send Info Modal */}
+          <Modal
+            isOpen={showSendInfoModal}
+            onClose={() => setShowSendInfoModal(false)}
+            title="WaveSend Information"
+          >
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: theme.colors.textPrimary }}>
+                  How WaveSend Works
+                </h3>
+                <div className="space-y-3 text-sm" style={{ color: theme.colors.textSecondary }}>
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ background: `${theme.colors.primary}20`, color: theme.colors.primary }}>
+                      <span className="text-xs font-bold">1</span>
+                    </div>
+                    <p>
+                      <strong>Select Token:</strong> Choose which token you want to send from your connected wallet.
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ background: `${theme.colors.primary}20`, color: theme.colors.primary }}>
+                      <span className="text-xs font-bold">2</span>
+                    </div>
+                    <p>
+                      <strong>Enter Amount:</strong> Specify the amount to send. Use MAX to send your entire balance.
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ background: `${theme.colors.primary}20`, color: theme.colors.primary }}>
+                      <span className="text-xs font-bold">3</span>
+                    </div>
+                    <p>
+                      <strong>Recipient Address:</strong> Enter the Solana wallet address of the recipient.
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ background: `${theme.colors.primary}20`, color: theme.colors.primary }}>
+                      <span className="text-xs font-bold">4</span>
+                    </div>
+                    <p>
+                      <strong>Privacy Mode:</strong> When enabled, your transfer uses stealth addresses for enhanced privacy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl" style={{ background: `${theme.colors.success}05`, border: `1px solid ${theme.colors.success}20` }}>
+                <h4 className="font-semibold mb-2 flex items-center gap-2" style={{ color: theme.colors.success }}>
+                  <SparklesIcon className="h-4 w-4" />
+                  Stealth Addresses
+                </h4>
+                <ul className="text-xs space-y-1" style={{ color: theme.colors.textMuted }}>
+                  <li>• One-time addresses for each transaction</li>
+                  <li>• Recipients claim using viewing keys</li>
+                  <li>• Transaction details hidden from observers</li>
+                  <li>• Powered by OceanVault cryptography</li>
+                </ul>
+              </div>
+
+              <div className="p-4 rounded-xl" style={{ background: `${theme.colors.info}05`, border: `1px solid ${theme.colors.info}20` }}>
+                <h4 className="font-semibold mb-2" style={{ color: theme.colors.info }}>
+                  Why Use WaveSend?
+                </h4>
+                <ul className="text-xs space-y-1" style={{ color: theme.colors.textMuted }}>
+                  <li>• Enhanced privacy with stealth transfers</li>
+                  <li>• Non-custodial - you control your funds</li>
+                  <li>• Fast finality on Solana blockchain</li>
+                  <li>• Low transaction fees</li>
+                </ul>
+              </div>
+
+              <div className="pt-4 border-t text-center" style={{ borderColor: theme.colors.border }}>
+                <p className="text-xs mb-2" style={{ color: theme.colors.textMuted }}>
+                  Powered by
+                </p>
+                <a
+                  href="https://github.com/AlexGreyEntropy/OceanVault-WaveTek"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium transition-all duration-200 hover:opacity-80"
+                  style={{ color: theme.colors.primary }}
+                >
+                  OceanVault
+                </a>
+              </div>
+            </div>
+          </Modal>
+        </div>
+      )
+
     case 'swap':
       return (
         <div className="w-full">
@@ -427,6 +582,11 @@ export function AppTabs() {
   const theme = useThemeConfig()
 
   const tabs = [
+    {
+      id: 'send',
+      label: 'WaveSend',
+      icon: <PaperAirplaneIcon className="h-4 w-4" />
+    },
     {
       id: 'swap',
       label: 'WaveSwap',
