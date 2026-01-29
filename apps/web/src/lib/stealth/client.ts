@@ -438,7 +438,11 @@ export class WaveStealthClient {
 
     const finalizeData = Buffer.alloc(1 + 8 + TEE_PROOF_SIZE);
     finalizeData.writeUInt8(StealthDiscriminators.FINALIZE_STEALTH_TRANSFER, 0);
-    finalizeData.writeBigUInt64LE(params.amount, 1);
+    // Write amount as little-endian u64 (browser-compatible)
+    const amountBigInt = BigInt(params.amount);
+    for (let i = 0; i < 8; i++) {
+      finalizeData[1 + i] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+    }
     Buffer.from(teeProof).copy(finalizeData, 9);
 
     tx.add(
