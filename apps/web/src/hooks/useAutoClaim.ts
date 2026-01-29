@@ -272,6 +272,12 @@ export function useAutoClaim(): UseAutoClaimReturn {
       return false
     }
 
+    // Skip if already claiming or claimed
+    if (pendingClaim.status !== 'pending') {
+      console.log('[AutoClaim] Skipping claim - status is:', pendingClaim.status)
+      return pendingClaim.status === 'claimed'
+    }
+
     // Update status
     setPendingClaims(prev => prev.map(c =>
       c.vaultAddress === vaultAddress ? { ...c, status: 'claiming' as const } : c
@@ -331,8 +337,24 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return true
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Claim failed'
+
+      // Check if error is InsufficientFunds (0x9) or vault empty - treat as already claimed
+      const isAlreadyClaimed =
+        errorMessage.includes('0x9') ||
+        errorMessage.includes('Vault is empty') ||
+        errorMessage.includes('InsufficientFunds')
+
+      if (isAlreadyClaimed) {
+        console.log('[AutoClaim] Vault already claimed, marking as claimed:', vaultAddress)
+        setPendingClaims(prev => prev.map(c =>
+          c.vaultAddress === vaultAddress ? { ...c, status: 'claimed' as const } : c
+        ))
+        return true // Not really a failure - vault was claimed (possibly by us in parallel)
+      }
+
       console.error('[AutoClaim] Claim failed:', err)
-      setError(err instanceof Error ? err.message : 'Claim failed')
+      setError(errorMessage)
 
       setPendingClaims(prev => prev.map(c =>
         c.vaultAddress === vaultAddress ? { ...c, status: 'failed' as const } : c
