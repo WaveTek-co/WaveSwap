@@ -53,7 +53,7 @@ export type {
   SwapQuote,
 } from "./types";
 
-export { StealthScanner, checkViewTag, isPaymentForUs, deriveStealthFromEphemeral } from "./scanner";
+export { StealthScanner, isPaymentForUs, deriveStealthFromEphemeral } from "./scanner";
 export type { DetectedPayment, ScannerConfig } from "./scanner";
 
 // PER Privacy Integration - Full privacy flow with MagicBlock
