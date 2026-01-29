@@ -9,7 +9,7 @@ import {
   WaveSendParams,
   SendResult,
   NATIVE_SOL_MINT,
-} from '../../../../packages/sdk/src/stealth'
+} from '@/lib/stealth'
 
 // Storage key for stealth keys (only public keys stored, privkeys in memory)
 const STEALTH_KEYS_STORAGE_KEY = 'waveswap_stealth_keys'
