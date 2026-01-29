@@ -31,7 +31,12 @@ import {
   deriveDepositRecordPda,
   NATIVE_SOL_MINT,
 } from "./config";
-import { randomBytes } from "@noble/hashes/utils";
+// Use Web Crypto API for random bytes (browser-compatible)
+const randomBytes = (length: number): Uint8Array => {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+};
 import {
   RegistryAccount,
   ScanResult,
