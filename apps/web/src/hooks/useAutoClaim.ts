@@ -19,6 +19,7 @@ export interface PendingClaim {
   amount: bigint
   sender: string
   announcementPda: string
+  stealthPubkey: Uint8Array  // Required for claim instruction
   status: 'pending' | 'claiming' | 'claimed' | 'failed'
 }
 
@@ -79,6 +80,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         amount: payment.amount,
         sender: 'PRIVATE', // Privacy preserved - no sender identity
         announcementPda: payment.announcementPda.toBase58(),
+        stealthPubkey: payment.stealthPubkey, // Required for claim instruction
         status: 'pending' as const,
       }]
     })
@@ -193,6 +195,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             amount: BigInt(vaultInfo.lamports),
             sender: 'PRIVATE', // No sender identity - privacy preserved!
             announcementPda: pubkey.toBase58(),
+            stealthPubkey: stealthPubkey, // Store for claim instruction
             status: 'pending' as const,
           }]
         })
@@ -262,6 +265,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
       return false
     }
 
+    // Find the pending claim to get the stealthPubkey
+    const pendingClaim = pendingClaims.find(c => c.vaultAddress === vaultAddress)
+    if (!pendingClaim) {
+      setError('Claim not found')
+      return false
+    }
+
     // Update status
     setPendingClaims(prev => prev.map(c =>
       c.vaultAddress === vaultAddress ? { ...c, status: 'claiming' as const } : c
@@ -279,10 +289,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const amount = BigInt(vaultInfo.lamports)
 
       // Build claim transaction
-      // In production: This would be submitted to PER/relayer
-      // For devnet: Direct claim
-      const data = Buffer.alloc(1)
+      // Data format: discriminator (1 byte) + stealth_pubkey (32 bytes)
+      const data = Buffer.alloc(33)
       data.writeUInt8(StealthDiscriminators.CLAIM_STEALTH_PAYMENT, 0)
+      Buffer.from(pendingClaim.stealthPubkey).copy(data, 1)
 
       const tx = new Transaction()
       tx.add(
@@ -291,6 +301,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             { pubkey: publicKey, isSigner: true, isWritable: false },
             { pubkey: vaultPda, isSigner: false, isWritable: true },
             { pubkey: publicKey, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
           programId: PROGRAM_IDS.STEALTH,
           data,
@@ -329,7 +340,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return false
     }
-  }, [publicKey, signTransaction, connection])
+  }, [publicKey, signTransaction, connection, pendingClaims])
 
   // Claim all pending payments
   const claimAll = useCallback(async () => {
