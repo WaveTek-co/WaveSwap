@@ -2,7 +2,7 @@
 // Privacy-preserving transactions using OceanVault stealth addresses
 
 export { WaveStealthClient } from "./client";
-export type { ClientConfig, WalletAdapter } from "./client";
+export type { ClientConfig, WalletAdapter, RegistrationStep, RegistrationProgress } from "./client";
 
 export {
   generateViewingKeys,

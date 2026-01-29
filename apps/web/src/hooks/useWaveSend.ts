@@ -9,6 +9,8 @@ import {
   WaveSendParams,
   SendResult,
   NATIVE_SOL_MINT,
+  RegistrationProgress,
+  RegistrationStep,
 } from '@/lib/stealth'
 
 // Storage key for stealth keys (only public keys stored, privkeys in memory)
@@ -21,6 +23,7 @@ export interface UseWaveSendReturn {
   isLoading: boolean
   isSending: boolean
   error: string | null
+  registrationProgress: RegistrationProgress | null
 
   // Actions
   initializeKeys: () => Promise<boolean>
@@ -46,6 +49,7 @@ export function useWaveSend(): UseWaveSendReturn {
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stealthKeys, setStealthKeys] = useState<StealthKeyPair | null>(null)
+  const [registrationProgress, setRegistrationProgress] = useState<RegistrationProgress | null>(null)
 
   // Initialize the stealth client with DEVNET connection
   // Note: We create our own devnet connection because the app's connection might be mainnet
@@ -143,9 +147,9 @@ export function useWaveSend(): UseWaveSendReturn {
     }
   }, [signMessage, client])
 
-  // Register for stealth payments
+  // Register for stealth payments (multi-transaction flow)
   const register = useCallback(async (): Promise<boolean> => {
-    console.log('[WaveSend] register called')
+    console.log('[WaveSend] register called (multi-tx)')
 
     if (!walletAdapter) {
       console.error('[WaveSend] walletAdapter not available')
@@ -166,25 +170,37 @@ export function useWaveSend(): UseWaveSendReturn {
 
     setIsLoading(true)
     setError(null)
+    setRegistrationProgress(null)
 
     try {
-      console.log('[WaveSend] Calling client.register...')
-      const result = await client.register(walletAdapter, stealthKeys)
+      console.log('[WaveSend] Calling client.register with progress callback...')
+      const result = await client.register(
+        walletAdapter,
+        stealthKeys,
+        undefined,
+        (progress) => {
+          console.log('[WaveSend] Registration progress:', progress)
+          setRegistrationProgress(progress)
+        }
+      )
       console.log('[WaveSend] register result:', result)
 
       if (result.success) {
         console.log('[WaveSend] Registration successful, tx:', result.signature)
         setIsRegistered(true)
+        setRegistrationProgress(null)
         return true
       } else {
         console.error('[WaveSend] Registration failed:', result.error)
         setError(result.error || 'Registration failed')
+        setRegistrationProgress(null)
         return false
       }
     } catch (err) {
       console.error('[WaveSend] register error:', err)
       const message = err instanceof Error ? err.message : 'Registration failed'
       setError(message)
+      setRegistrationProgress(null)
       return false
     } finally {
       setIsLoading(false)
@@ -289,6 +305,7 @@ export function useWaveSend(): UseWaveSendReturn {
     isLoading,
     isSending,
     error,
+    registrationProgress,
     initializeKeys,
     register,
     send,

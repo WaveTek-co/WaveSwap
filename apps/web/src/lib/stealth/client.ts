@@ -46,6 +46,23 @@ import {
   stealthSign,
 } from "./crypto";
 
+// Registration step status
+export type RegistrationStep =
+  | 'idle'
+  | 'initializing'
+  | 'uploading-chunk-1'
+  | 'uploading-chunk-2'
+  | 'finalizing'
+  | 'complete'
+  | 'error';
+
+export interface RegistrationProgress {
+  step: RegistrationStep;
+  currentTx: number;
+  totalTx: number;
+  message: string;
+}
+
 // TEE proof constants (must match on-chain)
 const TEE_PROOF_SIZE = 168;
 const EXPECTED_ENCLAVE_MEASUREMENT = new Uint8Array([
@@ -135,12 +152,21 @@ export class WaveStealthClient {
   }
 
   // Register stealth meta-address on-chain
+  // Uses multi-transaction approach to handle 1216-byte key data
   async register(
     wallet: WalletAdapter,
     keys?: StealthKeyPair,
-    xwingPubkey?: Uint8Array
+    xwingPubkey?: Uint8Array,
+    onProgress?: (progress: RegistrationProgress) => void
   ): Promise<TransactionResult> {
-    console.log('[Client] register called');
+    console.log('[Client] register called (multi-tx approach)');
+
+    const reportProgress = (step: RegistrationStep, currentTx: number, totalTx: number, message: string) => {
+      console.log(`[Client] Progress: ${step} - ${message}`);
+      if (onProgress) {
+        onProgress({ step, currentTx, totalTx, message });
+      }
+    };
 
     if (!wallet.publicKey) {
       return { success: false, error: "Wallet not connected" };
@@ -158,32 +184,14 @@ export class WaveStealthClient {
     console.log('[Client] Checking if already registered...');
     const existing = await this.connection.getAccountInfo(registryPda);
     if (existing) {
-      console.log('[Client] Already registered');
-      return { success: false, error: "Already registered" };
+      // Check if finalized
+      const existingRegistry = await this.getRegistry(wallet.publicKey);
+      if (existingRegistry?.isFinalized) {
+        console.log('[Client] Already registered and finalized');
+        return { success: false, error: "Already registered" };
+      }
+      console.log('[Client] Registry exists but not finalized, will resume...');
     }
-    console.log('[Client] Not registered yet, proceeding...');
-
-    const tx = new Transaction();
-
-    // Initialize registry
-    // Data format: discriminator (8) + bump (1)
-    // Account order: [payer (signer), registry_pda, system_program]
-    const initData = Buffer.alloc(9);
-    RegistryDiscriminators.INITIALIZE_REGISTRY.copy(initData, 0);
-    initData.writeUInt8(bump, 8);
-
-    tx.add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-          { pubkey: registryPda, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.REGISTRY,
-        data: initData,
-      })
-    );
-    console.log('[Client] Added INITIALIZE_REGISTRY instruction');
 
     // Registry requires exactly 1216 bytes (XWING_PUBLIC_KEY_SIZE) to be written
     // We store: spend pubkey (32) + view pubkey (32) + padding (1152) = 1216 bytes
@@ -191,67 +199,136 @@ export class WaveStealthClient {
     const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
     Buffer.from(keysToUse.spendPubkey).copy(fullKeyData, 0);
     Buffer.from(keysToUse.viewPubkey).copy(fullKeyData, 32);
-    // Rest is zeros (padding)
 
-    // Upload in chunks of MAX_CHUNK_SIZE (800 bytes)
-    for (let offset = 0; offset < XWING_PUBLIC_KEY_SIZE; offset += MAX_CHUNK_SIZE) {
-      const chunk = fullKeyData.slice(
+    // Split into multiple transactions to avoid tx size limits
+    // Tx 1: Initialize + first chunk (600 bytes to leave room)
+    // Tx 2: Second chunk (600 bytes)
+    // Tx 3: Third chunk (16 bytes) + Finalize
+    const CHUNK_SIZE = 600; // Conservative chunk size
+    const chunks: { offset: number; data: Buffer }[] = [];
+    for (let offset = 0; offset < XWING_PUBLIC_KEY_SIZE; offset += CHUNK_SIZE) {
+      chunks.push({
         offset,
-        Math.min(offset + MAX_CHUNK_SIZE, XWING_PUBLIC_KEY_SIZE)
-      );
-
-      const chunkData = Buffer.alloc(8 + 2 + chunk.length);
-      RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData, 0);
-      chunkData.writeUInt16LE(offset, 8);
-      chunk.copy(chunkData, 10);
-
-      tx.add(
-        new TransactionInstruction({
-          keys: [
-            { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
-            { pubkey: registryPda, isSigner: false, isWritable: true },
-          ],
-          programId: PROGRAM_IDS.REGISTRY,
-          data: chunkData,
-        })
-      );
+        data: fullKeyData.slice(offset, Math.min(offset + CHUNK_SIZE, XWING_PUBLIC_KEY_SIZE)),
+      });
     }
-    console.log('[Client] Added key upload chunks (1216 bytes total)');
 
-    // Finalize registry
-    // Account order: [owner (signer), registry_pda]
-    tx.add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
-          { pubkey: registryPda, isSigner: false, isWritable: true },
-        ],
-        programId: PROGRAM_IDS.REGISTRY,
-        data: RegistryDiscriminators.FINALIZE_REGISTRY,
-      })
-    );
-    console.log('[Client] Added FINALIZE_REGISTRY instruction');
+    const totalTx = chunks.length + 1; // +1 for init
+    let signatures: string[] = [];
 
     try {
-      tx.feePayer = wallet.publicKey;
-      console.log('[Client] Getting recent blockhash...');
-      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-      console.log('[Client] Blockhash:', tx.recentBlockhash);
+      // Transaction 1: Initialize registry + first chunk
+      if (!existing) {
+        reportProgress('initializing', 1, totalTx, 'Initializing registry...');
 
-      console.log('[Client] Requesting wallet signature...');
-      const signedTx = await wallet.signTransaction(tx);
-      console.log('[Client] Transaction signed, sending...');
+        const tx1 = new Transaction();
 
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      console.log('[Client] Transaction sent:', signature);
+        // Initialize registry instruction
+        const initData = Buffer.alloc(9);
+        RegistryDiscriminators.INITIALIZE_REGISTRY.copy(initData, 0);
+        initData.writeUInt8(bump, 8);
 
-      console.log('[Client] Waiting for confirmation...');
-      await this.connection.confirmTransaction(signature);
-      console.log('[Client] Transaction confirmed!');
+        tx1.add(
+          new TransactionInstruction({
+            keys: [
+              { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+              { pubkey: registryPda, isSigner: false, isWritable: true },
+              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            ],
+            programId: PROGRAM_IDS.REGISTRY,
+            data: initData,
+          })
+        );
 
-      return { success: true, signature };
+        // Add first chunk to init transaction
+        const firstChunk = chunks[0];
+        const chunkData1 = Buffer.alloc(8 + 2 + firstChunk.data.length);
+        RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData1, 0);
+        chunkData1.writeUInt16LE(firstChunk.offset, 8);
+        firstChunk.data.copy(chunkData1, 10);
+
+        tx1.add(
+          new TransactionInstruction({
+            keys: [
+              { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+              { pubkey: registryPda, isSigner: false, isWritable: true },
+            ],
+            programId: PROGRAM_IDS.REGISTRY,
+            data: chunkData1,
+          })
+        );
+
+        tx1.feePayer = wallet.publicKey;
+        tx1.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+        const signedTx1 = await wallet.signTransaction(tx1);
+        const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize());
+        await this.connection.confirmTransaction(sig1, 'confirmed');
+        signatures.push(sig1);
+        console.log('[Client] Tx1 confirmed:', sig1);
+      }
+
+      // Remaining chunks
+      for (let i = existing ? 0 : 1; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const isLastChunk = i === chunks.length - 1;
+        const stepName = `uploading-chunk-${i + 1}` as RegistrationStep;
+
+        reportProgress(
+          stepName,
+          i + (existing ? 1 : 2),
+          totalTx,
+          `Uploading keys (${i + 1}/${chunks.length})...`
+        );
+
+        const tx = new Transaction();
+
+        // Upload chunk
+        const chunkData = Buffer.alloc(8 + 2 + chunk.data.length);
+        RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData, 0);
+        chunkData.writeUInt16LE(chunk.offset, 8);
+        chunk.data.copy(chunkData, 10);
+
+        tx.add(
+          new TransactionInstruction({
+            keys: [
+              { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+              { pubkey: registryPda, isSigner: false, isWritable: true },
+            ],
+            programId: PROGRAM_IDS.REGISTRY,
+            data: chunkData,
+          })
+        );
+
+        // Add finalize to last chunk transaction
+        if (isLastChunk) {
+          reportProgress('finalizing', totalTx, totalTx, 'Finalizing registration...');
+          tx.add(
+            new TransactionInstruction({
+              keys: [
+                { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+                { pubkey: registryPda, isSigner: false, isWritable: true },
+              ],
+              programId: PROGRAM_IDS.REGISTRY,
+              data: RegistryDiscriminators.FINALIZE_REGISTRY,
+            })
+          );
+        }
+
+        tx.feePayer = wallet.publicKey;
+        tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+        const signedTx = await wallet.signTransaction(tx);
+        const sig = await this.connection.sendRawTransaction(signedTx.serialize());
+        await this.connection.confirmTransaction(sig, 'confirmed');
+        signatures.push(sig);
+        console.log(`[Client] Tx${i + (existing ? 1 : 2)} confirmed:`, sig);
+      }
+
+      reportProgress('complete', totalTx, totalTx, 'Registration complete!');
+      return { success: true, signature: signatures[signatures.length - 1] };
+
     } catch (error) {
       console.error('[Client] register error:', error);
+      reportProgress('error', 0, totalTx, error instanceof Error ? error.message : 'Registration failed');
       return {
         success: false,
         error: error instanceof Error ? error.message : "Registration failed",
