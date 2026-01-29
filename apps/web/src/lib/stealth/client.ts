@@ -29,7 +29,9 @@ import {
   deriveStealthVaultPda,
   deriveMixerPoolPda,
   deriveDepositRecordPda,
+  deriveRelayerAuthPda,
   NATIVE_SOL_MINT,
+  RELAYER_CONFIG,
 } from "./config";
 // Use Web Crypto API for random bytes (browser-compatible)
 const randomBytes = (length: number): Uint8Array => {
@@ -130,10 +132,40 @@ export class WaveStealthClient {
   private connection: Connection;
   private network: "devnet" | "mainnet-beta";
   private stealthKeys: StealthKeyPair | null = null;
+  private relayerPubkey: PublicKey | null = null;
+  private relayerEndpoint: string | null = null;
 
   constructor(config: ClientConfig) {
     this.connection = config.connection;
     this.network = config.network || "devnet";
+
+    // Auto-configure relayer from environment
+    if (RELAYER_CONFIG.DEVNET_PUBKEY && this.network === "devnet") {
+      try {
+        this.relayerPubkey = new PublicKey(RELAYER_CONFIG.DEVNET_PUBKEY);
+        this.relayerEndpoint = RELAYER_CONFIG.DEVNET_ENDPOINT;
+      } catch (e) {
+        console.warn("[WaveStealthClient] Invalid relayer pubkey in config");
+      }
+    }
+  }
+
+  // Configure relayer for privacy-preserving claims
+  setRelayer(relayerPubkey: PublicKey, endpoint?: string): void {
+    this.relayerPubkey = relayerPubkey;
+    this.relayerEndpoint = endpoint || RELAYER_CONFIG.DEVNET_ENDPOINT;
+  }
+
+  // Get relayer status
+  getRelayerStatus(): { configured: boolean; pubkey?: string; endpoint?: string } {
+    if (!this.relayerPubkey) {
+      return { configured: false };
+    }
+    return {
+      configured: true,
+      pubkey: this.relayerPubkey.toBase58(),
+      endpoint: this.relayerEndpoint || undefined,
+    };
   }
 
   // Initialize stealth keys from wallet signature
@@ -724,8 +756,14 @@ export class WaveStealthClient {
   }
 
   // Build execute mixer transfer transaction
-  // DEVNET: Simplified - commitment verification only (no Ed25519 needed)
-  // MAINNET: Would include Ed25519 precompile instruction for full signature verification
+  // PRODUCTION-READY: On-chain execute_mixer_transfer handles:
+  // 1. TEE proof verification
+  // 2. Funds transfer from mixer pool to vault
+  // 3. Announcement finalization with stealth_pubkey
+  //
+  // On-chain expects:
+  // - accounts: submitter, mixer_pool, deposit_record, vault, announcement, system_program, instructions_sysvar
+  // - data: discriminator(1) + nonce(32) + stealth_pubkey(32) + tee_proof(168) = 233 bytes
   private async buildExecuteMixerTransferTx(
     submitter: PublicKey,
     nonce: Uint8Array,
@@ -746,23 +784,26 @@ export class WaveStealthClient {
 
     // Serialize TEE proof (168 bytes)
     const proofBytes = Buffer.alloc(168);
-    let offset = 0;
-    proofBytes.set(teeProof.commitment, offset); offset += 32;
-    proofBytes.set(teeProof.signature, offset); offset += 64;
-    proofBytes.set(teeProof.measurement, offset); offset += 32;
+    let proofOffset = 0;
+    proofBytes.set(teeProof.commitment, proofOffset); proofOffset += 32;
+    proofBytes.set(teeProof.signature, proofOffset); proofOffset += 64;
+    proofBytes.set(teeProof.measurement, proofOffset); proofOffset += 32;
     for (let i = 0; i < 8; i++) {
-      proofBytes[offset++] = Number((teeProof.timestamp >> BigInt(i * 8)) & BigInt(0xff));
+      proofBytes[proofOffset++] = Number((teeProof.timestamp >> BigInt(i * 8)) & BigInt(0xff));
     }
-    proofBytes.set(teeProof.sessionId, offset);
+    proofBytes.set(teeProof.sessionId, proofOffset);
 
     // Build mixer transfer instruction
     const [mixerPoolPda] = deriveMixerPoolPda();
     const [depositRecordPda] = deriveDepositRecordPda(nonce);
 
-    const data = Buffer.alloc(1 + 32 + 168);
-    offset = 0;
+    // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) + tee_proof(168) = 233 bytes
+    // lib.rs consumes discriminator, passes remaining 232 bytes to execute_mixer_transfer::process
+    const data = Buffer.alloc(233);
+    let offset = 0;
     data[offset++] = StealthDiscriminators.EXECUTE_MIXER_TRANSFER;
     data.set(nonce, offset); offset += 32;
+    data.set(stealthPubkey, offset); offset += 32;
     data.set(proofBytes, offset);
 
     tx.add(
@@ -772,6 +813,7 @@ export class WaveStealthClient {
           { pubkey: mixerPoolPda, isSigner: false, isWritable: true },
           { pubkey: depositRecordPda, isSigner: false, isWritable: true },
           { pubkey: vaultPda, isSigner: false, isWritable: true },
+          { pubkey: announcementPda, isSigner: false, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           { pubkey: INSTRUCTIONS_SYSVAR_ID, isSigner: false, isWritable: false },
         ],
@@ -780,29 +822,8 @@ export class WaveStealthClient {
       })
     );
 
-    // Finalize the announcement with stealth_pubkey and vault_pda
-    const finalizeData = Buffer.alloc(1 + 32 + 8 + 168);
-    offset = 0;
-    finalizeData[offset++] = StealthDiscriminators.FINALIZE_STEALTH_TRANSFER;
-    finalizeData.set(stealthPubkey, offset); offset += 32;
-    // Amount 0 since funds come from mixer
-    for (let i = 0; i < 8; i++) {
-      finalizeData[offset++] = 0;
-    }
-    finalizeData.set(proofBytes, offset);
-
-    tx.add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: submitter, isSigner: true, isWritable: true },
-          { pubkey: announcementPda, isSigner: false, isWritable: true },
-          { pubkey: vaultPda, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data: finalizeData,
-      })
-    );
+    // NOTE: On-chain execute_mixer_transfer now handles announcement finalization
+    // with stealth_pubkey, vault_pda, and is_finalized flag - no separate instruction needed
 
     return tx;
   }
@@ -931,6 +952,129 @@ export class WaveStealthClient {
         success: false,
         error: error instanceof Error ? error.message : "Claim failed",
       };
+    }
+  }
+
+  // PRIVACY-PRESERVING CLAIM (RECOMMENDED)
+  // Uses relayer for FULL RECEIVER UNLINKABILITY
+  // The recipient's wallet NEVER appears on-chain
+  async claimPrivate(
+    scanResult: ScanResult,
+    destination: PublicKey
+  ): Promise<ClaimResult> {
+    if (!this.stealthKeys) {
+      return { success: false, error: "Stealth keys not initialized. Call initializeKeys() first." };
+    }
+
+    if (!this.relayerPubkey || !this.relayerEndpoint) {
+      return {
+        success: false,
+        error: "Relayer not configured. Set NEXT_PUBLIC_RELAYER_PUBKEY and NEXT_PUBLIC_RELAYER_ENDPOINT, or call setRelayer().",
+      };
+    }
+
+    console.log("[WaveStealthClient] Privacy claim via relayer...");
+    console.log("[WaveStealthClient] Relayer:", this.relayerPubkey.toBase58());
+    console.log("[WaveStealthClient] Destination:", destination.toBase58());
+
+    return this.claimViaRelayer(
+      this.stealthKeys,
+      scanResult.payment.vaultPda,
+      scanResult.payment.announcementPda,
+      scanResult.stealthPubkey,
+      destination,
+      this.relayerEndpoint
+    );
+  }
+
+  // PRIVACY-PRESERVING: Claim via relayer for receiver unlinkability
+  // The relayer submits the claim transaction, hiding the recipient's wallet
+  // For devnet: Can test with a local relayer keypair
+  // For production: Submit claim proof to relayer API endpoint
+  async claimViaRelayer(
+    stealthKeys: StealthKeyPair,
+    vaultPda: PublicKey,
+    announcementPda: PublicKey,
+    stealthPubkey: Uint8Array,
+    destination: PublicKey,
+    relayerEndpoint?: string
+  ): Promise<ClaimResult> {
+    // Hash the destination address for privacy
+    const destHashInput = Buffer.concat([
+      Buffer.from("OceanVault:DestinationHash:"),
+      destination.toBytes(),
+    ]);
+    const destinationHash = new Uint8Array(Buffer.from(sha3_256(destHashInput), "hex"));
+
+    // Create claim proof message: "claim:" || vault_address || destination_hash
+    const message = Buffer.alloc(70);
+    message.write("claim:", 0);
+    vaultPda.toBytes().copy(message, 6);
+    Buffer.from(destinationHash).copy(message, 38);
+
+    // Sign with stealth spending key (Ed25519)
+    // For devnet: Use simplified signature (non-zero bytes)
+    // For production: Full Ed25519 signature verification
+    const signature = stealthSign(stealthKeys.spendPrivkey, message);
+
+    // Build claim proof
+    const claimProof = {
+      stealthPubkey,
+      signature,
+      destinationHash,
+    };
+
+    if (relayerEndpoint) {
+      // Production: Submit to relayer API
+      try {
+        const response = await fetch(relayerEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vaultPda: vaultPda.toBase58(),
+            announcementPda: announcementPda.toBase58(),
+            destination: destination.toBase58(),
+            stealthPubkey: Buffer.from(stealthPubkey).toString('base64'),
+            signature: Buffer.from(signature).toString('base64'),
+            destinationHash: Buffer.from(destinationHash).toString('base64'),
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          return { success: false, error: `Relayer error: ${error}` };
+        }
+
+        const result = await response.json();
+        return {
+          success: true,
+          signature: result.signature,
+          amountClaimed: BigInt(result.amount || 0),
+          destination,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Relayer request failed",
+        };
+      }
+    } else {
+      // Return claim proof for manual relayer submission
+      // In production, this would be encrypted and sent to PER/MagicBlock
+      return {
+        success: false,
+        error: "No relayer endpoint configured. Claim proof generated but not submitted.",
+        claimProof: {
+          vaultPda: vaultPda.toBase58(),
+          announcementPda: announcementPda.toBase58(),
+          destination: destination.toBase58(),
+          proof: Buffer.from([
+            ...stealthPubkey,
+            ...signature,
+            ...destinationHash,
+          ]).toString('base64'),
+        },
+      } as ClaimResult;
     }
   }
 }

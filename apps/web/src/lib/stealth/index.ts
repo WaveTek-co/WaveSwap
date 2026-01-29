@@ -26,10 +26,15 @@ export {
   JUPITER_API,
   DEFAULT_SLIPPAGE_BPS,
   MAX_CHUNK_SIZE,
+  RELAYER_CONFIG,
   deriveRegistryPda,
   deriveAnnouncementPda,
+  deriveAnnouncementPdaFromNonce,
   deriveStealthVaultPda,
   deriveStakePositionPda,
+  deriveMixerPoolPda,
+  deriveDepositRecordPda,
+  deriveRelayerAuthPda,
 } from "./config";
 
 export type {
@@ -48,5 +53,14 @@ export type {
   SwapQuote,
 } from "./types";
 
-export { StealthScanner } from "./scanner";
+export { StealthScanner, checkViewTag, isPaymentForUs, deriveStealthFromEphemeral } from "./scanner";
 export type { DetectedPayment, ScannerConfig } from "./scanner";
+
+// PER Privacy Integration - Full privacy flow with MagicBlock
+export { PERPrivacyClient, MAGICBLOCK_RPC_DEVNET, MAGICBLOCK_TEE_PUBKEY } from "./per-privacy";
+export type {
+  PrivacySendParams,
+  PrivacyClaimParams,
+  PrivacySendResult,
+  PrivacyClaimResult,
+} from "./per-privacy";

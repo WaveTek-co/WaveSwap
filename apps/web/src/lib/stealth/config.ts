@@ -59,6 +59,14 @@ export const JUPITER_API = {
 // Default slippage in basis points
 export const DEFAULT_SLIPPAGE_BPS = 50;
 
+// Relayer configuration for privacy-preserving claims
+export const RELAYER_CONFIG = {
+  // Default relayer endpoint (devnet)
+  DEVNET_ENDPOINT: process.env.NEXT_PUBLIC_RELAYER_ENDPOINT || "http://localhost:3001",
+  // Relayer pubkey (set via environment)
+  DEVNET_PUBKEY: process.env.NEXT_PUBLIC_RELAYER_PUBKEY || null,
+};
+
 // PDA derivation functions
 export function deriveRegistryPda(owner: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
