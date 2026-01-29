@@ -204,7 +204,7 @@ export function stealthVerify(
 
 // Generate stealth keys from wallet signature message
 export async function generateStealthKeysFromSignature(
-  signMessage: (message: Uint8Array) => Promise<Uint8Array>,
+  signMessage: (message: Uint8Array) => Promise<Uint8Array | { signature: Uint8Array } | any>,
   domain: string = "OceanVault:ViewingKeys:v1"
 ): Promise<StealthKeyPair> {
   const message = `Sign this message to generate your WaveSwap stealth viewing keys.
@@ -214,7 +214,38 @@ This signature will be used to derive your private viewing keys. Never share thi
 Domain: ${domain}`;
 
   const messageBytes = new TextEncoder().encode(message);
-  const signature = await signMessage(messageBytes);
+
+  console.log('[Crypto] Requesting signature for stealth keys...');
+  const result = await signMessage(messageBytes);
+  console.log('[Crypto] signMessage result type:', typeof result, result);
+
+  // Handle different wallet return formats
+  let signature: Uint8Array;
+
+  if (result instanceof Uint8Array) {
+    // Direct Uint8Array (expected format)
+    signature = result;
+  } else if (result && typeof result === 'object' && 'signature' in result) {
+    // Phantom format: { signature: Uint8Array }
+    signature = result.signature instanceof Uint8Array
+      ? result.signature
+      : new Uint8Array(result.signature);
+  } else if (result && ArrayBuffer.isView(result)) {
+    // ArrayBuffer view
+    signature = new Uint8Array(result.buffer, result.byteOffset, result.byteLength);
+  } else if (Array.isArray(result)) {
+    // Plain array
+    signature = new Uint8Array(result);
+  } else {
+    console.error('[Crypto] Unexpected signMessage result format:', result);
+    throw new Error('Unexpected signature format from wallet');
+  }
+
+  console.log('[Crypto] Signature obtained, length:', signature.length);
+
+  if (signature.length === 0) {
+    throw new Error('Empty signature returned from wallet');
+  }
 
   return generateViewingKeys(signature);
 }
