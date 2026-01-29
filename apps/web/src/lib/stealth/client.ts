@@ -185,70 +185,38 @@ export class WaveStealthClient {
     );
     console.log('[Client] Added INITIALIZE_REGISTRY instruction');
 
-    // Upload spend pubkey (32 bytes) as first chunk
-    // Data format: discriminator (8) + offset (2) + chunk bytes
-    // Account order: [owner (signer), registry_pda]
-    const spendChunkData = Buffer.alloc(8 + 2 + 32);
-    RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(spendChunkData, 0);
-    spendChunkData.writeUInt16LE(0, 8); // offset 0 for spend pubkey
-    Buffer.from(keysToUse.spendPubkey).copy(spendChunkData, 10);
+    // Registry requires exactly 1216 bytes (XWING_PUBLIC_KEY_SIZE) to be written
+    // We store: spend pubkey (32) + view pubkey (32) + padding (1152) = 1216 bytes
+    const XWING_PUBLIC_KEY_SIZE = 1216;
+    const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
+    Buffer.from(keysToUse.spendPubkey).copy(fullKeyData, 0);
+    Buffer.from(keysToUse.viewPubkey).copy(fullKeyData, 32);
+    // Rest is zeros (padding)
 
-    tx.add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
-          { pubkey: registryPda, isSigner: false, isWritable: true },
-        ],
-        programId: PROGRAM_IDS.REGISTRY,
-        data: spendChunkData,
-      })
-    );
-    console.log('[Client] Added spend pubkey chunk');
+    // Upload in chunks of MAX_CHUNK_SIZE (800 bytes)
+    for (let offset = 0; offset < XWING_PUBLIC_KEY_SIZE; offset += MAX_CHUNK_SIZE) {
+      const chunk = fullKeyData.slice(
+        offset,
+        Math.min(offset + MAX_CHUNK_SIZE, XWING_PUBLIC_KEY_SIZE)
+      );
 
-    // Upload view pubkey (32 bytes) as second chunk
-    const viewChunkData = Buffer.alloc(8 + 2 + 32);
-    RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(viewChunkData, 0);
-    viewChunkData.writeUInt16LE(32, 8); // offset 32 for view pubkey
-    Buffer.from(keysToUse.viewPubkey).copy(viewChunkData, 10);
+      const chunkData = Buffer.alloc(8 + 2 + chunk.length);
+      RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData, 0);
+      chunkData.writeUInt16LE(offset, 8);
+      chunk.copy(chunkData, 10);
 
-    tx.add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
-          { pubkey: registryPda, isSigner: false, isWritable: true },
-        ],
-        programId: PROGRAM_IDS.REGISTRY,
-        data: viewChunkData,
-      })
-    );
-    console.log('[Client] Added view pubkey chunk');
-
-    // Upload x-wing public key in chunks (if provided)
-    if (xwingPubkey) {
-      for (let offset = 0; offset < xwingPubkey.length; offset += MAX_CHUNK_SIZE) {
-        const chunk = xwingPubkey.slice(
-          offset,
-          Math.min(offset + MAX_CHUNK_SIZE, xwingPubkey.length)
-        );
-
-        const chunkData = Buffer.alloc(8 + 2 + chunk.length);
-        RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData, 0);
-        chunkData.writeUInt16LE(64 + offset, 8); // offset after spend+view (64 bytes)
-        Buffer.from(chunk).copy(chunkData, 10);
-
-        tx.add(
-          new TransactionInstruction({
-            keys: [
-              { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
-              { pubkey: registryPda, isSigner: false, isWritable: true },
-            ],
-            programId: PROGRAM_IDS.REGISTRY,
-            data: chunkData,
-          })
-        );
-      }
-      console.log('[Client] Added UPLOAD_KEY_CHUNK instructions for x-wing');
+      tx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+            { pubkey: registryPda, isSigner: false, isWritable: true },
+          ],
+          programId: PROGRAM_IDS.REGISTRY,
+          data: chunkData,
+        })
+      );
     }
+    console.log('[Client] Added key upload chunks (1216 bytes total)');
 
     // Finalize registry
     // Account order: [owner (signer), registry_pda]
