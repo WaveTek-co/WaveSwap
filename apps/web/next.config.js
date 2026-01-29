@@ -87,9 +87,13 @@ const nextConfig = {
 
   // Webpack configuration for Solana libraries
   webpack: (config, { isServer }) => {
-    // Exclude test files from build
+    const path = require('path');
+
+    // Resolve local monorepo packages
     config.resolve.alias = {
       ...config.resolve.alias,
+      '@waveswap/sdk': path.resolve(__dirname, '../../packages/sdk/src'),
+      '@waveswap/ui': path.resolve(__dirname, '../../packages/ui/src'),
       '^/test/mocks/(.*)$': false,
     };
 
