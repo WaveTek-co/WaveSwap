@@ -7,7 +7,10 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  
+
+  // Transpile local monorepo packages
+  transpilePackages: ['@waveswap/sdk', '@waveswap/ui'],
+
   // External packages for server components
   serverExternalPackages: ['@solana/web3.js', '@solana/spl-token'],
 
