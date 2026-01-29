@@ -140,6 +140,8 @@ export class WaveStealthClient {
     keys?: StealthKeyPair,
     xwingPubkey?: Uint8Array
   ): Promise<TransactionResult> {
+    console.log('[Client] register called');
+
     if (!wallet.publicKey) {
       return { success: false, error: "Wallet not connected" };
     }
@@ -150,12 +152,16 @@ export class WaveStealthClient {
     }
 
     const [registryPda] = deriveRegistryPda(wallet.publicKey);
+    console.log('[Client] Registry PDA:', registryPda.toBase58());
 
     // Check if already registered
+    console.log('[Client] Checking if already registered...');
     const existing = await this.connection.getAccountInfo(registryPda);
     if (existing) {
+      console.log('[Client] Already registered');
       return { success: false, error: "Already registered" };
     }
+    console.log('[Client] Not registered yet, proceeding...');
 
     const tx = new Transaction();
 
@@ -176,6 +182,7 @@ export class WaveStealthClient {
         data: initData,
       })
     );
+    console.log('[Client] Added INITIALIZE_REGISTRY instruction');
 
     // Upload x-wing public key in chunks (if provided)
     if (xwingPubkey) {
@@ -201,6 +208,7 @@ export class WaveStealthClient {
           })
         );
       }
+      console.log('[Client] Added UPLOAD_KEY_CHUNK instructions');
     }
 
     // Finalize registry
@@ -214,17 +222,28 @@ export class WaveStealthClient {
         data: RegistryDiscriminators.FINALIZE_REGISTRY,
       })
     );
+    console.log('[Client] Added FINALIZE_REGISTRY instruction');
 
     try {
       tx.feePayer = wallet.publicKey;
+      console.log('[Client] Getting recent blockhash...');
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      console.log('[Client] Blockhash:', tx.recentBlockhash);
 
+      console.log('[Client] Requesting wallet signature...');
       const signedTx = await wallet.signTransaction(tx);
+      console.log('[Client] Transaction signed, sending...');
+
       const signature = await this.connection.sendRawTransaction(signedTx.serialize());
+      console.log('[Client] Transaction sent:', signature);
+
+      console.log('[Client] Waiting for confirmation...');
       await this.connection.confirmTransaction(signature);
+      console.log('[Client] Transaction confirmed!');
 
       return { success: true, signature };
     } catch (error) {
+      console.error('[Client] register error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Registration failed",

@@ -140,30 +140,44 @@ export function useWaveSend(): UseWaveSendReturn {
 
   // Register for stealth payments
   const register = useCallback(async (): Promise<boolean> => {
+    console.log('[WaveSend] register called')
+
     if (!walletAdapter) {
+      console.error('[WaveSend] walletAdapter not available')
       setError('Wallet not connected')
       return false
     }
 
     if (!stealthKeys) {
+      console.error('[WaveSend] stealthKeys not available')
       setError('Stealth keys not initialized. Please initialize first.')
       return false
     }
+
+    console.log('[WaveSend] Starting registration with keys:', {
+      spendPubkey: Buffer.from(stealthKeys.spendPubkey).toString('hex').slice(0, 16) + '...',
+      viewPubkey: Buffer.from(stealthKeys.viewPubkey).toString('hex').slice(0, 16) + '...',
+    })
 
     setIsLoading(true)
     setError(null)
 
     try {
+      console.log('[WaveSend] Calling client.register...')
       const result = await client.register(walletAdapter, stealthKeys)
+      console.log('[WaveSend] register result:', result)
 
       if (result.success) {
+        console.log('[WaveSend] Registration successful, tx:', result.signature)
         setIsRegistered(true)
         return true
       } else {
+        console.error('[WaveSend] Registration failed:', result.error)
         setError(result.error || 'Registration failed')
         return false
       }
     } catch (err) {
+      console.error('[WaveSend] register error:', err)
       const message = err instanceof Error ? err.message : 'Registration failed'
       setError(message)
       return false
