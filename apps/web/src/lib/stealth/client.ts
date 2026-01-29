@@ -151,8 +151,8 @@ export class WaveStealthClient {
       return { success: false, error: "Stealth keys not initialized" };
     }
 
-    const [registryPda] = deriveRegistryPda(wallet.publicKey);
-    console.log('[Client] Registry PDA:', registryPda.toBase58());
+    const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
+    console.log('[Client] Registry PDA:', registryPda.toBase58(), 'bump:', bump);
 
     // Check if already registered
     console.log('[Client] Checking if already registered...');
@@ -166,16 +166,17 @@ export class WaveStealthClient {
     const tx = new Transaction();
 
     // Initialize registry
-    const initData = Buffer.alloc(8 + 32 + 32);
+    // Data format: discriminator (8) + bump (1)
+    // Account order: [payer (signer), registry_pda, system_program]
+    const initData = Buffer.alloc(9);
     RegistryDiscriminators.INITIALIZE_REGISTRY.copy(initData, 0);
-    Buffer.from(keysToUse.spendPubkey).copy(initData, 8);
-    Buffer.from(keysToUse.viewPubkey).copy(initData, 40);
+    initData.writeUInt8(bump, 8);
 
     tx.add(
       new TransactionInstruction({
         keys: [
-          { pubkey: registryPda, isSigner: false, isWritable: true },
           { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: registryPda, isSigner: false, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
         programId: PROGRAM_IDS.REGISTRY,
@@ -183,6 +184,44 @@ export class WaveStealthClient {
       })
     );
     console.log('[Client] Added INITIALIZE_REGISTRY instruction');
+
+    // Upload spend pubkey (32 bytes) as first chunk
+    // Data format: discriminator (8) + offset (2) + chunk bytes
+    // Account order: [owner (signer), registry_pda]
+    const spendChunkData = Buffer.alloc(8 + 2 + 32);
+    RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(spendChunkData, 0);
+    spendChunkData.writeUInt16LE(0, 8); // offset 0 for spend pubkey
+    Buffer.from(keysToUse.spendPubkey).copy(spendChunkData, 10);
+
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+          { pubkey: registryPda, isSigner: false, isWritable: true },
+        ],
+        programId: PROGRAM_IDS.REGISTRY,
+        data: spendChunkData,
+      })
+    );
+    console.log('[Client] Added spend pubkey chunk');
+
+    // Upload view pubkey (32 bytes) as second chunk
+    const viewChunkData = Buffer.alloc(8 + 2 + 32);
+    RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(viewChunkData, 0);
+    viewChunkData.writeUInt16LE(32, 8); // offset 32 for view pubkey
+    Buffer.from(keysToUse.viewPubkey).copy(viewChunkData, 10);
+
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+          { pubkey: registryPda, isSigner: false, isWritable: true },
+        ],
+        programId: PROGRAM_IDS.REGISTRY,
+        data: viewChunkData,
+      })
+    );
+    console.log('[Client] Added view pubkey chunk');
 
     // Upload x-wing public key in chunks (if provided)
     if (xwingPubkey) {
@@ -194,29 +233,30 @@ export class WaveStealthClient {
 
         const chunkData = Buffer.alloc(8 + 2 + chunk.length);
         RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData, 0);
-        chunkData.writeUInt16LE(offset, 8);
+        chunkData.writeUInt16LE(64 + offset, 8); // offset after spend+view (64 bytes)
         Buffer.from(chunk).copy(chunkData, 10);
 
         tx.add(
           new TransactionInstruction({
             keys: [
-              { pubkey: registryPda, isSigner: false, isWritable: true },
               { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+              { pubkey: registryPda, isSigner: false, isWritable: true },
             ],
             programId: PROGRAM_IDS.REGISTRY,
             data: chunkData,
           })
         );
       }
-      console.log('[Client] Added UPLOAD_KEY_CHUNK instructions');
+      console.log('[Client] Added UPLOAD_KEY_CHUNK instructions for x-wing');
     }
 
     // Finalize registry
+    // Account order: [owner (signer), registry_pda]
     tx.add(
       new TransactionInstruction({
         keys: [
-          { pubkey: registryPda, isSigner: false, isWritable: true },
           { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+          { pubkey: registryPda, isSigner: false, isWritable: true },
         ],
         programId: PROGRAM_IDS.REGISTRY,
         data: RegistryDiscriminators.FINALIZE_REGISTRY,
