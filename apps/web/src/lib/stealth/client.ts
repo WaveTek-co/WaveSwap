@@ -337,6 +337,13 @@ export class WaveStealthClient {
   }
 
   // Fetch recipient's registry
+  // On-chain layout (1260 bytes):
+  // - discriminator: 8 bytes (0-7)
+  // - bump: 1 byte (8)
+  // - owner: 32 bytes (9-40)
+  // - is_finalized: 1 byte (41)
+  // - bytes_written: 2 bytes (42-43)
+  // - xwing_public_key: 1216 bytes (44-1259)
   async getRegistry(owner: PublicKey): Promise<RegistryAccount | null> {
     const [registryPda] = deriveRegistryPda(owner);
     const account = await this.connection.getAccountInfo(registryPda);
@@ -344,22 +351,25 @@ export class WaveStealthClient {
     if (!account) return null;
 
     const data = account.data;
-    if (data.length < 104) return null;
+    if (data.length < 44) return null; // MIN_SIZE = 44
 
-    // Parse registry: [8 discriminator][32 owner][32 spend][32 view]...
+    // Check discriminator
+    const discriminator = data.slice(0, 8).toString();
+    if (discriminator !== 'REGISTRY') {
+      console.log('[Client] Invalid registry discriminator:', discriminator);
+      return null;
+    }
+
+    const isFinalized = data[41] === 1;
+    console.log('[Client] Registry isFinalized byte:', data[41], '=', isFinalized);
+
     return {
-      owner: new PublicKey(data.slice(8, 40)),
-      spendPubkey: new Uint8Array(data.slice(40, 72)),
-      viewPubkey: new Uint8Array(data.slice(72, 104)),
-      xwingPubkey: new Uint8Array(data.slice(104, 104 + 1216)),
-      createdAt:
-        data.length >= 104 + 1216 + 8
-          ? Number(data.readBigInt64LE(104 + 1216))
-          : 0,
-      isFinalized:
-        data.length >= 104 + 1216 + 8 + 1
-          ? data[104 + 1216 + 8] === 1
-          : false,
+      owner: new PublicKey(data.slice(9, 41)),
+      spendPubkey: new Uint8Array(data.slice(44, 76)),
+      viewPubkey: new Uint8Array(data.slice(76, 108)),
+      xwingPubkey: new Uint8Array(data.slice(44, 1260)),
+      createdAt: 0,
+      isFinalized,
     };
   }
 
