@@ -123,9 +123,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
         discriminatorMatches++
         console.log(`[AutoClaim] Found PER deposit record: ${pubkey.toBase58()}`)
 
-        // Check if executed (TEE has completed the transfer)
-        // For delegated accounts, check if the vault has funds
-        const executed = data[PER_OFFSET_EXECUTED]
+        // Check if TEE has executed the transfer
+        const executed = data[PER_OFFSET_EXECUTED] === 1
 
         // Extract ephemeral pubkey and view tag
         const ephemeralPubkey = new Uint8Array(data.slice(PER_OFFSET_EPHEMERAL, PER_OFFSET_EPHEMERAL + 32))
@@ -145,30 +144,48 @@ export function useAutoClaim(): UseAutoClaimReturn {
           continue
         }
 
-        // Derive stealth vault PDA
+        // Derive stealth vault PDA from stealth pubkey
         const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
 
-        // Check vault balance
+        // Check vault balance (only claimable after TEE executes)
         const vaultInfo = await connection.getAccountInfo(vaultPda)
 
-        // Also check the deposit record itself for funds (before TEE executes)
+        // Check deposit record balance (funds held before TEE execution)
         const depositLamports = account.lamports
         const rentExempt = 1001920 // ~0.001 SOL rent for 148 bytes
         const depositAmount = depositLamports > rentExempt ? depositLamports - rentExempt : 0
 
-        if ((!vaultInfo || vaultInfo.lamports === 0) && depositAmount === 0) {
+        // Determine if funds are ready to claim
+        const vaultHasFunds = vaultInfo && vaultInfo.lamports > 0
+        const depositHasFunds = depositAmount > 0
+
+        if (!vaultHasFunds && !depositHasFunds) {
           console.log('[AutoClaim] Magic Actions: No funds available')
           continue
         }
 
         perConfirmedPayments++
-        const amount = vaultInfo?.lamports ? BigInt(vaultInfo.lamports) : BigInt(depositAmount)
-        const vaultAddress = vaultInfo?.lamports ? vaultPda.toBase58() : pubkey.toBase58()
+
+        // If TEE has executed OR vault has funds, we can claim from vault
+        // Otherwise, funds are still in deposit record waiting for TEE
+        const canClaim = executed || vaultHasFunds
+        const amount = vaultHasFunds ? BigInt(vaultInfo.lamports) : BigInt(depositAmount)
 
         console.log(`[AutoClaim] Magic Actions: Found payment!`)
-        console.log(`  - Address: ${vaultAddress}`)
+        console.log(`  - Deposit: ${pubkey.toBase58()}`)
+        console.log(`  - Vault: ${vaultPda.toBase58()}`)
         console.log(`  - Amount: ${Number(amount) / 1e9} SOL`)
-        console.log(`  - Executed: ${executed === 1}`)
+        console.log(`  - TEE Executed: ${executed}`)
+        console.log(`  - Can Claim: ${canClaim}`)
+
+        // Skip if TEE hasn't executed yet - funds still in deposit record
+        if (!canClaim) {
+          console.log('[AutoClaim] Magic Actions: Waiting for TEE execution...')
+          continue
+        }
+
+        // Use vault PDA for claiming (not deposit record)
+        const vaultAddress = vaultPda.toBase58()
 
         // Check if new payment
         const isNew = !pendingClaims.some(c => c.vaultAddress === vaultAddress)
