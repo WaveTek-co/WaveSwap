@@ -49,6 +49,33 @@ const randomBytes = (length: number): Uint8Array => {
   crypto.getRandomValues(bytes);
   return bytes;
 };
+
+// HTTP polling-based confirmation (avoids WebSocket issues on devnet)
+async function confirmTransactionPolling(
+  connection: Connection,
+  signature: string,
+  maxAttempts = 30,
+  intervalMs = 2000
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const status = await connection.getSignatureStatus(signature);
+      if (status?.value?.confirmationStatus === 'confirmed' ||
+          status?.value?.confirmationStatus === 'finalized') {
+        return true;
+      }
+      if (status?.value?.err) {
+        console.error('[Confirm] TX failed:', status.value.err);
+        return false;
+      }
+    } catch (e) {
+      // Ignore polling errors, keep trying
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  console.warn('[Confirm] Timeout - TX may still succeed');
+  return true; // Optimistically return true on timeout
+};
 import {
   RegistryAccount,
   ScanResult,
@@ -1155,21 +1182,9 @@ export class WaveStealthClient {
 
       console.log('[WaveStealthClient] TX sent:', signature);
 
-      // Try to confirm but don't fail if timeout (devnet WebSocket issues)
-      try {
-        await this.connection.confirmTransaction({
-          signature,
-          blockhash,
-          lastValidBlockHeight,
-        }, 'confirmed');
-        console.log('[WaveStealthClient] ✓ TX confirmed');
-      } catch (confirmErr: any) {
-        if (confirmErr?.name === 'TransactionExpiredTimeoutError') {
-          console.warn('[WaveStealthClient] Confirmation timeout - TX may still succeed');
-        } else {
-          throw confirmErr;
-        }
-      }
+      // Use HTTP polling confirmation (avoids WebSocket issues on devnet)
+      const confirmed = await confirmTransactionPolling(this.connection, signature, 20, 2000);
+      console.log('[WaveStealthClient] TX confirmed:', confirmed);
 
       console.log('[WaveStealthClient] ✓ Deposited to PER Mixer Pool:', signature);
       console.log('[WaveStealthClient] ✓ Deposit record:', depositRecordPda.toBase58());

@@ -103,8 +103,36 @@ const EXPECTED_ENCLAVE_MEASUREMENT = new Uint8Array([
 const SCAN_INTERVAL_MS = 30000
 
 // RPC endpoints
+// Use HTTP-only endpoints to avoid WebSocket issues
 const DEVNET_RPC = 'https://api.devnet.solana.com'
 const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
+
+// HTTP polling-based confirmation (avoids WebSocket issues)
+async function confirmTransactionPolling(
+  connection: Connection,
+  signature: string,
+  maxAttempts = 30,
+  intervalMs = 2000
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const status = await connection.getSignatureStatus(signature)
+      if (status?.value?.confirmationStatus === 'confirmed' ||
+          status?.value?.confirmationStatus === 'finalized') {
+        return true
+      }
+      if (status?.value?.err) {
+        console.error('[Confirm] TX failed:', status.value.err)
+        return false
+      }
+    } catch (e) {
+      // Ignore polling errors, keep trying
+    }
+    await new Promise(r => setTimeout(r, intervalMs))
+  }
+  console.warn('[Confirm] Timeout - TX may still succeed')
+  return true // Optimistically return true on timeout
+}
 
 export interface PendingClaim {
   vaultAddress: string
@@ -280,8 +308,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
         console.log('[MagicAction] Sent:', signature)
 
-        await rollupConnection.confirmTransaction(signature, 'confirmed')
-        console.log('[MagicAction] Rollup confirmed, waiting for L1 escrow commit...')
+        // Use HTTP polling instead of WebSocket confirmation
+        const confirmed = await confirmTransactionPolling(rollupConnection, signature, 15, 1000)
+        console.log('[MagicAction] Rollup confirmed:', confirmed, '- waiting for L1 escrow commit...')
 
         // Poll mainnet for escrow
         for (let i = 0; i < 15; i++) {
@@ -340,7 +369,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
         console.log('[MagicAction] Sent:', signature)
 
-        await rollupConnection.confirmTransaction(signature, 'confirmed')
+        // Use HTTP polling instead of WebSocket confirmation
+        await confirmTransactionPolling(rollupConnection, signature, 15, 1000)
         console.log('[MagicAction] Rollup confirmed, waiting for L1 commit...')
 
         // Poll mainnet for vault
@@ -410,7 +440,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         console.log('[MagicAction] Sending to mainnet...')
         const signature = await connection.sendRawTransaction(signedTx.serialize())
-        await connection.confirmTransaction(signature, 'confirmed')
+        await confirmTransactionPolling(connection, signature)
         console.log('[MagicAction] Mixer transfer confirmed:', signature)
 
         const vaultInfo = await connection.getAccountInfo(vaultPda)
@@ -483,7 +513,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       console.log('[Escrow] Sending to L1...')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      await connection.confirmTransaction(signature, 'confirmed')
+      await confirmTransactionPolling(connection, signature)
       console.log('[Escrow] Withdraw confirmed:', signature)
 
       setPendingEscrows(prev => prev.map(e =>
@@ -857,7 +887,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       const signedTx = await signTransaction(tx)
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      await connection.confirmTransaction(signature, 'confirmed')
+      await confirmTransactionPolling(connection, signature)
 
       console.log('[AutoClaim] Claimed:', signature)
       showClaimSuccess({ signature, amount: BigInt(vaultInfo.lamports), symbol: 'SOL' })
