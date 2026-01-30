@@ -43,6 +43,8 @@ export const StealthDiscriminators = {
   EXECUTE_TEST_MIXER_TRANSFER: 0x11,
   // Magic Actions: deposit + delegate to MagicBlock PER
   DEPOSIT_AND_DELEGATE: 0x12,
+  // Execute PER transfer (permissionless - for TEE/relayer/autoClaim)
+  EXECUTE_PER_TRANSFER: 0x13,
 };
 
 // DeFi instruction discriminators

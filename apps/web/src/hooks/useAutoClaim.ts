@@ -37,6 +37,9 @@ const PER_DEPOSIT_SEED = 'per-deposit'
 // Scan interval (30 seconds to reduce RPC load)
 const SCAN_INTERVAL_MS = 30000
 
+// MagicBlock ephemeral rollup RPC (for delegated accounts)
+const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
+
 export interface PendingClaim {
   vaultAddress: string
   amount: bigint
@@ -67,6 +70,8 @@ export interface UseAutoClaimReturn {
   stopScanning: () => void
   claimAll: () => Promise<void>
   claimSingle: (vaultAddress: string) => Promise<boolean>
+  executePerTransfer: (deposit: DelegatedDeposit) => Promise<boolean>
+  executeAndClaimAll: () => Promise<void>
   undelegateDeposit: (depositAddress: string) => Promise<boolean>
   undelegateAll: () => Promise<void>
   lastScanTime: Date | null
@@ -532,15 +537,115 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [delegatedDeposits, undelegateDeposit])
 
-  // Auto-claim when payments detected
+  // MagicBlock rollup connection for delegated accounts
+  const rollupConnection = useMemo(() => {
+    return new Connection(MAGICBLOCK_RPC, {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 60000,
+    })
+  }, [])
+
+  // Execute PER transfer - moves funds from deposit to stealth vault
+  // This is PERMISSIONLESS - anyone can call it (privacy preserved)
+  // Sends to MagicBlock rollup RPC since account is delegated
+  const executePerTransfer = useCallback(async (deposit: DelegatedDeposit): Promise<boolean> => {
+    if (!publicKey || !signTransaction) {
+      setError('Wallet not connected')
+      return false
+    }
+
+    try {
+      console.log('[AutoClaim] Executing PER transfer via MagicBlock rollup...')
+      console.log('  Deposit:', deposit.depositAddress)
+
+      const depositPda = new PublicKey(deposit.depositAddress)
+      const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
+
+      console.log('  Vault:', vaultPda.toBase58())
+
+      // Build execute_per_transfer instruction
+      // Data: discriminator (1 byte) + nonce (32 bytes) + vault_bump (1 byte)
+      const data = Buffer.alloc(34)
+      data.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
+      Buffer.from(deposit.nonce).copy(data, 1)
+      data.writeUInt8(vaultBump, 33)
+
+      const tx = new Transaction()
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+      tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }))
+      tx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: depositPda, isSigner: false, isWritable: true },
+            { pubkey: vaultPda, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        })
+      )
+
+      tx.feePayer = publicKey
+      // Get blockhash from rollup
+      tx.recentBlockhash = (await rollupConnection.getLatestBlockhash()).blockhash
+
+      const signedTx = await signTransaction(tx)
+      // Send to MagicBlock rollup (not mainnet)
+      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize())
+      await rollupConnection.confirmTransaction(signature, 'confirmed')
+
+      console.log('[AutoClaim] PER transfer executed on rollup:', signature)
+
+      // Remove from delegated deposits
+      setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+
+      // Add to pending claims (now claimable from vault)
+      setPendingClaims(prev => {
+        if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
+        return [...prev, {
+          vaultAddress: vaultPda.toBase58(),
+          amount: deposit.amount,
+          sender: 'MAGIC_ACTIONS',
+          announcementPda: deposit.depositAddress,
+          stealthPubkey: deposit.stealthPubkey,
+          status: 'pending' as const,
+        }]
+      })
+
+      return true
+    } catch (err) {
+      console.error('[AutoClaim] Execute PER transfer failed:', err)
+      setError(err instanceof Error ? err.message : 'Execute failed')
+      return false
+    }
+  }, [publicKey, signTransaction, connection])
+
+  // Execute all PER transfers then claim
+  const executeAndClaimAll = useCallback(async () => {
+    console.log('[AutoClaim] Executing all PER transfers...')
+
+    // First execute all delegated deposits
+    for (const deposit of delegatedDeposits) {
+      await executePerTransfer(deposit)
+      await new Promise(r => setTimeout(r, 1000))
+    }
+
+    // Then claim all pending
+    await claimAll()
+  }, [delegatedDeposits, executePerTransfer, claimAll])
+
+  // Auto-execute and claim when payments detected
   useEffect(() => {
     const pendingCount = pendingClaims.filter(c => c.status === 'pending').length
-    if (pendingCount > 0 && connected && publicKey) {
-      console.log(`[AutoClaim] ${pendingCount} pending, auto-claiming...`)
-      const timeout = setTimeout(claimAll, 2000)
+    const delegatedCount = delegatedDeposits.length
+
+    if ((pendingCount > 0 || delegatedCount > 0) && connected && publicKey) {
+      console.log(`[AutoClaim] ${delegatedCount} delegated, ${pendingCount} pending - auto-processing...`)
+      const timeout = setTimeout(executeAndClaimAll, 2000)
       return () => clearTimeout(timeout)
     }
-  }, [pendingClaims, connected, publicKey, claimAll])
+  }, [pendingClaims, delegatedDeposits, connected, publicKey, executeAndClaimAll])
 
   return {
     isScanning,
@@ -553,6 +658,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
     stopScanning,
     claimAll,
     claimSingle,
+    executePerTransfer,
+    executeAndClaimAll,
     undelegateDeposit,
     undelegateAll,
     lastScanTime,
