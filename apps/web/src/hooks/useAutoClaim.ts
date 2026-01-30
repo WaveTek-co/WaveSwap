@@ -266,12 +266,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const [depositRecordPda] = derivePerDepositRecordPda(deposit.nonce)
         const [escrowPda, escrowBump] = deriveClaimEscrowPda(deposit.nonce)
 
-        // MagicBlock delegation context
+        // MagicBlock Ephemeral Rollups program and context
+        const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
+        // Magic context PDA - derived from delegation program
         const [magicContext] = PublicKey.findProgramAddressSync(
-          [Buffer.from('magic')],
+          [Buffer.from('magic_context')],
           DELEGATION_PROGRAM_ID
         )
-        const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111')
 
         // Data: pool_bump(1) + nonce(32) + escrow_bump(1) = 34 bytes
         const data = Buffer.alloc(35)
@@ -290,7 +291,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // read-only (on L1)
             { pubkey: escrowPda, isSigner: false, isWritable: true },
             { pubkey: magicContext, isSigner: false, isWritable: false },
-            { pubkey: MAGIC_PROGRAM_ID, isSigner: false, isWritable: false },
+            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
           programId: PROGRAM_IDS.STEALTH,

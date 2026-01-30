@@ -495,49 +495,67 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
             )}
           </div>
 
-          {pendingClaims.length > 0 && (
+          {/* PER Mixer Deposits (awaiting claim) - IDEAL PRIVACY - Show these first! */}
+          {delegatedDeposits.filter(d => d.type === 'per-mixer').length > 0 && (
             <div className="space-y-2 mt-3">
-              {pendingClaims.slice(0, 3).map((claim) => (
+              <div className="text-xs font-medium mb-2" style={{ color: theme.colors.info }}>
+                Private Deposits (via PER Mixer Pool)
+              </div>
+              {delegatedDeposits.filter(d => d.type === 'per-mixer').slice(0, 5).map((deposit) => (
                 <div
-                  key={claim.vaultAddress}
+                  key={deposit.depositAddress}
                   className="flex items-center justify-between p-2 rounded-lg"
-                  style={{ background: `${theme.colors.surface}40` }}
+                  style={{ background: `${theme.colors.info}10` }}
                 >
                   <div>
                     <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
-                      From: {claim.sender.slice(0, 4)}...{claim.sender.slice(-4)}
+                      {deposit.type.toUpperCase()}: {deposit.depositAddress.slice(0, 4)}...{deposit.depositAddress.slice(-4)}
                     </div>
                     <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
-                      {(Number(claim.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                      {(Number(deposit.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                    </div>
+                    <div className="text-xs" style={{ color: theme.colors.textMuted }}>
+                      Ready to claim via MagicBlock TEE
                     </div>
                   </div>
-                  <div
-                    className="px-2 py-1 rounded text-xs font-medium"
+                  <button
+                    onClick={async () => {
+                      try {
+                        toast.info('Triggering claim via MagicBlock...')
+                        const success = await triggerMagicAction(deposit)
+                        if (success) {
+                          toast.success('Claim triggered!')
+                        } else {
+                          toast.error('Claim trigger failed')
+                        }
+                      } catch (err) {
+                        toast.error('Error triggering claim')
+                      }
+                    }}
+                    className="px-3 py-1 rounded text-xs font-medium transition-all hover:opacity-80"
                     style={{
-                      background: claim.status === 'claimed' ? `${theme.colors.success}20` :
-                                  claim.status === 'claiming' ? `${theme.colors.info}20` :
-                                  claim.status === 'failed' ? `${theme.colors.error}20` :
-                                  `${theme.colors.warning}20`,
-                      color: claim.status === 'claimed' ? theme.colors.success :
-                             claim.status === 'claiming' ? theme.colors.info :
-                             claim.status === 'failed' ? theme.colors.error :
-                             theme.colors.warning
+                      background: theme.colors.info,
+                      color: '#000'
                     }}
                   >
-                    {claim.status === 'claimed' ? 'Claimed' :
-                     claim.status === 'claiming' ? 'Claiming...' :
-                     claim.status === 'failed' ? 'Failed' :
-                     'Auto-claiming...'}
-                  </div>
+                    Claim
+                  </button>
                 </div>
               ))}
-              {pendingClaims.length > 3 && (
+              {delegatedDeposits.filter(d => d.type === 'per-mixer').length > 5 && (
                 <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
-                  +{pendingClaims.length - 3} more payments
+                  +{delegatedDeposits.filter(d => d.type === 'per-mixer').length - 5} more deposits
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Pending Escrows (from PER mixer pool) */}
+          {/* Pending Escrows (from PER mixer pool - ready for withdrawal) */}
+          {pendingEscrows.length > 0 && (
+            <div className="space-y-2 mt-3">
+              <div className="text-xs font-medium mb-2" style={{ color: theme.colors.success }}>
+                Ready to Withdraw (Escrows on L1)
+              </div>
               {pendingEscrows.slice(0, 5).map((escrow) => (
                 <div
                   key={escrow.escrowAddress}
@@ -602,49 +620,54 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                   +{pendingEscrows.length - 5} more escrows
                 </div>
               )}
+            </div>
+          )}
 
-              {/* PER Mixer Deposits (awaiting claim) - IDEAL PRIVACY */}
-              {delegatedDeposits.filter(d => d.type === 'per-mixer').slice(0, 5).map((deposit) => (
+          {/* Legacy Pending Claims (direct vault transfers) */}
+          {pendingClaims.length > 0 && (
+            <div className="space-y-2 mt-3">
+              <div className="text-xs font-medium mb-2" style={{ color: theme.colors.warning }}>
+                Legacy Claims (Direct Vaults)
+              </div>
+              {pendingClaims.slice(0, 3).map((claim) => (
                 <div
-                  key={deposit.depositAddress}
+                  key={claim.vaultAddress}
                   className="flex items-center justify-between p-2 rounded-lg"
-                  style={{ background: `${theme.colors.info}10` }}
+                  style={{ background: `${theme.colors.surface}40` }}
                 >
                   <div>
                     <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
-                      {deposit.type.toUpperCase()}: {deposit.depositAddress.slice(0, 4)}...{deposit.depositAddress.slice(-4)}
+                      From: {claim.sender.slice(0, 4)}...{claim.sender.slice(-4)}
                     </div>
                     <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
-                      {(Number(deposit.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
-                    </div>
-                    <div className="text-xs" style={{ color: theme.colors.textMuted }}>
-                      {deposit.type === 'per-mixer' ? 'Awaiting TEE execution...' : 'Awaiting claim...'}
+                      {(Number(claim.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
                   </div>
-                  <button
-                    onClick={async () => {
-                      try {
-                        toast.info('Triggering claim via MagicBlock...')
-                        const success = await triggerMagicAction(deposit)
-                        if (success) {
-                          toast.success('Claim triggered!')
-                        } else {
-                          toast.error('Claim trigger failed')
-                        }
-                      } catch (err) {
-                        toast.error('Error triggering claim')
-                      }
-                    }}
-                    className="px-3 py-1 rounded text-xs font-medium transition-all hover:opacity-80"
+                  <div
+                    className="px-2 py-1 rounded text-xs font-medium"
                     style={{
-                      background: theme.colors.info,
-                      color: '#000'
+                      background: claim.status === 'claimed' ? `${theme.colors.success}20` :
+                                  claim.status === 'claiming' ? `${theme.colors.info}20` :
+                                  claim.status === 'failed' ? `${theme.colors.error}20` :
+                                  `${theme.colors.warning}20`,
+                      color: claim.status === 'claimed' ? theme.colors.success :
+                             claim.status === 'claiming' ? theme.colors.info :
+                             claim.status === 'failed' ? theme.colors.error :
+                             theme.colors.warning
                     }}
                   >
-                    Claim
-                  </button>
+                    {claim.status === 'claimed' ? 'Claimed' :
+                     claim.status === 'claiming' ? 'Claiming...' :
+                     claim.status === 'failed' ? 'Failed' :
+                     'Auto-claiming...'}
+                  </div>
                 </div>
               ))}
+              {pendingClaims.length > 3 && (
+                <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
+                  +{pendingClaims.length - 3} more payments
+                </div>
+              )}
             </div>
           )}
 
