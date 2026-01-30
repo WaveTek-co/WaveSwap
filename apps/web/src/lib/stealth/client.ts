@@ -598,8 +598,13 @@ export class WaveStealthClient {
     }
   }
 
-  // Direct stealth transfer (simplified, less private)
-  // Use this only when mixer pool is not available
+  // Direct stealth transfer using mixer pool (no relayer)
+  // WARNING: This has NO SENDER PRIVACY because sender signs both deposit and execute!
+  // Use waveSendPrivate() with a relayer for full privacy.
+  //
+  // Flow:
+  // TX1: Deposit to mixer pool
+  // TX2: Execute mixer transfer (sender signs - NO privacy but creates program-owned vault)
   async waveSendDirect(
     wallet: WalletAdapter,
     params: WaveSendParams
@@ -618,75 +623,109 @@ export class WaveStealthClient {
       return { success: false, error: "SPL token transfers not yet supported" };
     }
 
+    console.warn('[WaveStealthClient] WARNING: Direct send has NO sender privacy!');
+
     const nonce = randomBytes(32);
     const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
     const [announcementPda, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
-    const [vaultPda] = deriveStealthVaultPda(stealthConfig.stealthPubkey);
+    const [vaultPda, vaultBump] = deriveStealthVaultPda(stealthConfig.stealthPubkey);
+    const [mixerPoolPda] = deriveTestMixerPoolPda();
+    const [depositRecordPda, depositBump] = deriveDepositRecordPda(nonce);
+    const INSTRUCTIONS_SYSVAR_ID = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 
     const amountBigInt = BigInt(params.amount);
-    const tx = new Transaction();
 
-    // Privacy-preserving announcement
-    const publishData = Buffer.alloc(67);
+    // ========================================
+    // TX1: Deposit to mixer pool
+    // ========================================
+    const depositTx = new Transaction();
+
+    const depositData = Buffer.alloc(42);
     let offset = 0;
-    publishData[offset++] = StealthDiscriminators.PUBLISH_ANNOUNCEMENT;
-    publishData[offset++] = announcementBump;
-    publishData[offset++] = stealthConfig.viewTag;
-    Buffer.from(stealthConfig.ephemeralPubkey).copy(publishData, offset);
-    offset += 32;
-    Buffer.from(nonce).copy(publishData, offset);
-
-    tx.add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-          { pubkey: announcementPda, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data: publishData,
-      })
-    );
-
-    // Direct transfer (less private - sender visible on-chain)
-    const teeProof = createDevnetTeeProof(announcementPda.toBytes(), vaultPda.toBytes());
-
-    const finalizeData = Buffer.alloc(1 + 32 + 8 + TEE_PROOF_SIZE);
-    offset = 0;
-    finalizeData[offset++] = StealthDiscriminators.FINALIZE_STEALTH_TRANSFER;
-    Buffer.from(stealthConfig.stealthPubkey).copy(finalizeData, offset);
+    depositData[offset++] = StealthDiscriminators.DEPOSIT_TO_TEST_MIXER;
+    depositData[offset++] = depositBump;
+    Buffer.from(nonce).copy(depositData, offset);
     offset += 32;
     for (let i = 0; i < 8; i++) {
-      finalizeData[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+      depositData[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
     }
-    Buffer.from(teeProof).copy(finalizeData, offset);
 
-    tx.add(
+    depositTx.add(
       new TransactionInstruction({
         keys: [
           { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: mixerPoolPda, isSigner: false, isWritable: true },
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
           { pubkey: announcementPda, isSigner: false, isWritable: true },
           { pubkey: vaultPda, isSigner: false, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
         programId: PROGRAM_IDS.STEALTH,
-        data: finalizeData,
+        data: depositData,
       })
     );
 
     try {
-      tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      depositTx.feePayer = wallet.publicKey;
+      depositTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
-      const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signedDepositTx = await wallet.signTransaction(depositTx);
+      const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize());
+      await this.connection.confirmTransaction(depositSig, 'confirmed');
 
-      console.log('[WaveStealthClient] Direct send complete:', signature);
+      console.log('[WaveStealthClient] Deposit complete:', depositSig);
+
+      // Wait for mix delay (3 seconds minimum)
+      console.log('[WaveStealthClient] Waiting for mix delay...');
+      await new Promise(r => setTimeout(r, 3500));
+
+      // ========================================
+      // TX2: Execute mixer transfer (creates program-owned vault)
+      // ========================================
+      const teeProof = createDevnetTeeProof(announcementPda.toBytes(), vaultPda.toBytes());
+
+      const executeTx = new Transaction();
+
+      const executeData = Buffer.alloc(235);
+      offset = 0;
+      executeData[offset++] = StealthDiscriminators.EXECUTE_TEST_MIXER_TRANSFER;
+      Buffer.from(nonce).copy(executeData, offset);
+      offset += 32;
+      Buffer.from(stealthConfig.stealthPubkey).copy(executeData, offset);
+      offset += 32;
+      executeData[offset++] = announcementBump;
+      executeData[offset++] = vaultBump;
+      Buffer.from(teeProof).copy(executeData, offset);
+
+      executeTx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+            { pubkey: mixerPoolPda, isSigner: false, isWritable: true },
+            { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+            { pubkey: vaultPda, isSigner: false, isWritable: true },
+            { pubkey: announcementPda, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            { pubkey: INSTRUCTIONS_SYSVAR_ID, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: executeData,
+        })
+      );
+
+      executeTx.feePayer = wallet.publicKey;
+      executeTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+      const signedExecuteTx = await wallet.signTransaction(executeTx);
+      const executeSig = await this.connection.sendRawTransaction(signedExecuteTx.serialize());
+      await this.connection.confirmTransaction(executeSig, 'confirmed');
+
+      console.log('[WaveStealthClient] Execute mixer transfer complete:', executeSig);
+      console.log('[WaveStealthClient] Direct send complete (NO privacy - sender signed both txs)');
 
       return {
         success: true,
-        signature,
+        signature: executeSig,
         stealthPubkey: stealthConfig.stealthPubkey,
         ephemeralPubkey: stealthConfig.ephemeralPubkey,
         viewTag: stealthConfig.viewTag,
