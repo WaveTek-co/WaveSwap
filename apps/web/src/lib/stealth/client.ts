@@ -1143,18 +1143,37 @@ export class WaveStealthClient {
 
     try {
       tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
 
       // USER SIGNS ONE TRANSACTION
       const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+
+      console.log('[WaveStealthClient] TX sent:', signature);
+
+      // Try to confirm but don't fail if timeout (devnet WebSocket issues)
+      try {
+        await this.connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+        console.log('[WaveStealthClient] ✓ TX confirmed');
+      } catch (confirmErr: any) {
+        if (confirmErr?.name === 'TransactionExpiredTimeoutError') {
+          console.warn('[WaveStealthClient] Confirmation timeout - TX may still succeed');
+        } else {
+          throw confirmErr;
+        }
+      }
 
       console.log('[WaveStealthClient] ✓ Deposited to PER Mixer Pool:', signature);
       console.log('[WaveStealthClient] ✓ Deposit record:', depositRecordPda.toBase58());
       console.log('[WaveStealthClient] ✓ Expected escrow:', escrowPda.toBase58());
-      console.log('[WaveStealthClient] SENDER UNLINKABILITY: Deposited to shared pool!');
-      console.log('[WaveStealthClient] PER will execute claim inside TEE → escrow on L1');
 
       return {
         success: true,
@@ -1162,7 +1181,6 @@ export class WaveStealthClient {
         stealthPubkey: stealthConfig.stealthPubkey,
         ephemeralPubkey: stealthConfig.ephemeralPubkey,
         viewTag: stealthConfig.viewTag,
-        // For tracking
         perDepositPda: depositRecordPda,
         escrowPda,
         nonce: Buffer.from(nonce).toString('hex'),

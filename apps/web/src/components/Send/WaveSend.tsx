@@ -470,7 +470,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       )}
 
       {/* Incoming Payments Banner - Auto-claim status */}
-      {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || delegatedDeposits.some(d => d.type === 'per-mixer') || isScanning) && (
+      {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || delegatedDeposits.length > 0 || isScanning) && (
         <div
           className="p-4 rounded-xl"
           style={{
@@ -602,8 +602,8 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                 </div>
               )}
 
-              {/* PER Mixer Deposits (awaiting TEE execution) */}
-              {delegatedDeposits.filter(d => d.type === 'per-mixer').slice(0, 3).map((deposit) => (
+              {/* Delegated Deposits (awaiting claim) */}
+              {delegatedDeposits.slice(0, 5).map((deposit) => (
                 <div
                   key={deposit.depositAddress}
                   className="flex items-center justify-between p-2 rounded-lg"
@@ -611,13 +611,13 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                 >
                   <div>
                     <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
-                      PER Deposit: {deposit.depositAddress.slice(0, 4)}...{deposit.depositAddress.slice(-4)}
+                      {deposit.type.toUpperCase()}: {deposit.depositAddress.slice(0, 4)}...{deposit.depositAddress.slice(-4)}
                     </div>
                     <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
                       {(Number(deposit.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
                     <div className="text-xs" style={{ color: theme.colors.textMuted }}>
-                      Awaiting TEE execution...
+                      {deposit.type === 'per-mixer' ? 'Awaiting TEE execution...' : 'Awaiting claim...'}
                     </div>
                   </div>
                   <button
@@ -626,7 +626,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                         toast.info('Triggering claim via MagicBlock...')
                         const success = await triggerMagicAction(deposit)
                         if (success) {
-                          toast.success('Claim triggered! Escrow will appear shortly.')
+                          toast.success('Claim triggered!')
                         } else {
                           toast.error('Claim trigger failed')
                         }
@@ -640,7 +640,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                       color: '#000'
                     }}
                   >
-                    Trigger Claim
+                    Claim
                   </button>
                 </div>
               ))}
@@ -653,7 +653,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
             </div>
           )}
 
-          {!isScanning && pendingClaims.length === 0 && pendingEscrows.length === 0 && !delegatedDeposits.some(d => d.type === 'per-mixer') && (
+          {!isScanning && pendingClaims.length === 0 && pendingEscrows.length === 0 && delegatedDeposits.length === 0 && (
             <button
               onClick={startScanning}
               className="mt-2 text-xs font-medium transition-opacity hover:opacity-80"

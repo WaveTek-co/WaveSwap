@@ -574,7 +574,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // These are the delegated shared pool deposits
       const perMixerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
         filters: [{ dataSize: PER_MIXER_DEPOSIT_SIZE }],
-      }).catch(() => [])
+      }).catch((err) => {
+        console.error('[AutoClaim] Error scanning PER Mixer deposits:', err?.message || err)
+        return []
+      })
 
       console.log(`[AutoClaim] Found ${perMixerAccounts.length} PER Mixer deposit records`)
 
