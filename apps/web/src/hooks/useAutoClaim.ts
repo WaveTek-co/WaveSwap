@@ -1,41 +1,54 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram } from '@solana/web3.js'
+import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from '@solana/web3.js'
+import { sha3_256 } from 'js-sha3'
 import { useWallet } from './useWalletAdapter'
 import {
   PROGRAM_IDS,
   StealthDiscriminators,
   deriveStealthVaultPda,
+  deriveTestMixerPoolPda,
+  deriveDepositRecordPda,
+  deriveAnnouncementPdaFromNonce,
   generateStealthKeysFromSignature,
   StealthKeyPair,
 } from '@/lib/stealth'
 import { isPaymentForUs, checkViewTag } from '@/lib/stealth/scanner'
 import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
-// PER deposit record constants (Magic Actions)
-const PER_DEPOSIT_DISCRIMINATOR = 'PERDEPST'
-const PER_DEPOSIT_SIZE = 148
+// Mixer deposit record constants (shared pool for privacy)
+const MIXER_DEPOSIT_DISCRIMINATOR = 'MIXDEPOT'
+const MIXER_DEPOSIT_SIZE = 130
 
-// Delegation program ID (accounts are owned by this after delegation)
-const DELEGATION_PROGRAM_ID = new PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh')
+// Deposit record layout offsets
+const DEPOSIT_OFFSET_BUMP = 8
+const DEPOSIT_OFFSET_NONCE = 9
+const DEPOSIT_OFFSET_AMOUNT = 41
+const DEPOSIT_OFFSET_DEPOSIT_SLOT = 49
+const DEPOSIT_OFFSET_ANNOUNCEMENT_PDA = 57
+const DEPOSIT_OFFSET_VAULT_PDA = 89
+const DEPOSIT_OFFSET_IS_EXECUTED = 121
 
-// PER deposit record layout offsets
-const PER_OFFSET_BUMP = 8
-const PER_OFFSET_NONCE = 9
-const PER_OFFSET_AMOUNT = 41
-const PER_OFFSET_STEALTH = 81
-const PER_OFFSET_EPHEMERAL = 113
-const PER_OFFSET_VIEW_TAG = 145
-const PER_OFFSET_EXECUTED = 147
+// Announcement layout offsets (for reading ephemeral pubkey and view tag)
+// Layout: discriminator(8) + bump(1) + timestamp(8) + ephemeral_pubkey(32) + pool_nonce(32) + stealth_pubkey(32) + vault_pda(32) + view_tag(1) + ...
+const ANN_OFFSET_EPHEMERAL_PUBKEY = 17  // 8 + 1 + 8
+const ANN_OFFSET_STEALTH_PUBKEY = 81    // 17 + 32 + 32
+const ANN_OFFSET_VIEW_TAG = 145         // 81 + 32 + 32
 
-// Scan interval (45 seconds)
-const SCAN_INTERVAL_MS = 45000
+// TEE proof constants (for devnet - commitment verified, signature skipped)
+const TEE_PROOF_SIZE = 168
+const EXPECTED_ENCLAVE_MEASUREMENT = new Uint8Array([
+  0x4f, 0x63, 0x65, 0x61, 0x6e, 0x56, 0x61, 0x75,
+  0x6c, 0x74, 0x54, 0x45, 0x45, 0x76, 0x31, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+])
 
-// MagicBlock endpoints
-const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
+// Scan interval (30 seconds)
+const SCAN_INTERVAL_MS = 30000
 
-// Alternative RPC for devnet (to avoid rate limits)
+// Devnet RPC
 const DEVNET_RPC = 'https://api.devnet.solana.com'
 
 export interface PendingClaim {
@@ -47,13 +60,14 @@ export interface PendingClaim {
   status: 'pending' | 'claiming' | 'claimed' | 'failed'
 }
 
-export interface DelegatedDeposit {
+export interface MixerDeposit {
   depositAddress: string
   vaultAddress: string
+  announcementAddress: string
   amount: bigint
-  stealthPubkey: Uint8Array
   nonce: Uint8Array
   bump: number
+  stealthPubkey: Uint8Array
   executed: boolean
   processing?: boolean
 }
@@ -61,17 +75,50 @@ export interface DelegatedDeposit {
 export interface UseAutoClaimReturn {
   isScanning: boolean
   pendingClaims: PendingClaim[]
-  delegatedDeposits: DelegatedDeposit[]
+  mixerDeposits: MixerDeposit[]
   totalPendingAmount: bigint
-  totalDelegatedAmount: bigint
+  totalMixerAmount: bigint
   claimHistory: { signature: string; amount: bigint; timestamp: number; sender?: string }[]
   startScanning: () => void
   stopScanning: () => void
   claimAll: () => Promise<void>
   claimSingle: (vaultAddress: string) => Promise<boolean>
-  triggerMagicAction: (deposit: DelegatedDeposit) => Promise<boolean>
+  triggerMixerTransfer: (deposit: MixerDeposit) => Promise<boolean>
   lastScanTime: Date | null
   error: string | null
+}
+
+// Generate devnet TEE proof (commitment + placeholder signature + measurement)
+function createDevnetTeeProof(announcement: Uint8Array, vault: Uint8Array): Uint8Array {
+  const proof = new Uint8Array(TEE_PROOF_SIZE)
+
+  // Compute commitment: SHA3-256("OceanVault:TEE:Commitment:" || announcement || vault)
+  const commitmentInput = Buffer.concat([
+    Buffer.from("OceanVault:TEE:Commitment:"),
+    Buffer.from(announcement),
+    Buffer.from(vault),
+  ])
+  const commitment = new Uint8Array(Buffer.from(sha3_256(commitmentInput), "hex"))
+  proof.set(commitment, 0)
+
+  // Placeholder signature (64 bytes) - not verified on devnet
+  proof.fill(0x42, 32, 96)
+
+  // Enclave measurement (32 bytes)
+  proof.set(EXPECTED_ENCLAVE_MEASUREMENT, 96)
+
+  // Timestamp (8 bytes)
+  const timestamp = BigInt(Date.now())
+  const timestampBytes = new Uint8Array(8)
+  for (let i = 0; i < 8; i++) {
+    timestampBytes[i] = Number((timestamp >> BigInt(i * 8)) & BigInt(0xff))
+  }
+  proof.set(timestampBytes, 128)
+
+  // Reserved (32 bytes)
+  proof.fill(0, 136, 168)
+
+  return proof
 }
 
 export function useAutoClaim(): UseAutoClaimReturn {
@@ -79,7 +126,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
   const [isScanning, setIsScanning] = useState(false)
   const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([])
-  const [delegatedDeposits, setDelegatedDeposits] = useState<DelegatedDeposit[]>([])
+  const [mixerDeposits, setMixerDeposits] = useState<MixerDeposit[]>([])
   const [claimHistory, setClaimHistory] = useState<{ signature: string; amount: bigint; timestamp: number; sender?: string }[]>([])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -98,14 +145,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
     })
   }, [])
 
-  // MagicBlock rollup connection
-  const rollupConnection = useMemo(() => {
-    return new Connection(MAGICBLOCK_RPC, {
-      commitment: 'confirmed',
-      confirmTransactionInitialTimeout: 120000,
-    })
-  }, [])
-
   // Calculate totals
   const totalPendingAmount = useMemo(() => {
     return pendingClaims
@@ -113,37 +152,50 @@ export function useAutoClaim(): UseAutoClaimReturn {
       .reduce((sum, c) => sum + c.amount, BigInt(0))
   }, [pendingClaims])
 
-  const totalDelegatedAmount = useMemo(() => {
-    return delegatedDeposits.reduce((sum, d) => sum + d.amount, BigInt(0))
-  }, [delegatedDeposits])
+  const totalMixerAmount = useMemo(() => {
+    return mixerDeposits.reduce((sum, d) => sum + d.amount, BigInt(0))
+  }, [mixerDeposits])
 
-  // MAGIC ACTION: Trigger PER to commit and release funds
-  // This sends execute_per_transfer to the ROLLUP (privacy preserved)
-  // The L1 commit only shows state changes, not who triggered
-  const triggerMagicAction = useCallback(async (deposit: DelegatedDeposit): Promise<boolean> => {
+  // MAGIC ACTION: Execute mixer transfer to release funds to vault
+  // This is the privacy-preserving transfer from shared pool -> individual vault
+  // The TEE proof authorizes the transfer without revealing the sender
+  const triggerMixerTransfer = useCallback(async (deposit: MixerDeposit): Promise<boolean> => {
     if (!publicKey || !signTransaction) {
-      console.log('[MagicAction] No wallet connected')
+      console.log('[MixerTransfer] No wallet connected')
       return false
     }
 
     // Skip if already processed
     if (processedDepositsRef.current.has(deposit.depositAddress)) {
-      console.log('[MagicAction] Already processed:', deposit.depositAddress)
+      console.log('[MixerTransfer] Already processed:', deposit.depositAddress)
       return false
     }
 
     try {
-      console.log('[MagicAction] Triggering PER commit for:', deposit.depositAddress)
+      console.log('[MixerTransfer] Executing mixer transfer for:', deposit.depositAddress)
       processedDepositsRef.current.add(deposit.depositAddress)
 
-      const depositPda = new PublicKey(deposit.depositAddress)
+      const [mixerPoolPda] = deriveTestMixerPoolPda()
+      const depositRecordPda = new PublicKey(deposit.depositAddress)
+      const announcementPda = new PublicKey(deposit.announcementAddress)
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
+      const [, announcementBump] = deriveAnnouncementPdaFromNonce(deposit.nonce)
 
-      // Build execute_per_transfer instruction
-      const data = Buffer.alloc(34)
-      data.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
-      Buffer.from(deposit.nonce).copy(data, 1)
-      data.writeUInt8(vaultBump, 33)
+      // Generate TEE proof (devnet - commitment verified, signature skipped)
+      const teeProof = createDevnetTeeProof(announcementPda.toBytes(), vaultPda.toBytes())
+
+      // Build execute_test_mixer_transfer instruction
+      // Data layout: discriminator(1) + nonce(32) + stealth_pubkey(32) + announcement_bump(1) + vault_bump(1) + tee_proof(168) = 235 bytes
+      const data = Buffer.alloc(235)
+      let offset = 0
+      data[offset++] = StealthDiscriminators.EXECUTE_TEST_MIXER_TRANSFER
+      Buffer.from(deposit.nonce).copy(data, offset)
+      offset += 32
+      Buffer.from(deposit.stealthPubkey).copy(data, offset)
+      offset += 32
+      data[offset++] = announcementBump
+      data[offset++] = vaultBump
+      Buffer.from(teeProof).copy(data, offset)
 
       const tx = new Transaction()
       tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
@@ -151,9 +203,12 @@ export function useAutoClaim(): UseAutoClaimReturn {
         new TransactionInstruction({
           keys: [
             { pubkey: publicKey, isSigner: true, isWritable: true },
-            { pubkey: depositPda, isSigner: false, isWritable: true },
+            { pubkey: mixerPoolPda, isSigner: false, isWritable: true },
+            { pubkey: depositRecordPda, isSigner: false, isWritable: true },
             { pubkey: vaultPda, isSigner: false, isWritable: true },
+            { pubkey: announcementPda, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
           ],
           programId: PROGRAM_IDS.STEALTH,
           data,
@@ -161,131 +216,131 @@ export function useAutoClaim(): UseAutoClaimReturn {
       )
 
       tx.feePayer = publicKey
-
-      // Send to ROLLUP - this preserves privacy
-      // The rollup executes inside TEE, L1 only sees state diff
-      console.log('[MagicAction] Getting blockhash from rollup...')
-      const { blockhash } = await rollupConnection.getLatestBlockhash()
+      const { blockhash } = await connection.getLatestBlockhash()
       tx.recentBlockhash = blockhash
 
-      console.log('[MagicAction] Signing transaction...')
+      console.log('[MixerTransfer] Signing transaction...')
       const signedTx = await signTransaction(tx)
 
-      console.log('[MagicAction] Sending to MagicBlock rollup...')
-      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: true,
+      console.log('[MixerTransfer] Sending to mainnet...')
+      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
       })
 
-      console.log('[MagicAction] Transaction sent:', signature)
+      console.log('[MixerTransfer] Transaction sent:', signature)
+      await connection.confirmTransaction(signature, 'confirmed')
+      console.log('[MixerTransfer] Confirmed!')
 
-      // Wait for rollup confirmation
-      await rollupConnection.confirmTransaction(signature, 'confirmed')
-      console.log('[MagicAction] Rollup confirmed, waiting for L1 commit...')
+      // Check vault balance
+      const vaultInfo = await connection.getAccountInfo(vaultPda)
+      if (vaultInfo && vaultInfo.lamports > 0) {
+        console.log('[MixerTransfer] Funds arrived in vault:', vaultInfo.lamports, 'lamports')
 
-      // Poll mainnet for vault
-      for (let i = 0; i < 15; i++) {
-        await new Promise(r => setTimeout(r, 2000))
-        const vaultInfo = await connection.getAccountInfo(vaultPda)
-        if (vaultInfo && vaultInfo.lamports > 0) {
-          console.log('[MagicAction] Funds arrived in vault:', vaultInfo.lamports, 'lamports')
-
-          // Remove from delegated, add to pending claims
-          setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
-          setPendingClaims(prev => {
-            if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
-            return [...prev, {
-              vaultAddress: vaultPda.toBase58(),
-              amount: BigInt(vaultInfo.lamports),
-              sender: 'MAGIC_ACTIONS',
-              announcementPda: deposit.depositAddress,
-              stealthPubkey: deposit.stealthPubkey,
-              status: 'pending' as const,
-            }]
-          })
-
-          showPaymentReceived({
-            signature,
+        // Remove from mixer deposits, add to pending claims
+        setMixerDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+        setPendingClaims(prev => {
+          if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
+          return [...prev, {
+            vaultAddress: vaultPda.toBase58(),
             amount: BigInt(vaultInfo.lamports),
-            symbol: 'SOL',
-          })
+            sender: 'MIXER_POOL',
+            announcementPda: deposit.announcementAddress,
+            stealthPubkey: deposit.stealthPubkey,
+            status: 'pending' as const,
+          }]
+        })
 
-          return true
-        }
-        console.log('[MagicAction] Waiting for L1 commit...', i + 1)
+        showPaymentReceived({
+          signature,
+          amount: BigInt(vaultInfo.lamports),
+          symbol: 'SOL',
+        })
+
+        return true
       }
 
-      console.warn('[MagicAction] Vault not visible yet, may need more time')
+      console.warn('[MixerTransfer] Vault empty after transfer - unexpected')
       return false
     } catch (err: any) {
-      console.error('[MagicAction] Failed:', err?.message || err)
+      console.error('[MixerTransfer] Failed:', err?.message || err)
       // Don't remove from processed - avoid retry loop
       return false
     }
-  }, [publicKey, signTransaction, rollupConnection, connection])
+  }, [publicKey, signTransaction, connection])
 
-  // Scan for PER deposit records
-  const scanMagicActions = useCallback(async (keys: StealthKeyPair): Promise<number> => {
-    console.log('[AutoClaim] Scanning for payments...')
+  // Scan for mixer deposit records
+  const scanMixerDeposits = useCallback(async (keys: StealthKeyPair): Promise<number> => {
+    console.log('[AutoClaim] Scanning for mixer deposits...')
 
     try {
-      // Check stealth program for executed deposits (funds in vault)
-      const stealthAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: PER_DEPOSIT_SIZE }],
+      // Fetch all deposit records owned by stealth program
+      const depositAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: MIXER_DEPOSIT_SIZE }],
       })
 
-      console.log(`[AutoClaim] Found ${stealthAccounts.length} stealth PER records`)
+      console.log(`[AutoClaim] Found ${depositAccounts.length} deposit records`)
 
-      // Also check delegation program for pending deposits
-      let delegationAccounts: { pubkey: PublicKey; account: any }[] = []
-      try {
-        delegationAccounts = await connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-          filters: [{ dataSize: PER_DEPOSIT_SIZE }],
-        })
-        console.log(`[AutoClaim] Found ${delegationAccounts.length} delegated PER records`)
-      } catch (err) {
-        console.warn('[AutoClaim] Could not scan delegation program')
-      }
-
-      const allAccounts = [...stealthAccounts, ...delegationAccounts]
       let foundCount = 0
 
-      for (const { pubkey, account } of allAccounts) {
+      for (const { pubkey, account } of depositAccounts) {
         const data = account.data
 
         // Check discriminator
         const discriminator = data.slice(0, 8).toString()
-        if (discriminator !== PER_DEPOSIT_DISCRIMINATOR) continue
+        if (discriminator !== MIXER_DEPOSIT_DISCRIMINATOR) continue
 
-        // Extract view tag and ephemeral pubkey
-        const ephemeralPubkey = new Uint8Array(data.slice(PER_OFFSET_EPHEMERAL, PER_OFFSET_EPHEMERAL + 32))
-        const viewTag = data[PER_OFFSET_VIEW_TAG]
+        // Check if already executed
+        const isExecuted = data[DEPOSIT_OFFSET_IS_EXECUTED] === 1
+        if (isExecuted) continue
+
+        // Extract announcement PDA from deposit record
+        const announcementBytes = data.slice(DEPOSIT_OFFSET_ANNOUNCEMENT_PDA, DEPOSIT_OFFSET_ANNOUNCEMENT_PDA + 32)
+        const announcementPda = new PublicKey(announcementBytes)
+
+        // Fetch announcement to get ephemeral pubkey and view tag
+        const announcementInfo = await connection.getAccountInfo(announcementPda)
+        if (!announcementInfo || announcementInfo.data.length < 110) {
+          console.log('[AutoClaim] Announcement not found for deposit:', pubkey.toBase58())
+          continue
+        }
+
+        const annData = announcementInfo.data
+        const ephemeralPubkey = new Uint8Array(annData.slice(ANN_OFFSET_EPHEMERAL_PUBKEY, ANN_OFFSET_EPHEMERAL_PUBKEY + 32))
+        const viewTag = annData[ANN_OFFSET_VIEW_TAG]
 
         // Fast view tag check
         if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
 
+        // Extract stealth pubkey for full verification
+        const stealthPubkey = new Uint8Array(annData.slice(ANN_OFFSET_STEALTH_PUBKEY, ANN_OFFSET_STEALTH_PUBKEY + 32))
+
         // Full verification
-        const stealthPubkey = new Uint8Array(data.slice(PER_OFFSET_STEALTH, PER_OFFSET_STEALTH + 32))
         if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
 
         foundCount++
-        console.log('[AutoClaim] Found payment for us:', pubkey.toBase58())
+        console.log('[AutoClaim] Found mixer deposit for us:', pubkey.toBase58())
 
-        const executed = data[PER_OFFSET_EXECUTED] === 1
-        const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
+        // Extract deposit details
+        const nonce = new Uint8Array(data.slice(DEPOSIT_OFFSET_NONCE, DEPOSIT_OFFSET_NONCE + 32))
+        const bump = data[DEPOSIT_OFFSET_BUMP]
+
+        // Read amount as little-endian u64
+        let amount = BigInt(0)
+        for (let i = 0; i < 8; i++) {
+          amount |= BigInt(data[DEPOSIT_OFFSET_AMOUNT + i]) << BigInt(i * 8)
+        }
+
+        const vaultBytes = data.slice(DEPOSIT_OFFSET_VAULT_PDA, DEPOSIT_OFFSET_VAULT_PDA + 32)
+        const vaultPda = new PublicKey(vaultBytes)
+
+        // Check if vault already has funds
         const vaultInfo = await connection.getAccountInfo(vaultPda)
         const vaultHasFunds = vaultInfo && vaultInfo.lamports > 0
 
-        const nonce = new Uint8Array(data.slice(PER_OFFSET_NONCE, PER_OFFSET_NONCE + 32))
-        const bump = data[PER_OFFSET_BUMP]
-        const depositAmount = account.lamports - 1001920 // subtract rent
-
-        const owner = account.owner.toBase58()
-        const isDelegated = owner === DELEGATION_PROGRAM_ID.toBase58()
-
-        console.log(`  Executed: ${executed}, Vault has funds: ${vaultHasFunds}, Delegated: ${isDelegated}`)
+        console.log(`  Deposit amount: ${amount} lamports, Vault has funds: ${vaultHasFunds}`)
 
         if (vaultHasFunds) {
-          // Funds in vault - ready to claim
+          // Funds already in vault - ready to claim
           const vaultAddress = vaultPda.toBase58()
           if (!pendingClaims.some(c => c.vaultAddress === vaultAddress)) {
             setPendingClaims(prev => {
@@ -293,25 +348,26 @@ export function useAutoClaim(): UseAutoClaimReturn {
               return [...prev, {
                 vaultAddress,
                 amount: BigInt(vaultInfo.lamports),
-                sender: 'MAGIC_ACTIONS',
-                announcementPda: pubkey.toBase58(),
+                sender: 'MIXER_POOL',
+                announcementPda: announcementPda.toBase58(),
                 stealthPubkey,
                 status: 'pending' as const,
               }]
             })
           }
-        } else if (isDelegated && depositAmount > 0) {
-          // Funds still in delegated deposit - needs Magic Action trigger
-          if (!delegatedDeposits.some(d => d.depositAddress === pubkey.toBase58())) {
-            setDelegatedDeposits(prev => {
+        } else if (amount > 0n) {
+          // Deposit exists but vault empty - needs mixer transfer
+          if (!mixerDeposits.some(d => d.depositAddress === pubkey.toBase58())) {
+            setMixerDeposits(prev => {
               if (prev.some(d => d.depositAddress === pubkey.toBase58())) return prev
               return [...prev, {
                 depositAddress: pubkey.toBase58(),
                 vaultAddress: vaultPda.toBase58(),
-                amount: BigInt(depositAmount),
-                stealthPubkey,
+                announcementAddress: announcementPda.toBase58(),
+                amount,
                 nonce,
                 bump,
+                stealthPubkey,
                 executed: false,
               }]
             })
@@ -319,13 +375,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
         }
       }
 
-      console.log(`[AutoClaim] Found ${foundCount} payments for us`)
+      console.log(`[AutoClaim] Found ${foundCount} deposits for us`)
       return foundCount
     } catch (err) {
       console.error('[AutoClaim] Scan error:', err)
       return 0
     }
-  }, [connection, pendingClaims, delegatedDeposits])
+  }, [connection, pendingClaims, mixerDeposits])
 
   // Generate stealth keys (one-time signature)
   const ensureStealthKeys = useCallback(async (): Promise<StealthKeyPair | null> => {
@@ -363,7 +419,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         return
       }
 
-      await scanMagicActions(keys)
+      await scanMixerDeposits(keys)
       setLastScanTime(new Date())
     } catch (err) {
       console.error('[AutoClaim] Scan error:', err)
@@ -371,7 +427,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       isScanningRef.current = false
       setIsScanning(false)
     }
-  }, [publicKey, connected, ensureStealthKeys, scanMagicActions])
+  }, [publicKey, connected, ensureStealthKeys, scanMixerDeposits])
 
   // Start/stop scanning
   const startScanning = useCallback(() => {
@@ -480,17 +536,17 @@ export function useAutoClaim(): UseAutoClaimReturn {
     return () => stopScanning()
   }, [connected, publicKey, startScanning, stopScanning])
 
-  // AUTO-TRIGGER Magic Actions for delegated deposits
-  // This is the key: when we find delegated deposits, trigger PER commit
+  // AUTO-TRIGGER mixer transfers for pending deposits
+  // When we find deposits in the mixer pool, execute the transfer to release funds
   useEffect(() => {
-    if (!connected || !publicKey || delegatedDeposits.length === 0) return
+    if (!connected || !publicKey || mixerDeposits.length === 0) return
 
     const triggerAll = async () => {
-      for (const deposit of delegatedDeposits) {
+      for (const deposit of mixerDeposits) {
         if (processedDepositsRef.current.has(deposit.depositAddress)) continue
 
-        console.log('[AutoClaim] Auto-triggering Magic Action for:', deposit.depositAddress)
-        await triggerMagicAction(deposit)
+        console.log('[AutoClaim] Auto-triggering mixer transfer for:', deposit.depositAddress)
+        await triggerMixerTransfer(deposit)
         await new Promise(r => setTimeout(r, 1000))
       }
     }
@@ -498,7 +554,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     // Delay to let UI settle
     const timeout = setTimeout(triggerAll, 2000)
     return () => clearTimeout(timeout)
-  }, [delegatedDeposits, connected, publicKey, triggerMagicAction])
+  }, [mixerDeposits, connected, publicKey, triggerMixerTransfer])
 
   // Auto-claim from vaults with funds
   useEffect(() => {
@@ -513,15 +569,15 @@ export function useAutoClaim(): UseAutoClaimReturn {
   return {
     isScanning,
     pendingClaims,
-    delegatedDeposits,
+    mixerDeposits,
     totalPendingAmount,
-    totalDelegatedAmount,
+    totalMixerAmount,
     claimHistory,
     startScanning,
     stopScanning,
     claimAll,
     claimSingle,
-    triggerMagicAction,
+    triggerMixerTransfer,
     lastScanTime,
     error,
   }

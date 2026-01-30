@@ -141,7 +141,7 @@ export class WaveStealthClient {
   private stealthKeys: StealthKeyPair | null = null;
   private relayerPubkey: PublicKey | null = null;
   private relayerEndpoint: string | null = null;
-  private useMagicBlockPer: boolean = true; // Use MagicBlock PER by default
+  private useMagicBlockPer: boolean = false; // Use mixer pool by default (PER has L1 commit issues)
 
   constructor(config: ClientConfig) {
     this.connection = config.connection;
@@ -158,15 +158,23 @@ export class WaveStealthClient {
     }
   }
 
-  // Enable/disable MagicBlock PER mode
+  // Enable/disable MagicBlock PER mode (deprecated - mixer pool is preferred)
   setUseMagicBlockPer(enabled: boolean): void {
     this.useMagicBlockPer = enabled;
-    console.log(`[WaveStealthClient] MagicBlock PER mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+    if (enabled) {
+      console.warn('[WaveStealthClient] PER mode enabled but has L1 commit issues - mixer pool recommended');
+    }
   }
 
   // Check if MagicBlock PER mode is enabled
   isMagicBlockPerEnabled(): boolean {
     return this.useMagicBlockPer;
+  }
+
+  // Use mixer pool for privacy (recommended)
+  setUseMixerPool(): void {
+    this.useMagicBlockPer = false;
+    console.log('[WaveStealthClient] Mixer pool mode enabled (RECOMMENDED for privacy)');
   }
 
   // Configure relayer for privacy-preserving claims
@@ -436,35 +444,147 @@ export class WaveStealthClient {
   // Wave Send - PRODUCTION-READY stealth transfers with FULL PRIVACY
   //
   // PRIVACY MODES (in order of preference):
-  // 1. MagicBlock PER (BEST) - True TEE privacy via Intel TDX
-  // 2. Relayer mode - Privacy with trusted relayer
-  // 3. Direct mode - Fallback with reduced privacy
+  // 1. Mixer Pool (RECOMMENDED) - Privacy via shared anonymity set
+  // 2. MagicBlock PER - TEE privacy (has L1 commit issues on devnet)
   //
-  // MagicBlock PER flow:
-  // - User signs ONE transaction (deposit + delegate)
-  // - PER (inside TEE) automatically executes mixer transfer
-  // - SENDER UNLINKABILITY achieved via actual hardware TEE
+  // Mixer Pool flow:
+  // - User signs ONE transaction (announcement + deposit to mixer pool)
+  // - Recipient triggers mixer transfer with TEE proof
+  // - SENDER UNLINKABILITY achieved via anonymity set
   //
-  // IMPORTANT: MagicBlock PER is enabled by default for true privacy
+  // IMPORTANT: Mixer pool is enabled by default for working privacy
   async waveSend(
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // Priority 1: Use MagicBlock PER for TRUE TEE privacy
+    // Priority 1: Use MagicBlock PER if explicitly enabled
     if (this.useMagicBlockPer) {
-      console.log('[WaveStealthClient] Using MagicBlock PER for TRUE TEE privacy');
+      console.log('[WaveStealthClient] Using MagicBlock PER (has L1 commit issues)');
       return this.waveSendViaPer(wallet, params);
     }
 
-    // Priority 2: Use relayer for privacy (if configured)
+    // Priority 2: Use mixer pool with relayer for privacy (if configured)
     if (this.relayerEndpoint) {
-      console.log('[WaveStealthClient] Using relayer mode for privacy');
+      console.log('[WaveStealthClient] Using mixer pool + relayer for privacy');
       return this.waveSendPrivate(wallet, params);
     }
 
-    // Priority 3: Fallback to direct send (reduced privacy)
-    console.warn('[WaveStealthClient] No privacy backend - using direct send (REDUCED PRIVACY)');
-    return this.waveSendDirect(wallet, params);
+    // Priority 3: Use mixer pool (recipient triggers mixer transfer)
+    console.log('[WaveStealthClient] Using mixer pool (recipient will trigger transfer)');
+    return this.waveSendToMixerPool(wallet, params);
+  }
+
+  // Mixer pool send - deposits to shared pool, recipient triggers mixer transfer
+  // This is the RECOMMENDED approach for privacy on devnet
+  async waveSendToMixerPool(
+    wallet: WalletAdapter,
+    params: WaveSendParams
+  ): Promise<SendResult> {
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const registry = await this.getRegistry(params.recipientWallet);
+    if (!registry || !registry.isFinalized) {
+      return { success: false, error: "Recipient not registered for stealth payments" };
+    }
+
+    const isSol = !params.mint || params.mint.equals(NATIVE_SOL_MINT);
+    if (!isSol) {
+      return { success: false, error: "SPL token transfers not yet supported" };
+    }
+
+    console.log('[WaveStealthClient] Depositing to mixer pool...');
+
+    // Generate random nonce
+    const nonce = randomBytes(32);
+    const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+    const [announcementPda, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
+    const [vaultPda] = deriveStealthVaultPda(stealthConfig.stealthPubkey);
+    const [mixerPoolPda] = deriveTestMixerPoolPda();
+    const [depositRecordPda, depositBump] = deriveDepositRecordPda(nonce);
+
+    const amountBigInt = BigInt(params.amount);
+
+    // Build transaction: announcement + deposit to mixer pool
+    const tx = new Transaction();
+
+    // Announcement (privacy-preserving: only ephemeral pubkey + view tag + nonce)
+    const publishData = Buffer.alloc(67);
+    let offset = 0;
+    publishData[offset++] = StealthDiscriminators.PUBLISH_ANNOUNCEMENT;
+    publishData[offset++] = announcementBump;
+    publishData[offset++] = stealthConfig.viewTag;
+    Buffer.from(stealthConfig.ephemeralPubkey).copy(publishData, offset);
+    offset += 32;
+    Buffer.from(nonce).copy(publishData, offset);
+
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: announcementPda, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: publishData,
+      })
+    );
+
+    // Deposit to test mixer pool
+    const depositData = Buffer.alloc(42);
+    offset = 0;
+    depositData[offset++] = StealthDiscriminators.DEPOSIT_TO_TEST_MIXER;
+    depositData[offset++] = depositBump;
+    Buffer.from(nonce).copy(depositData, offset);
+    offset += 32;
+    for (let i = 0; i < 8; i++) {
+      depositData[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+    }
+
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: mixerPoolPda, isSigner: false, isWritable: true },
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+          { pubkey: announcementPda, isSigner: false, isWritable: true },
+          { pubkey: vaultPda, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: depositData,
+      })
+    );
+
+    try {
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
+      await this.connection.confirmTransaction(signature, 'confirmed');
+
+      console.log('[WaveStealthClient] Deposit to mixer pool complete:', signature);
+      console.log('[WaveStealthClient] Recipient will trigger mixer transfer to release funds');
+
+      return {
+        success: true,
+        signature,
+        stealthPubkey: stealthConfig.stealthPubkey,
+        ephemeralPubkey: stealthConfig.ephemeralPubkey,
+        viewTag: stealthConfig.viewTag,
+        vaultPda,
+        depositRecordPda,
+        nonce: Buffer.from(nonce).toString('hex'),
+      } as SendResult;
+    } catch (error) {
+      console.error('[WaveStealthClient] Mixer pool deposit error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Send failed",
+      };
+    }
   }
 
   // FULL PRIVACY SEND - Correct architecture

@@ -77,6 +77,11 @@ export interface SendResult extends TransactionResult {
   ephemeralPubkey?: Uint8Array;
   viewTag?: number;
   vaultPda?: PublicKey;
+  // Mixer pool flow fields
+  depositRecordPda?: PublicKey;
+  nonce?: string; // hex-encoded nonce for tracking
+  // PER flow fields
+  perDepositPda?: PublicKey;
 }
 
 // Token info
