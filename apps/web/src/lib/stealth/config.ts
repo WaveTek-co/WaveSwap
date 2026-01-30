@@ -41,6 +41,8 @@ export const StealthDiscriminators = {
   INITIALIZE_TEST_MIXER_POOL: 0x0F,
   DEPOSIT_TO_TEST_MIXER: 0x10,
   EXECUTE_TEST_MIXER_TRANSFER: 0x11,
+  // Magic Actions: deposit + delegate to MagicBlock PER
+  DEPOSIT_AND_DELEGATE: 0x12,
 };
 
 // DeFi instruction discriminators
@@ -69,6 +71,20 @@ export const RELAYER_CONFIG = {
   DEVNET_ENDPOINT: process.env.NEXT_PUBLIC_RELAYER_ENDPOINT || "http://localhost:3001",
   // Relayer pubkey (set via environment)
   DEVNET_PUBKEY: process.env.NEXT_PUBLIC_RELAYER_PUBKEY || null,
+};
+
+// MagicBlock PER (Private Ephemeral Rollup) configuration
+export const MAGICBLOCK_PER = {
+  // TEE endpoint for authentication and execution
+  TEE_ENDPOINT: "https://tee.magicblock.app",
+  // Magic Router for intelligent routing
+  ROUTER_ENDPOINT: "https://devnet-router.magicblock.app",
+  // Direct ephemeral rollup endpoint
+  ER_ENDPOINT: "https://devnet.magicblock.app",
+  // Default validator for devnet
+  DEFAULT_VALIDATOR: new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57"),
+  // Permission program for fine-grained access control
+  PERMISSION_PROGRAM: new PublicKey("ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"),
 };
 
 // PDA derivation functions
@@ -139,5 +155,41 @@ export function deriveStakePositionPda(owner: PublicKey, index: number): [Public
   return PublicKey.findProgramAddressSync(
     [Buffer.from("stake_position"), owner.toBuffer(), indexBuffer],
     PROGRAM_IDS.DEFI
+  );
+}
+
+// PER (Private Ephemeral Rollup) deposit record PDA
+// Used for Magic Actions flow with MagicBlock TEE
+export function derivePerDepositPda(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("per-deposit"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Delegation record PDA (from MagicBlock delegation program)
+export function deriveDelegationRecordPda(delegatedAccount: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation"), delegatedAccount.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// Delegation metadata PDA
+export function deriveDelegationMetadataPda(delegatedAccount: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation-metadata"), delegatedAccount.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// Delegate buffer PDA (for CPI to delegation program)
+export function deriveDelegateBufferPda(
+  delegatedAccount: PublicKey,
+  ownerProgram: PublicKey = PROGRAM_IDS.STEALTH
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("buffer"), delegatedAccount.toBuffer()],
+    ownerProgram
   );
 }

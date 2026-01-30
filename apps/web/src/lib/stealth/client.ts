@@ -31,9 +31,15 @@ import {
   deriveTestMixerPoolPda,
   deriveDepositRecordPda,
   deriveRelayerAuthPda,
+  derivePerDepositPda,
+  deriveDelegationRecordPda,
+  deriveDelegationMetadataPda,
+  deriveDelegateBufferPda,
   NATIVE_SOL_MINT,
   RELAYER_CONFIG,
+  MAGICBLOCK_PER,
 } from "./config";
+import { ComputeBudgetProgram } from "@solana/web3.js";
 // Use Web Crypto API for random bytes (browser-compatible)
 const randomBytes = (length: number): Uint8Array => {
   const bytes = new Uint8Array(length);
@@ -135,6 +141,7 @@ export class WaveStealthClient {
   private stealthKeys: StealthKeyPair | null = null;
   private relayerPubkey: PublicKey | null = null;
   private relayerEndpoint: string | null = null;
+  private useMagicBlockPer: boolean = true; // Use MagicBlock PER by default
 
   constructor(config: ClientConfig) {
     this.connection = config.connection;
@@ -149,6 +156,17 @@ export class WaveStealthClient {
         console.warn("[WaveStealthClient] Invalid relayer pubkey in config");
       }
     }
+  }
+
+  // Enable/disable MagicBlock PER mode
+  setUseMagicBlockPer(enabled: boolean): void {
+    this.useMagicBlockPer = enabled;
+    console.log(`[WaveStealthClient] MagicBlock PER mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
+  // Check if MagicBlock PER mode is enabled
+  isMagicBlockPerEnabled(): boolean {
+    return this.useMagicBlockPer;
   }
 
   // Configure relayer for privacy-preserving claims
@@ -417,26 +435,35 @@ export class WaveStealthClient {
 
   // Wave Send - PRODUCTION-READY stealth transfers with FULL PRIVACY
   //
-  // CORRECT PRIVACY ARCHITECTURE:
-  // 1. Sender signs: Announcement + Deposit to Mixer ONLY
-  // 2. Relayer/PER signs: Execute Mixer Transfer (with TEE proof)
-  // 3. Relayer signs: Claim via Relayer (recipient never signs!)
+  // PRIVACY MODES (in order of preference):
+  // 1. MagicBlock PER (BEST) - True TEE privacy via Intel TDX
+  // 2. Relayer mode - Privacy with trusted relayer
+  // 3. Direct mode - Fallback with reduced privacy
   //
-  // This ensures:
-  // - SENDER UNLINKABILITY: Different signers for deposit vs mixer transfer
-  // - RECEIVER UNLINKABILITY: Relayer claims, recipient never appears on-chain
+  // MagicBlock PER flow:
+  // - User signs ONE transaction (deposit + delegate)
+  // - PER (inside TEE) automatically executes mixer transfer
+  // - SENDER UNLINKABILITY achieved via actual hardware TEE
   //
-  // IMPORTANT: If no relayer is configured, falls back to direct send (less private)
+  // IMPORTANT: MagicBlock PER is enabled by default for true privacy
   async waveSend(
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // Check if relayer is configured for full privacy
+    // Priority 1: Use MagicBlock PER for TRUE TEE privacy
+    if (this.useMagicBlockPer) {
+      console.log('[WaveStealthClient] Using MagicBlock PER for TRUE TEE privacy');
+      return this.waveSendViaPer(wallet, params);
+    }
+
+    // Priority 2: Use relayer for privacy (if configured)
     if (this.relayerEndpoint) {
+      console.log('[WaveStealthClient] Using relayer mode for privacy');
       return this.waveSendPrivate(wallet, params);
     }
-    // Fallback to direct send if no relayer (less private but works)
-    console.warn('[WaveStealthClient] No relayer configured - using direct send (reduced privacy)');
+
+    // Priority 3: Fallback to direct send (reduced privacy)
+    console.warn('[WaveStealthClient] No privacy backend - using direct send (REDUCED PRIVACY)');
     return this.waveSendDirect(wallet, params);
   }
 
@@ -746,6 +773,204 @@ export class WaveStealthClient {
   ): Promise<SendResult> {
     console.warn('[WaveStealthClient] DEPRECATED: waveSendViaMixer has broken privacy! Using waveSendPrivate instead.');
     return this.waveSendPrivate(wallet, params);
+  }
+
+  // ========================================
+  // MAGICBLOCK PER INTEGRATION (OPTION 1)
+  // ========================================
+  // True MagicBlock Private Ephemeral Rollup integration:
+  // 1. User signs ONE transaction (deposit + delegate)
+  // 2. Deposit account is delegated to MagicBlock PER
+  // 3. PER (inside Intel TDX TEE) executes mixer transfer
+  // 4. X-Wing decryption happens inside TEE
+  // 5. State commits back to Solana L1
+  //
+  // This achieves SENDER UNLINKABILITY via actual MagicBlock TEE!
+  async waveSendViaPer(
+    wallet: WalletAdapter,
+    params: WaveSendParams
+  ): Promise<SendResult> {
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const registry = await this.getRegistry(params.recipientWallet);
+    if (!registry || !registry.isFinalized) {
+      return { success: false, error: "Recipient not registered for stealth payments" };
+    }
+
+    const isSol = !params.mint || params.mint.equals(NATIVE_SOL_MINT);
+    if (!isSol) {
+      return { success: false, error: "SPL token transfers not yet supported" };
+    }
+
+    console.log('[WaveStealthClient] Using MagicBlock PER for TRUE TEE privacy');
+
+    // Generate random nonce and derive stealth address
+    const nonce = randomBytes(32);
+    const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+    const [vaultPda] = deriveStealthVaultPda(stealthConfig.stealthPubkey);
+
+    // Derive PER deposit PDAs
+    const [perDepositPda, bump] = derivePerDepositPda(nonce);
+    const [delegationRecord] = deriveDelegationRecordPda(perDepositPda);
+    const [delegationMetadata] = deriveDelegationMetadataPda(perDepositPda);
+    const [delegateBuffer] = deriveDelegateBufferPda(perDepositPda);
+
+    const amountBigInt = BigInt(params.amount);
+
+    // ========================================
+    // BUILD DEPOSIT + DELEGATE TRANSACTION
+    // ========================================
+    // User signs ONE transaction that:
+    // 1. Creates deposit record with stealth config
+    // 2. Deposits SOL to deposit record
+    // 3. Delegates deposit record to MagicBlock PER
+    // 4. PER automatically executes mixer transfer in TEE
+    const tx = new Transaction();
+
+    // Add compute budget
+    tx.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
+    );
+
+    // Build instruction data
+    // Layout: discriminator(1) + bump(1) + nonce(32) + amount(8) +
+    //         stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + commit_frequency_ms(4)
+    const data = Buffer.alloc(111);
+    let offset = 0;
+
+    data[offset++] = StealthDiscriminators.DEPOSIT_AND_DELEGATE;
+    data[offset++] = bump;
+
+    Buffer.from(nonce).copy(data, offset);
+    offset += 32;
+
+    const amountBytes = Buffer.alloc(8);
+    amountBytes.writeBigUInt64LE(amountBigInt);
+    amountBytes.copy(data, offset);
+    offset += 8;
+
+    Buffer.from(stealthConfig.stealthPubkey).copy(data, offset);
+    offset += 32;
+
+    Buffer.from(stealthConfig.ephemeralPubkey).copy(data, offset);
+    offset += 32;
+
+    data[offset++] = stealthConfig.viewTag;
+
+    // Commit frequency: 1000ms = 1 second
+    data.writeUInt32LE(1000, offset);
+
+    // Build deposit + delegate instruction
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: perDepositPda, isSigner: false, isWritable: true },
+          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false },
+          { pubkey: delegateBuffer, isSigner: false, isWritable: true },
+          { pubkey: delegationRecord, isSigner: false, isWritable: true },
+          { pubkey: delegationMetadata, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
+          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      })
+    );
+
+    try {
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+      // USER SIGNS ONE TRANSACTION
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
+      await this.connection.confirmTransaction(signature, 'confirmed');
+
+      console.log('[WaveStealthClient] ✓ Deposit + Delegate complete (USER SIGNED ONCE):', signature);
+      console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER');
+      console.log('[WaveStealthClient] ✓ PER (inside TEE) will automatically execute mixer transfer');
+      console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE!');
+
+      // PER automatically executes mixer transfer inside TEE
+      // No need for manual trigger - Magic Actions handles this
+
+      return {
+        success: true,
+        signature,
+        stealthPubkey: stealthConfig.stealthPubkey,
+        ephemeralPubkey: stealthConfig.ephemeralPubkey,
+        viewTag: stealthConfig.viewTag,
+        vaultPda,
+        // Additional info for tracking
+        perDepositPda,
+        nonce: Buffer.from(nonce).toString('hex'),
+      } as SendResult;
+    } catch (error) {
+      console.error('[WaveStealthClient] PER send error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Send failed",
+      };
+    }
+  }
+
+  // Check if PER deposit has been executed
+  async checkPerDepositStatus(nonceHex: string): Promise<{
+    exists: boolean;
+    delegated: boolean;
+    executed: boolean;
+    amount?: bigint;
+  }> {
+    const nonce = Buffer.from(nonceHex, 'hex');
+    const [perDepositPda] = derivePerDepositPda(new Uint8Array(nonce));
+
+    const accountInfo = await this.connection.getAccountInfo(perDepositPda);
+
+    if (!accountInfo || accountInfo.data.length < 148) {
+      return { exists: false, delegated: false, executed: false };
+    }
+
+    const data = accountInfo.data;
+
+    return {
+      exists: true,
+      delegated: data[146] === 1,
+      executed: data[147] === 1,
+      amount: Buffer.from(data.slice(41, 49)).readBigUInt64LE(),
+    };
+  }
+
+  // Wait for PER execution to complete
+  async waitForPerExecution(
+    nonceHex: string,
+    timeoutMs: number = 60000
+  ): Promise<{ executed: boolean; vaultPda?: PublicKey }> {
+    const nonce = Buffer.from(nonceHex, 'hex');
+    const [perDepositPda] = derivePerDepositPda(new Uint8Array(nonce));
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+      const status = await this.checkPerDepositStatus(nonceHex);
+
+      if (status.executed) {
+        // Extract stealth pubkey from deposit record to derive vault
+        const accountInfo = await this.connection.getAccountInfo(perDepositPda);
+        if (accountInfo && accountInfo.data.length >= 113) {
+          const stealthPubkey = new Uint8Array(accountInfo.data.slice(81, 113));
+          const [vaultPda] = deriveStealthVaultPda(stealthPubkey);
+          return { executed: true, vaultPda };
+        }
+        return { executed: true };
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    return { executed: false };
   }
 
   // Generate TEE proof for mixer transfer

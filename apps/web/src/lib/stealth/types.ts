@@ -55,6 +55,13 @@ export interface ClaimResult {
   amountClaimed?: bigint;
   destination?: PublicKey;
   error?: string;
+  // For relayer claims: returns the proof for manual submission
+  claimProof?: {
+    vaultPda: string;
+    announcementPda: string;
+    destination: string;
+    proof: string;
+  };
 }
 
 // Transaction result
