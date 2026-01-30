@@ -21,7 +21,7 @@ import {
   PrivacySendResult,
   PrivacyClaimResult,
 } from '@/lib/stealth'
-import { StealthScanner, DetectedPayment, checkViewTag, isPaymentForUs } from '@/lib/stealth/scanner'
+import { checkViewTag, isPaymentForUs } from '@/lib/stealth/scanner'
 
 // Default relayer endpoint for devnet
 const DEFAULT_RELAYER_ENDPOINT = process.env.NEXT_PUBLIC_RELAYER_ENDPOINT || 'http://localhost:3001'
