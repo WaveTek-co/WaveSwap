@@ -82,12 +82,16 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
     isScanning,
     pendingClaims,
     pendingEscrows,
+    delegatedDeposits,
     totalPendingAmount,
     totalEscrowAmount,
+    totalDelegatedAmount,
     claimHistory,
     startScanning,
     lastScanTime,
     error: autoClaimError,
+    withdrawFromEscrow,
+    triggerMagicAction,
   } = useAutoClaim()
 
   const [selectedToken, setSelectedToken] = useState<string>('sol')
@@ -98,6 +102,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
   const [checkingRecipient, setCheckingRecipient] = useState(false)
   const [vaultToClaim, setVaultToClaim] = useState<string>('')
   const [isClaiming, setIsClaiming] = useState(false)
+  const [withdrawingEscrow, setWithdrawingEscrow] = useState<string | null>(null)
   const [userBalances, setUserBalances] = useState<{ [key: string]: string }>({
     wave: '0',
     wealth: '0',
@@ -465,7 +470,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       )}
 
       {/* Incoming Payments Banner - Auto-claim status */}
-      {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || isScanning) && (
+      {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || delegatedDeposits.some(d => d.type === 'per-mixer') || isScanning) && (
         <div
           className="p-4 rounded-xl"
           style={{
@@ -482,9 +487,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                 {isScanning ? 'Scanning for Payments...' : 'Incoming Payments'}
               </span>
             </div>
-            {(totalPendingAmount > BigInt(0) || totalEscrowAmount > BigInt(0)) && (
+            {(totalPendingAmount > BigInt(0) || totalEscrowAmount > BigInt(0) || totalDelegatedAmount > BigInt(0)) && (
               <span className="text-sm font-bold" style={{ color: theme.colors.success }}>
-                {(Number(totalPendingAmount + totalEscrowAmount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                {(Number(totalPendingAmount + totalEscrowAmount + totalDelegatedAmount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
               </span>
             )}
           </div>
@@ -532,7 +537,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
               )}
 
               {/* Pending Escrows (from PER mixer pool) */}
-              {pendingEscrows.slice(0, 3).map((escrow) => (
+              {pendingEscrows.slice(0, 5).map((escrow) => (
                 <div
                   key={escrow.escrowAddress}
                   className="flex items-center justify-between p-2 rounded-lg"
@@ -546,31 +551,99 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                       {(Number(escrow.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
                   </div>
-                  <div
-                    className="px-2 py-1 rounded text-xs font-medium"
-                    style={{
-                      background: escrow.status === 'withdrawn' ? `${theme.colors.success}20` :
-                                  escrow.status === 'withdrawing' ? `${theme.colors.info}20` :
-                                  escrow.status === 'failed' ? `${theme.colors.error}20` :
-                                  `${theme.colors.warning}20`,
-                      color: escrow.status === 'withdrawn' ? theme.colors.success :
-                             escrow.status === 'withdrawing' ? theme.colors.info :
-                             escrow.status === 'failed' ? theme.colors.error :
-                             theme.colors.warning
-                    }}
-                  >
-                    {escrow.status === 'withdrawn' ? 'Withdrawn' :
-                     escrow.status === 'withdrawing' ? 'Withdrawing...' :
-                     escrow.status === 'failed' ? 'Failed' :
-                     'Auto-withdrawing...'}
-                  </div>
+                  {escrow.status === 'pending' ? (
+                    <button
+                      onClick={async () => {
+                        setWithdrawingEscrow(escrow.escrowAddress)
+                        try {
+                          const success = await withdrawFromEscrow(escrow)
+                          if (success) {
+                            toast.success('Withdrawal successful!')
+                          } else {
+                            toast.error('Withdrawal failed')
+                          }
+                        } catch (err) {
+                          toast.error('Withdrawal error')
+                        } finally {
+                          setWithdrawingEscrow(null)
+                        }
+                      }}
+                      disabled={withdrawingEscrow === escrow.escrowAddress}
+                      className="px-3 py-1 rounded text-xs font-medium transition-all hover:opacity-80 disabled:opacity-50"
+                      style={{
+                        background: theme.colors.success,
+                        color: '#000'
+                      }}
+                    >
+                      {withdrawingEscrow === escrow.escrowAddress ? 'Withdrawing...' : 'Withdraw'}
+                    </button>
+                  ) : (
+                    <div
+                      className="px-2 py-1 rounded text-xs font-medium"
+                      style={{
+                        background: escrow.status === 'withdrawn' ? `${theme.colors.success}20` :
+                                    escrow.status === 'withdrawing' ? `${theme.colors.info}20` :
+                                    `${theme.colors.error}20`,
+                        color: escrow.status === 'withdrawn' ? theme.colors.success :
+                               escrow.status === 'withdrawing' ? theme.colors.info :
+                               theme.colors.error
+                      }}
+                    >
+                      {escrow.status === 'withdrawn' ? 'Withdrawn' :
+                       escrow.status === 'withdrawing' ? 'Withdrawing...' :
+                       'Failed'}
+                    </div>
+                  )}
                 </div>
               ))}
-              {pendingEscrows.length > 3 && (
+              {pendingEscrows.length > 5 && (
                 <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
-                  +{pendingEscrows.length - 3} more escrows
+                  +{pendingEscrows.length - 5} more escrows
                 </div>
               )}
+
+              {/* PER Mixer Deposits (awaiting TEE execution) */}
+              {delegatedDeposits.filter(d => d.type === 'per-mixer').slice(0, 3).map((deposit) => (
+                <div
+                  key={deposit.depositAddress}
+                  className="flex items-center justify-between p-2 rounded-lg"
+                  style={{ background: `${theme.colors.info}10` }}
+                >
+                  <div>
+                    <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
+                      PER Deposit: {deposit.depositAddress.slice(0, 4)}...{deposit.depositAddress.slice(-4)}
+                    </div>
+                    <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
+                      {(Number(deposit.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                    </div>
+                    <div className="text-xs" style={{ color: theme.colors.textMuted }}>
+                      Awaiting TEE execution...
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        toast.info('Triggering claim via MagicBlock...')
+                        const success = await triggerMagicAction(deposit)
+                        if (success) {
+                          toast.success('Claim triggered! Escrow will appear shortly.')
+                        } else {
+                          toast.error('Claim trigger failed')
+                        }
+                      } catch (err) {
+                        toast.error('Error triggering claim')
+                      }
+                    }}
+                    className="px-3 py-1 rounded text-xs font-medium transition-all hover:opacity-80"
+                    style={{
+                      background: theme.colors.info,
+                      color: '#000'
+                    }}
+                  >
+                    Trigger Claim
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -580,7 +653,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
             </div>
           )}
 
-          {!isScanning && pendingClaims.length === 0 && pendingEscrows.length === 0 && (
+          {!isScanning && pendingClaims.length === 0 && pendingEscrows.length === 0 && !delegatedDeposits.some(d => d.type === 'per-mixer') && (
             <button
               onClick={startScanning}
               className="mt-2 text-xs font-medium transition-opacity hover:opacity-80"
