@@ -470,6 +470,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       )}
 
       {/* Incoming Payments Banner - Auto-claim status */}
+      {console.log('[WaveSend] Render - delegatedDeposits:', delegatedDeposits.length, 'per-mixer:', delegatedDeposits.filter(d => d.type === 'per-mixer').length)}
       {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || delegatedDeposits.length > 0 || isScanning) && (
         <div
           className="p-4 rounded-xl"
@@ -602,8 +603,8 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                 </div>
               )}
 
-              {/* Delegated Deposits (awaiting claim) */}
-              {delegatedDeposits.slice(0, 5).map((deposit) => (
+              {/* PER Mixer Deposits (awaiting claim) - IDEAL PRIVACY */}
+              {delegatedDeposits.filter(d => d.type === 'per-mixer').slice(0, 5).map((deposit) => (
                 <div
                   key={deposit.depositAddress}
                   className="flex items-center justify-between p-2 rounded-lg"

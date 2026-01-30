@@ -657,21 +657,25 @@ export function useAutoClaim(): UseAutoClaimReturn {
           }
         } else {
           // No escrow yet - add to delegated deposits (waiting for PER execution)
-          if (!delegatedDeposits.some(d => d.depositAddress === pubkey.toBase58())) {
-            setDelegatedDeposits(prev => {
-              if (prev.some(d => d.depositAddress === pubkey.toBase58())) return prev
-              return [...prev, {
-                depositAddress: pubkey.toBase58(),
-                vaultAddress: escrowPda.toBase58(), // Will become escrow
-                amount,
-                stealthPubkey,
-                nonce,
-                bump: data[PER_MIXER_OFFSET_BUMP],
-                executed: false,
-                type: 'per-mixer' as const,
-              }]
-            })
-          }
+          const depositAddr = pubkey.toBase58()
+          console.log('[AutoClaim] Adding PER Mixer to delegatedDeposits:', depositAddr)
+          setDelegatedDeposits(prev => {
+            if (prev.some(d => d.depositAddress === depositAddr)) {
+              console.log('[AutoClaim] Already in delegatedDeposits, skipping:', depositAddr)
+              return prev
+            }
+            console.log('[AutoClaim] Added to delegatedDeposits, new count:', prev.length + 1)
+            return [...prev, {
+              depositAddress: depositAddr,
+              vaultAddress: escrowPda.toBase58(),
+              amount,
+              stealthPubkey,
+              nonce,
+              bump: data[PER_MIXER_OFFSET_BUMP],
+              executed: false,
+              type: 'per-mixer' as const,
+            }]
+          })
         }
       }
 
