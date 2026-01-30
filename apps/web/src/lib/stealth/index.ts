@@ -36,6 +36,9 @@ export {
   deriveTestMixerPoolPda,
   deriveDepositRecordPda,
   deriveRelayerAuthPda,
+  derivePerMixerPoolPda,
+  derivePerDepositRecordPda,
+  deriveClaimEscrowPda,
 } from "./config";
 
 export type {

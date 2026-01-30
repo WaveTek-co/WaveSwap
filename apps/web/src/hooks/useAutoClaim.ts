@@ -11,6 +11,9 @@ import {
   deriveTestMixerPoolPda,
   deriveDepositRecordPda,
   deriveAnnouncementPdaFromNonce,
+  derivePerMixerPoolPda,
+  derivePerDepositRecordPda,
+  deriveClaimEscrowPda,
   generateStealthKeysFromSignature,
   StealthKeyPair,
 } from '@/lib/stealth'
@@ -42,6 +45,42 @@ const MIXER_OFFSET_AMOUNT = 41
 const MIXER_OFFSET_ANNOUNCEMENT_PDA = 57
 const MIXER_OFFSET_VAULT_PDA = 89
 const MIXER_OFFSET_IS_EXECUTED = 121
+
+// PER Mixer Pool deposit record constants (delegated shared pool)
+// Discriminator: "PERDEPRC" (8 bytes)
+// Total size: 180 bytes
+const PER_MIXER_DEPOSIT_DISCRIMINATOR = 'PERDEPRC'
+const PER_MIXER_DEPOSIT_SIZE = 180
+
+// PER Mixer deposit layout offsets (from per_mixer.rs PerDepositRecord)
+// discriminator(8) + bump(1) + nonce(32) + amount(8) + deposit_slot(8) +
+// stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + is_executed(1) +
+// is_claimed(1) + escrow_pda(32) + reserved(22) = 178 bytes (padded to 180)
+const PER_MIXER_OFFSET_BUMP = 8
+const PER_MIXER_OFFSET_NONCE = 9
+const PER_MIXER_OFFSET_AMOUNT = 41
+const PER_MIXER_OFFSET_DEPOSIT_SLOT = 49
+const PER_MIXER_OFFSET_STEALTH = 57
+const PER_MIXER_OFFSET_EPHEMERAL = 89
+const PER_MIXER_OFFSET_VIEW_TAG = 121
+const PER_MIXER_OFFSET_IS_EXECUTED = 122
+const PER_MIXER_OFFSET_IS_CLAIMED = 123
+const PER_MIXER_OFFSET_ESCROW = 124
+
+// Claim Escrow constants (created by PER, holds funds for recipient)
+// Discriminator: "CLAIMESC" (8 bytes)
+// Total size: 90 bytes
+const CLAIM_ESCROW_DISCRIMINATOR = 'CLAIMESC'
+const CLAIM_ESCROW_SIZE = 90
+
+// Claim Escrow layout offsets (from per_mixer.rs ClaimEscrow)
+// discriminator(8) + bump(1) + nonce(32) + amount(8) + stealth_pubkey(32) +
+// is_withdrawn(1) + reserved(8) = 90 bytes
+const ESCROW_OFFSET_BUMP = 8
+const ESCROW_OFFSET_NONCE = 9
+const ESCROW_OFFSET_AMOUNT = 41
+const ESCROW_OFFSET_STEALTH = 49
+const ESCROW_OFFSET_IS_WITHDRAWN = 81
 
 // Announcement layout offsets
 const ANN_OFFSET_EPHEMERAL_PUBKEY = 17  // 8 + 1 + 8
@@ -84,22 +123,33 @@ export interface DelegatedDeposit {
   nonce: Uint8Array
   bump: number
   executed: boolean
-  type: 'per' | 'mixer'
+  type: 'per' | 'mixer' | 'per-mixer'
   processing?: boolean
+}
+
+export interface PendingEscrow {
+  escrowAddress: string
+  nonce: Uint8Array
+  amount: bigint
+  stealthPubkey: Uint8Array
+  status: 'pending' | 'withdrawing' | 'withdrawn' | 'failed'
 }
 
 export interface UseAutoClaimReturn {
   isScanning: boolean
   pendingClaims: PendingClaim[]
   delegatedDeposits: DelegatedDeposit[]
+  pendingEscrows: PendingEscrow[]
   totalPendingAmount: bigint
   totalDelegatedAmount: bigint
+  totalEscrowAmount: bigint
   claimHistory: { signature: string; amount: bigint; timestamp: number; sender?: string }[]
   startScanning: () => void
   stopScanning: () => void
   claimAll: () => Promise<void>
   claimSingle: (vaultAddress: string) => Promise<boolean>
   triggerMagicAction: (deposit: DelegatedDeposit) => Promise<boolean>
+  withdrawFromEscrow: (escrow: PendingEscrow) => Promise<boolean>
   lastScanTime: Date | null
   error: string | null
 }
@@ -132,6 +182,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
   const [isScanning, setIsScanning] = useState(false)
   const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([])
   const [delegatedDeposits, setDelegatedDeposits] = useState<DelegatedDeposit[]>([])
+  const [pendingEscrows, setPendingEscrows] = useState<PendingEscrow[]>([])
   const [claimHistory, setClaimHistory] = useState<{ signature: string; amount: bigint; timestamp: number; sender?: string }[]>([])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -155,6 +206,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
     return delegatedDeposits.reduce((sum, d) => sum + d.amount, BigInt(0))
   }, [delegatedDeposits])
 
+  const totalEscrowAmount = useMemo(() => {
+    return pendingEscrows.filter(e => e.status === 'pending').reduce((sum, e) => sum + e.amount, BigInt(0))
+  }, [pendingEscrows])
+
   // MAGIC ACTION: Trigger PER to execute transfer
   const triggerMagicAction = useCallback(async (deposit: DelegatedDeposit): Promise<boolean> => {
     if (!publicKey || !signTransaction) {
@@ -173,8 +228,87 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
 
-      if (deposit.type === 'per') {
-        // PER flow: Send execute_per_transfer to MagicBlock rollup
+      if (deposit.type === 'per-mixer') {
+        // IDEAL PRIVACY ARCHITECTURE: PER Mixer Pool flow
+        // Send execute_per_claim to MagicBlock rollup
+        // This creates a ClaimEscrow that commits to L1
+        console.log('[MagicAction] PER Mixer Pool flow - triggering execute_per_claim')
+
+        const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda()
+        const [depositRecordPda] = derivePerDepositRecordPda(deposit.nonce)
+        const [escrowPda, escrowBump] = deriveClaimEscrowPda(deposit.nonce)
+
+        // MagicBlock delegation context
+        const [magicContext] = PublicKey.findProgramAddressSync(
+          [Buffer.from('magic')],
+          DELEGATION_PROGRAM_ID
+        )
+        const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111')
+
+        // Data: pool_bump(1) + nonce(32) + escrow_bump(1) = 34 bytes
+        const data = Buffer.alloc(35)
+        let offset = 0
+        data[offset++] = StealthDiscriminators.EXECUTE_PER_CLAIM
+        data[offset++] = poolBump
+        Buffer.from(deposit.nonce).copy(data, offset); offset += 32
+        data[offset] = escrowBump
+
+        const tx = new Transaction()
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+        tx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
+            { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+            { pubkey: escrowPda, isSigner: false, isWritable: true },
+            { pubkey: magicContext, isSigner: false, isWritable: false },
+            { pubkey: MAGIC_PROGRAM_ID, isSigner: false, isWritable: false },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        }))
+
+        tx.feePayer = publicKey
+        const { blockhash } = await rollupConnection.getLatestBlockhash()
+        tx.recentBlockhash = blockhash
+
+        console.log('[MagicAction] Signing PER claim transaction...')
+        const signedTx = await signTransaction(tx)
+
+        console.log('[MagicAction] Sending to MagicBlock rollup...')
+        const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
+        console.log('[MagicAction] Sent:', signature)
+
+        await rollupConnection.confirmTransaction(signature, 'confirmed')
+        console.log('[MagicAction] Rollup confirmed, waiting for L1 escrow commit...')
+
+        // Poll mainnet for escrow
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          const escrowInfo = await connection.getAccountInfo(escrowPda)
+          if (escrowInfo && escrowInfo.lamports > 0) {
+            console.log('[MagicAction] Escrow arrived on L1:', escrowInfo.lamports)
+            setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+            setPendingEscrows(prev => {
+              if (prev.some(e => e.escrowAddress === escrowPda.toBase58())) return prev
+              return [...prev, {
+                escrowAddress: escrowPda.toBase58(),
+                nonce: deposit.nonce,
+                amount: BigInt(escrowInfo.lamports),
+                stealthPubkey: deposit.stealthPubkey,
+                status: 'pending' as const,
+              }]
+            })
+            showPaymentReceived({ signature, amount: BigInt(escrowInfo.lamports), symbol: 'SOL' })
+            return true
+          }
+        }
+        console.warn('[MagicAction] Escrow not visible on L1 yet')
+        return false
+
+      } else if (deposit.type === 'per') {
+        // Legacy PER flow: Send execute_per_transfer to MagicBlock rollup
         const depositPda = new PublicKey(deposit.depositAddress)
 
         const data = Buffer.alloc(34)
@@ -304,6 +438,70 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [publicKey, signTransaction, connection, rollupConnection])
 
+  // Withdraw from claim escrow (funds on L1 from PER execution)
+  const withdrawFromEscrow = useCallback(async (escrow: PendingEscrow): Promise<boolean> => {
+    if (!publicKey || !signTransaction) {
+      console.log('[Escrow] No wallet connected')
+      return false
+    }
+
+    try {
+      console.log('[Escrow] Withdrawing from:', escrow.escrowAddress)
+
+      setPendingEscrows(prev => prev.map(e =>
+        e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
+      ))
+
+      const escrowPda = new PublicKey(escrow.escrowAddress)
+
+      // Build withdraw_from_escrow instruction
+      // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) = 65 bytes
+      const data = Buffer.alloc(65)
+      let offset = 0
+      data[offset++] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
+      Buffer.from(escrow.nonce).copy(data, offset); offset += 32
+      Buffer.from(escrow.stealthPubkey).copy(data, offset)
+
+      const tx = new Transaction()
+      tx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: publicKey, isSigner: true, isWritable: false },
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          { pubkey: publicKey, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      }))
+
+      tx.feePayer = publicKey
+      const { blockhash } = await connection.getLatestBlockhash()
+      tx.recentBlockhash = blockhash
+
+      console.log('[Escrow] Signing withdraw transaction...')
+      const signedTx = await signTransaction(tx)
+
+      console.log('[Escrow] Sending to L1...')
+      const signature = await connection.sendRawTransaction(signedTx.serialize())
+      await connection.confirmTransaction(signature, 'confirmed')
+      console.log('[Escrow] Withdraw confirmed:', signature)
+
+      setPendingEscrows(prev => prev.map(e =>
+        e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
+      ))
+      setClaimHistory(prev => [...prev, { signature, amount: escrow.amount, timestamp: Date.now(), sender: 'PER_ESCROW' }])
+      showClaimSuccess({ signature, amount: escrow.amount, symbol: 'SOL' })
+      return true
+
+    } catch (err: any) {
+      console.error('[Escrow] Withdraw failed:', err?.message || err)
+      setPendingEscrows(prev => prev.map(e =>
+        e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'failed' as const } : e
+      ))
+      return false
+    }
+  }, [publicKey, signTransaction, connection])
+
   // Scan for deposits
   const scanForDeposits = useCallback(async (keys: StealthKeyPair): Promise<number> => {
     console.log('[AutoClaim] Scanning for deposits...')
@@ -366,6 +564,78 @@ export function useAutoClaim(): UseAutoClaimReturn {
                 bump: data[PER_OFFSET_BUMP],
                 executed: false,
                 type: 'per' as const,
+              }]
+            })
+          }
+        }
+      }
+
+      // Scan PER Mixer deposits (IDEAL PRIVACY ARCHITECTURE)
+      // These are the delegated shared pool deposits
+      const perMixerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: PER_MIXER_DEPOSIT_SIZE }],
+      }).catch(() => [])
+
+      console.log(`[AutoClaim] Found ${perMixerAccounts.length} PER Mixer deposit records`)
+
+      for (const { pubkey, account } of perMixerAccounts) {
+        const data = account.data
+        if (data.slice(0, 8).toString() !== PER_MIXER_DEPOSIT_DISCRIMINATOR) continue
+
+        // Skip if already executed or claimed
+        if (data[PER_MIXER_OFFSET_IS_EXECUTED] === 1 || data[PER_MIXER_OFFSET_IS_CLAIMED] === 1) continue
+
+        // Check view tag first for fast rejection
+        const ephemeralPubkey = new Uint8Array(data.slice(PER_MIXER_OFFSET_EPHEMERAL, PER_MIXER_OFFSET_EPHEMERAL + 32))
+        const viewTag = data[PER_MIXER_OFFSET_VIEW_TAG]
+        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
+
+        // Full stealth address verification
+        const stealthPubkey = new Uint8Array(data.slice(PER_MIXER_OFFSET_STEALTH, PER_MIXER_OFFSET_STEALTH + 32))
+        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
+
+        foundCount++
+        console.log('[AutoClaim] Found PER Mixer deposit for us:', pubkey.toBase58())
+
+        const nonce = new Uint8Array(data.slice(PER_MIXER_OFFSET_NONCE, PER_MIXER_OFFSET_NONCE + 32))
+
+        // Parse amount
+        let amount = BigInt(0)
+        for (let i = 0; i < 8; i++) amount |= BigInt(data[PER_MIXER_OFFSET_AMOUNT + i]) << BigInt(i * 8)
+
+        // Check if escrow already exists (PER executed)
+        const [escrowPda] = deriveClaimEscrowPda(nonce)
+        const escrowInfo = await connection.getAccountInfo(escrowPda)
+
+        if (escrowInfo && escrowInfo.lamports > 0) {
+          // Escrow exists - add to pending escrows for withdrawal
+          const escrowAddress = escrowPda.toBase58()
+          if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
+            setPendingEscrows(prev => {
+              if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
+              return [...prev, {
+                escrowAddress,
+                nonce,
+                amount: BigInt(escrowInfo.lamports),
+                stealthPubkey,
+                status: 'pending' as const,
+              }]
+            })
+          }
+        } else {
+          // No escrow yet - add to delegated deposits (waiting for PER execution)
+          if (!delegatedDeposits.some(d => d.depositAddress === pubkey.toBase58())) {
+            setDelegatedDeposits(prev => {
+              if (prev.some(d => d.depositAddress === pubkey.toBase58())) return prev
+              return [...prev, {
+                depositAddress: pubkey.toBase58(),
+                vaultAddress: escrowPda.toBase58(), // Will become escrow
+                amount,
+                stealthPubkey,
+                nonce,
+                bump: data[PER_MIXER_OFFSET_BUMP],
+                executed: false,
+                type: 'per-mixer' as const,
               }]
             })
           }
@@ -442,13 +712,59 @@ export function useAutoClaim(): UseAutoClaimReturn {
         }
       }
 
-      console.log(`[AutoClaim] Found ${foundCount} deposits for us`)
+      // Scan claim escrows (created by PER, ready for withdrawal on L1)
+      const escrowAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: CLAIM_ESCROW_SIZE }],
+      }).catch(() => [])
+
+      console.log(`[AutoClaim] Found ${escrowAccounts.length} claim escrow accounts`)
+
+      for (const { pubkey, account } of escrowAccounts) {
+        const data = account.data
+
+        // Check if already withdrawn
+        if (data[ESCROW_OFFSET_IS_WITHDRAWN] === 1) continue
+
+        // Read stealth pubkey to verify it's for us
+        const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH, ESCROW_OFFSET_STEALTH + 32))
+        const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32))
+
+        // Verify escrow address matches expected PDA
+        const [expectedEscrow] = deriveClaimEscrowPda(nonce)
+        if (!pubkey.equals(expectedEscrow)) continue
+
+        // Read amount
+        let amount = BigInt(0)
+        for (let i = 0; i < 8; i++) amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8)
+
+        // Check if escrow has funds
+        if (account.lamports === 0) continue
+
+        foundCount++
+        console.log('[AutoClaim] Found claim escrow for us:', pubkey.toBase58())
+
+        const escrowAddress = pubkey.toBase58()
+        if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
+          setPendingEscrows(prev => {
+            if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
+            return [...prev, {
+              escrowAddress,
+              nonce,
+              amount,
+              stealthPubkey,
+              status: 'pending' as const,
+            }]
+          })
+        }
+      }
+
+      console.log(`[AutoClaim] Found ${foundCount} deposits/escrows for us`)
       return foundCount
     } catch (err) {
       console.error('[AutoClaim] Scan error:', err)
       return 0
     }
-  }, [connection, pendingClaims, delegatedDeposits])
+  }, [connection, pendingClaims, delegatedDeposits, pendingEscrows])
 
   // Generate stealth keys
   const ensureStealthKeys = useCallback(async (): Promise<StealthKeyPair | null> => {
@@ -602,18 +918,37 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [pendingClaims, connected, publicKey, claimAll])
 
+  // Auto-withdraw from escrows
+  useEffect(() => {
+    if (!connected || !publicKey || pendingEscrows.length === 0) return
+
+    const withdrawAll = async () => {
+      for (const escrow of pendingEscrows.filter(e => e.status === 'pending')) {
+        console.log('[AutoClaim] Auto-withdrawing from escrow:', escrow.escrowAddress)
+        await withdrawFromEscrow(escrow)
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+
+    const timeout = setTimeout(withdrawAll, 2500)
+    return () => clearTimeout(timeout)
+  }, [pendingEscrows, connected, publicKey, withdrawFromEscrow])
+
   return {
     isScanning,
     pendingClaims,
     delegatedDeposits,
+    pendingEscrows,
     totalPendingAmount,
     totalDelegatedAmount,
+    totalEscrowAmount,
     claimHistory,
     startScanning,
     stopScanning,
     claimAll,
     claimSingle,
     triggerMagicAction,
+    withdrawFromEscrow,
     lastScanTime,
     error,
   }

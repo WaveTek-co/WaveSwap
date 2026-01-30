@@ -35,6 +35,9 @@ import {
   deriveDelegationRecordPda,
   deriveDelegationMetadataPda,
   deriveDelegateBufferPda,
+  derivePerMixerPoolPda,
+  derivePerDepositRecordPda,
+  deriveClaimEscrowPda,
   NATIVE_SOL_MINT,
   RELAYER_CONFIG,
   MAGICBLOCK_PER,
@@ -456,10 +459,14 @@ export class WaveStealthClient {
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // Priority 1: Use MagicBlock PER for TRUE TEE privacy
+    // Priority 1: Use PER Mixer Pool for IDEAL PRIVACY ARCHITECTURE
+    // This is the recommended approach: shared pool + MagicBlock TEE
     if (this.useMagicBlockPer) {
-      console.log('[WaveStealthClient] Using MagicBlock PER for TRUE TEE privacy');
-      return this.waveSendViaPer(wallet, params);
+      console.log('[WaveStealthClient] Using PER Mixer Pool for IDEAL PRIVACY');
+      console.log('[WaveStealthClient] → Sender deposits to shared pool (anonymity set)');
+      console.log('[WaveStealthClient] → PER executes claim inside TEE');
+      console.log('[WaveStealthClient] → Recipient withdraws from escrow on L1');
+      return this.waveSendViaPerMixerPool(wallet, params);
     }
 
     // Priority 2: Use mixer pool with relayer for privacy (if configured)
@@ -1034,6 +1041,134 @@ export class WaveStealthClient {
       } as SendResult;
     } catch (error) {
       console.error('[WaveStealthClient] PER send error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Send failed",
+      };
+    }
+  }
+
+  // ========================================
+  // PER MIXER POOL - IDEAL PRIVACY ARCHITECTURE
+  // ========================================
+  // True privacy via shared mixer pool:
+  // 1. Sender deposits to shared PER mixer pool (anonymity set)
+  // 2. PER (inside TEE) executes claim → creates escrow
+  // 3. Escrow commits to L1
+  // 4. Recipient withdraws from escrow
+  //
+  // SENDER UNLINKABILITY: All senders deposit to same pool
+  // RECEIVER UNLINKABILITY: Escrow withdrawal is permissionless
+  async waveSendViaPerMixerPool(
+    wallet: WalletAdapter,
+    params: WaveSendParams
+  ): Promise<SendResult> {
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const registry = await this.getRegistry(params.recipientWallet);
+    if (!registry || !registry.isFinalized) {
+      return { success: false, error: "Recipient not registered for stealth payments" };
+    }
+
+    const isSol = !params.mint || params.mint.equals(NATIVE_SOL_MINT);
+    if (!isSol) {
+      return { success: false, error: "SPL token transfers not yet supported" };
+    }
+
+    console.log('[WaveStealthClient] Using PER Mixer Pool for IDEAL PRIVACY');
+
+    // Generate random nonce and derive stealth address
+    const nonce = randomBytes(32);
+    const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+
+    // Derive PER Mixer Pool PDAs
+    const [perMixerPoolPda] = derivePerMixerPoolPda();
+    const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
+    const [escrowPda] = deriveClaimEscrowPda(nonce);
+
+    const amountBigInt = BigInt(params.amount);
+
+    // ========================================
+    // BUILD DEPOSIT TO PER MIXER POOL TX
+    // ========================================
+    // This deposits to the shared mixer pool with stealth config
+    // The pool is delegated to MagicBlock - PER executes claims inside TEE
+    const tx = new Transaction();
+
+    // Add compute budget
+    tx.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 })
+    );
+
+    // Build instruction data for DEPOSIT_TO_PER_MIXER
+    // Layout: discriminator(1) + record_bump(1) + nonce(32) + amount(8) +
+    //         stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) = 107 bytes
+    const data = Buffer.alloc(107);
+    let offset = 0;
+
+    data[offset++] = StealthDiscriminators.DEPOSIT_TO_PER_MIXER;
+    data[offset++] = recordBump;
+
+    Buffer.from(nonce).copy(data, offset);
+    offset += 32;
+
+    // Write amount as 8 bytes little-endian
+    for (let i = 0; i < 8; i++) {
+      data[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+    }
+
+    Buffer.from(stealthConfig.stealthPubkey).copy(data, offset);
+    offset += 32;
+
+    Buffer.from(stealthConfig.ephemeralPubkey).copy(data, offset);
+    offset += 32;
+
+    data[offset++] = stealthConfig.viewTag;
+
+    // Build deposit instruction
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      })
+    );
+
+    try {
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+      // USER SIGNS ONE TRANSACTION
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
+      await this.connection.confirmTransaction(signature, 'confirmed');
+
+      console.log('[WaveStealthClient] ✓ Deposited to PER Mixer Pool:', signature);
+      console.log('[WaveStealthClient] ✓ Deposit record:', depositRecordPda.toBase58());
+      console.log('[WaveStealthClient] ✓ Expected escrow:', escrowPda.toBase58());
+      console.log('[WaveStealthClient] SENDER UNLINKABILITY: Deposited to shared pool!');
+      console.log('[WaveStealthClient] PER will execute claim inside TEE → escrow on L1');
+
+      return {
+        success: true,
+        signature,
+        stealthPubkey: stealthConfig.stealthPubkey,
+        ephemeralPubkey: stealthConfig.ephemeralPubkey,
+        viewTag: stealthConfig.viewTag,
+        // For tracking
+        perDepositPda: depositRecordPda,
+        escrowPda,
+        nonce: Buffer.from(nonce).toString('hex'),
+      } as SendResult;
+    } catch (error) {
+      console.error('[WaveStealthClient] PER Mixer Pool send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",

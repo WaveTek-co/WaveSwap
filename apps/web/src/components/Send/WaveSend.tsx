@@ -81,7 +81,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
   const {
     isScanning,
     pendingClaims,
+    pendingEscrows,
     totalPendingAmount,
+    totalEscrowAmount,
     claimHistory,
     startScanning,
     lastScanTime,
@@ -463,7 +465,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       )}
 
       {/* Incoming Payments Banner - Auto-claim status */}
-      {privacyMode && connected && (pendingClaims.length > 0 || isScanning) && (
+      {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || isScanning) && (
         <div
           className="p-4 rounded-xl"
           style={{
@@ -480,9 +482,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                 {isScanning ? 'Scanning for Payments...' : 'Incoming Payments'}
               </span>
             </div>
-            {totalPendingAmount > BigInt(0) && (
+            {(totalPendingAmount > BigInt(0) || totalEscrowAmount > BigInt(0)) && (
               <span className="text-sm font-bold" style={{ color: theme.colors.success }}>
-                {(Number(totalPendingAmount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                {(Number(totalPendingAmount + totalEscrowAmount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
               </span>
             )}
           </div>
@@ -528,6 +530,47 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                   +{pendingClaims.length - 3} more payments
                 </div>
               )}
+
+              {/* Pending Escrows (from PER mixer pool) */}
+              {pendingEscrows.slice(0, 3).map((escrow) => (
+                <div
+                  key={escrow.escrowAddress}
+                  className="flex items-center justify-between p-2 rounded-lg"
+                  style={{ background: `${theme.colors.surface}40` }}
+                >
+                  <div>
+                    <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
+                      PER Escrow: {escrow.escrowAddress.slice(0, 4)}...{escrow.escrowAddress.slice(-4)}
+                    </div>
+                    <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
+                      {(Number(escrow.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                    </div>
+                  </div>
+                  <div
+                    className="px-2 py-1 rounded text-xs font-medium"
+                    style={{
+                      background: escrow.status === 'withdrawn' ? `${theme.colors.success}20` :
+                                  escrow.status === 'withdrawing' ? `${theme.colors.info}20` :
+                                  escrow.status === 'failed' ? `${theme.colors.error}20` :
+                                  `${theme.colors.warning}20`,
+                      color: escrow.status === 'withdrawn' ? theme.colors.success :
+                             escrow.status === 'withdrawing' ? theme.colors.info :
+                             escrow.status === 'failed' ? theme.colors.error :
+                             theme.colors.warning
+                    }}
+                  >
+                    {escrow.status === 'withdrawn' ? 'Withdrawn' :
+                     escrow.status === 'withdrawing' ? 'Withdrawing...' :
+                     escrow.status === 'failed' ? 'Failed' :
+                     'Auto-withdrawing...'}
+                  </div>
+                </div>
+              ))}
+              {pendingEscrows.length > 3 && (
+                <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
+                  +{pendingEscrows.length - 3} more escrows
+                </div>
+              )}
             </div>
           )}
 
@@ -537,7 +580,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
             </div>
           )}
 
-          {!isScanning && pendingClaims.length === 0 && (
+          {!isScanning && pendingClaims.length === 0 && pendingEscrows.length === 0 && (
             <button
               onClick={startScanning}
               className="mt-2 text-xs font-medium transition-opacity hover:opacity-80"

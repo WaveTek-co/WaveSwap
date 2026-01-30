@@ -47,6 +47,11 @@ export const StealthDiscriminators = {
   EXECUTE_PER_TRANSFER: 0x13,
   // Undelegate PER deposit (fallback - manual recovery)
   UNDELEGATE_PER_DEPOSIT: 0x14,
+  // PER Mixer Pool (delegated shared pool for privacy)
+  INITIALIZE_PER_MIXER_POOL: 0x15,
+  DEPOSIT_TO_PER_MIXER: 0x16,
+  EXECUTE_PER_CLAIM: 0x17,
+  WITHDRAW_FROM_ESCROW: 0x18,
 };
 
 // DeFi instruction discriminators
@@ -199,5 +204,29 @@ export function deriveDelegateBufferPda(
   return PublicKey.findProgramAddressSync(
     [Buffer.from("buffer"), delegatedAccount.toBuffer()],
     ownerProgram
+  );
+}
+
+// PER Mixer Pool PDA (delegated to MagicBlock for shared anonymity)
+export function derivePerMixerPoolPda(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("per-mixer-pool")],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// PER Deposit Record PDA (tracks each deposit with stealth config)
+export function derivePerDepositRecordPda(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("per-deposit-rec"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Claim Escrow PDA (created by PER, holds funds for recipient)
+export function deriveClaimEscrowPda(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("claim-escrow"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
   );
 }
