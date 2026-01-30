@@ -892,14 +892,22 @@ export function useAutoClaim(): UseAutoClaimReturn {
     return () => stopScanning()
   }, [connected, publicKey, startScanning, stopScanning])
 
-  // Auto-trigger Magic Actions
+  // NOTE: Auto-trigger disabled for per-mixer deposits
+  // The MagicBlock TEE automatically executes claims inside the rollup
+  // Recipients should only need to withdraw from escrows that appear on L1
+  // Manual trigger is still available via triggerMagicAction() if needed
   useEffect(() => {
     if (!connected || !publicKey || delegatedDeposits.length === 0) return
 
+    // Only auto-trigger for legacy 'per' and 'mixer' types, NOT 'per-mixer'
+    // For per-mixer, the TEE handles execution automatically
+    const legacyDeposits = delegatedDeposits.filter(d => d.type !== 'per-mixer')
+    if (legacyDeposits.length === 0) return
+
     const triggerAll = async () => {
-      for (const deposit of delegatedDeposits) {
+      for (const deposit of legacyDeposits) {
         if (processedDepositsRef.current.has(deposit.depositAddress)) continue
-        console.log('[AutoClaim] Auto-triggering:', deposit.depositAddress)
+        console.log('[AutoClaim] Auto-triggering legacy deposit:', deposit.depositAddress, deposit.type)
         await triggerMagicAction(deposit)
         await new Promise(r => setTimeout(r, 1000))
       }
