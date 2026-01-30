@@ -141,7 +141,7 @@ export class WaveStealthClient {
   private stealthKeys: StealthKeyPair | null = null;
   private relayerPubkey: PublicKey | null = null;
   private relayerEndpoint: string | null = null;
-  private useMagicBlockPer: boolean = false; // Use mixer pool by default (PER has L1 commit issues)
+  private useMagicBlockPer: boolean = true; // Use MagicBlock PER by default
 
   constructor(config: ClientConfig) {
     this.connection = config.connection;
@@ -158,12 +158,10 @@ export class WaveStealthClient {
     }
   }
 
-  // Enable/disable MagicBlock PER mode (deprecated - mixer pool is preferred)
+  // Enable/disable MagicBlock PER mode
   setUseMagicBlockPer(enabled: boolean): void {
     this.useMagicBlockPer = enabled;
-    if (enabled) {
-      console.warn('[WaveStealthClient] PER mode enabled but has L1 commit issues - mixer pool recommended');
-    }
+    console.log(`[WaveStealthClient] MagicBlock PER mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
   // Check if MagicBlock PER mode is enabled
@@ -171,10 +169,10 @@ export class WaveStealthClient {
     return this.useMagicBlockPer;
   }
 
-  // Use mixer pool for privacy (recommended)
+  // Use mixer pool for privacy (alternative to PER)
   setUseMixerPool(): void {
     this.useMagicBlockPer = false;
-    console.log('[WaveStealthClient] Mixer pool mode enabled (RECOMMENDED for privacy)');
+    console.log('[WaveStealthClient] Mixer pool mode enabled');
   }
 
   // Configure relayer for privacy-preserving claims
@@ -444,22 +442,23 @@ export class WaveStealthClient {
   // Wave Send - PRODUCTION-READY stealth transfers with FULL PRIVACY
   //
   // PRIVACY MODES (in order of preference):
-  // 1. Mixer Pool (RECOMMENDED) - Privacy via shared anonymity set
-  // 2. MagicBlock PER - TEE privacy (has L1 commit issues on devnet)
+  // 1. MagicBlock PER (DEFAULT) - True TEE privacy via Intel TDX
+  // 2. Mixer Pool + Relayer - Privacy with trusted relayer
+  // 3. Mixer Pool Direct - Recipient triggers transfer
   //
-  // Mixer Pool flow:
-  // - User signs ONE transaction (announcement + deposit to mixer pool)
-  // - Recipient triggers mixer transfer with TEE proof
-  // - SENDER UNLINKABILITY achieved via anonymity set
+  // MagicBlock PER flow:
+  // - User signs ONE transaction (deposit + delegate)
+  // - PER (inside TEE) automatically executes transfer
+  // - SENDER UNLINKABILITY achieved via actual hardware TEE
   //
-  // IMPORTANT: Mixer pool is enabled by default for working privacy
+  // IMPORTANT: MagicBlock PER is enabled by default for true privacy
   async waveSend(
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // Priority 1: Use MagicBlock PER if explicitly enabled
+    // Priority 1: Use MagicBlock PER for TRUE TEE privacy
     if (this.useMagicBlockPer) {
-      console.log('[WaveStealthClient] Using MagicBlock PER (has L1 commit issues)');
+      console.log('[WaveStealthClient] Using MagicBlock PER for TRUE TEE privacy');
       return this.waveSendViaPer(wallet, params);
     }
 
