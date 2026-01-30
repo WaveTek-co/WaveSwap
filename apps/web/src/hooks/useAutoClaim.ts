@@ -268,10 +268,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         // MagicBlock Ephemeral Rollups program and context
         const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
-        // Magic context PDA - derived from delegation program
+        // Magic context PDA - derived from ER program (not delegation program!)
         const [magicContext] = PublicKey.findProgramAddressSync(
           [Buffer.from('magic_context')],
-          DELEGATION_PROGRAM_ID
+          MAGICBLOCK_ER_PROGRAM
         )
 
         // Data: pool_bump(1) + nonce(32) + escrow_bump(1) = 34 bytes
