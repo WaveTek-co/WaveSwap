@@ -892,55 +892,14 @@ export function useAutoClaim(): UseAutoClaimReturn {
     return () => stopScanning()
   }, [connected, publicKey, startScanning, stopScanning])
 
-  // NOTE: Auto-trigger disabled for per-mixer deposits
-  // The MagicBlock TEE automatically executes claims inside the rollup
-  // Recipients should only need to withdraw from escrows that appear on L1
-  // Manual trigger is still available via triggerMagicAction() if needed
-  useEffect(() => {
-    if (!connected || !publicKey || delegatedDeposits.length === 0) return
+  // NOTE: Auto-trigger COMPLETELY DISABLED
+  // All deposit types (per, mixer, per-mixer) require manual triggering
+  // This prevents wallet popup spam from legacy unclaimed deposits
+  // Users can manually call triggerMagicAction() or withdrawFromEscrow() as needed
 
-    // Only auto-trigger for legacy 'per' and 'mixer' types, NOT 'per-mixer'
-    // For per-mixer, the TEE handles execution automatically
-    const legacyDeposits = delegatedDeposits.filter(d => d.type !== 'per-mixer')
-    if (legacyDeposits.length === 0) return
-
-    const triggerAll = async () => {
-      for (const deposit of legacyDeposits) {
-        if (processedDepositsRef.current.has(deposit.depositAddress)) continue
-        console.log('[AutoClaim] Auto-triggering legacy deposit:', deposit.depositAddress, deposit.type)
-        await triggerMagicAction(deposit)
-        await new Promise(r => setTimeout(r, 1000))
-      }
-    }
-
-    const timeout = setTimeout(triggerAll, 2000)
-    return () => clearTimeout(timeout)
-  }, [delegatedDeposits, connected, publicKey, triggerMagicAction])
-
-  // Auto-claim
-  useEffect(() => {
-    const pendingCount = pendingClaims.filter(c => c.status === 'pending').length
-    if (pendingCount > 0 && connected && publicKey) {
-      const timeout = setTimeout(claimAll, 3000)
-      return () => clearTimeout(timeout)
-    }
-  }, [pendingClaims, connected, publicKey, claimAll])
-
-  // Auto-withdraw from escrows
-  useEffect(() => {
-    if (!connected || !publicKey || pendingEscrows.length === 0) return
-
-    const withdrawAll = async () => {
-      for (const escrow of pendingEscrows.filter(e => e.status === 'pending')) {
-        console.log('[AutoClaim] Auto-withdrawing from escrow:', escrow.escrowAddress)
-        await withdrawFromEscrow(escrow)
-        await new Promise(r => setTimeout(r, 1000))
-      }
-    }
-
-    const timeout = setTimeout(withdrawAll, 2500)
-    return () => clearTimeout(timeout)
-  }, [pendingEscrows, connected, publicKey, withdrawFromEscrow])
+  // NOTE: Auto-claim and auto-withdraw DISABLED to prevent wallet popup spam
+  // Users can manually call claimAll(), claimSingle(), or withdrawFromEscrow()
+  // The UI should provide buttons for these actions
 
   return {
     isScanning,
