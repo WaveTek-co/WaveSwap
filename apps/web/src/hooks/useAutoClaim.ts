@@ -8,10 +8,27 @@ import {
   PROGRAM_IDS,
   StealthDiscriminators,
   deriveRegistryPda,
+  deriveStealthVaultPda,
   generateStealthKeysFromSignature,
   StealthKeyPair,
 } from '@/lib/stealth'
 import { StealthScanner, DetectedPayment, isPaymentForUs, checkViewTag } from '@/lib/stealth/scanner'
+
+// PER deposit record constants (Magic Actions)
+const PER_DEPOSIT_DISCRIMINATOR = 'PERDEPST'
+const PER_DEPOSIT_SIZE = 148
+
+// PER deposit record layout offsets:
+// discriminator(8) + bump(1) + nonce(32) + amount(8) + depositor(32) +
+// stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + delegated(1) + executed(1)
+const PER_OFFSET_NONCE = 9
+const PER_OFFSET_AMOUNT = 41
+const PER_OFFSET_DEPOSITOR = 49
+const PER_OFFSET_STEALTH = 81
+const PER_OFFSET_EPHEMERAL = 113
+const PER_OFFSET_VIEW_TAG = 145
+const PER_OFFSET_DELEGATED = 146
+const PER_OFFSET_EXECUTED = 147
 import { sha3_256 } from 'js-sha3'
 import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
@@ -214,7 +231,110 @@ export function useAutoClaim(): UseAutoClaimReturn {
         })
       }
 
-      console.log(`[AutoClaim] Scan complete: ${viewTagMatches} view tag matches, ${confirmedPayments} confirmed`)
+      console.log(`[AutoClaim] Announcement scan complete: ${viewTagMatches} view tag matches, ${confirmedPayments} confirmed`)
+
+      // ========================================
+      // MAGIC ACTIONS SCAN (PER Deposit Records)
+      // ========================================
+      console.log('[AutoClaim] Scanning Magic Actions (PER deposit records)...')
+
+      const perAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [
+          {
+            dataSize: PER_DEPOSIT_SIZE, // 148 bytes
+          },
+        ],
+      })
+
+      console.log(`[AutoClaim] Found ${perAccounts.length} potential PER deposit records`)
+
+      let perViewTagMatches = 0
+      let perConfirmedPayments = 0
+
+      for (const { pubkey, account } of perAccounts) {
+        const data = account.data
+
+        // Check discriminator
+        const discriminator = data.slice(0, 8).toString()
+        if (discriminator !== PER_DEPOSIT_DISCRIMINATOR) continue
+
+        // Check if executed (TEE has completed the transfer)
+        const executed = data[PER_OFFSET_EXECUTED]
+        if (executed !== 1) {
+          // Transfer not yet executed by TEE, skip
+          continue
+        }
+
+        // Extract ephemeral pubkey and view tag
+        const ephemeralPubkey = new Uint8Array(data.slice(PER_OFFSET_EPHEMERAL, PER_OFFSET_EPHEMERAL + 32))
+        const viewTag = data[PER_OFFSET_VIEW_TAG]
+
+        // STEP 1: Fast view tag check
+        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) {
+          continue // Not for us
+        }
+
+        perViewTagMatches++
+        console.log('[AutoClaim] Magic Actions: View tag match! Verifying stealth address...')
+
+        // STEP 2: Full cryptographic verification
+        const stealthPubkey = new Uint8Array(data.slice(PER_OFFSET_STEALTH, PER_OFFSET_STEALTH + 32))
+        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) {
+          console.log('[AutoClaim] Magic Actions: False positive - stealth pubkey mismatch')
+          continue
+        }
+
+        // CONFIRMED: Magic Actions payment is for us!
+        perConfirmedPayments++
+        console.log('[AutoClaim] Magic Actions: CONFIRMED payment for us!')
+
+        // Derive stealth vault PDA from stealth pubkey
+        const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
+
+        // Check vault balance
+        const vaultInfo = await connection.getAccountInfo(vaultPda)
+        if (!vaultInfo || vaultInfo.lamports === 0) {
+          console.log('[AutoClaim] Magic Actions: Vault empty - already claimed')
+          continue
+        }
+
+        // Get amount from PER deposit record (for logging)
+        const recordAmount = data.slice(PER_OFFSET_AMOUNT, PER_OFFSET_AMOUNT + 8)
+        const amountFromRecord = Buffer.from(recordAmount).readBigUInt64LE(0)
+
+        console.log(`[AutoClaim] Magic Actions: Found payment via PER`)
+        console.log(`  - Vault: ${vaultPda.toBase58()}`)
+        console.log(`  - Balance: ${vaultInfo.lamports / 1e9} SOL`)
+        console.log(`  - Record amount: ${Number(amountFromRecord) / 1e9} SOL`)
+
+        // Check if this is a new payment
+        const isNewPayment = !pendingClaims.some(c => c.vaultAddress === vaultPda.toBase58())
+
+        if (isNewPayment) {
+          showPaymentReceived({
+            signature: pubkey.toBase58(),
+            amount: BigInt(vaultInfo.lamports),
+            symbol: 'SOL',
+          })
+        }
+
+        setPendingClaims(prev => {
+          if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) {
+            return prev
+          }
+          return [...prev, {
+            vaultAddress: vaultPda.toBase58(),
+            amount: BigInt(vaultInfo.lamports),
+            sender: 'MAGIC_ACTIONS', // Indicate this came via Magic Actions/PER
+            announcementPda: pubkey.toBase58(), // Use PER deposit record as reference
+            stealthPubkey: stealthPubkey,
+            status: 'pending' as const,
+          }]
+        })
+      }
+
+      console.log(`[AutoClaim] Magic Actions scan complete: ${perViewTagMatches} view tag matches, ${perConfirmedPayments} confirmed`)
+      console.log(`[AutoClaim] Total scan complete`)
       setLastScanTime(new Date())
     } catch (err) {
       console.error('[AutoClaim] Scan error:', err)

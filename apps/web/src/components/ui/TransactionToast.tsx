@@ -161,7 +161,7 @@ export function showSendConfirmation(params: {
     ),
     {
       duration: 8000,
-      position: 'top-right',
+      position: 'bottom-right',
     }
   )
   return toastId
@@ -187,7 +187,7 @@ export function showPaymentReceived(params: {
     ),
     {
       duration: 10000,
-      position: 'top-right',
+      position: 'bottom-right',
     }
   )
   return toastId
@@ -213,7 +213,7 @@ export function showClaimSuccess(params: {
     ),
     {
       duration: 8000,
-      position: 'top-right',
+      position: 'bottom-right',
     }
   )
   return toastId

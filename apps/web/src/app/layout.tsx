@@ -107,7 +107,7 @@ export default function RootLayout({
                               <PrivacyReminder />
                               <GlobalWalletModal />
                               <Toaster
-                                position="top-right"
+                                position="bottom-right"
                                 toastOptions={{
                                   style: {
                                     background: 'transparent',
