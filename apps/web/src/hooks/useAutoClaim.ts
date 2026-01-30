@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram } from '@solana/web3.js'
+import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram } from '@solana/web3.js'
 import { useWallet } from './useWalletAdapter'
 import {
   PROGRAM_IDS,
@@ -23,11 +23,16 @@ const DELEGATION_PROGRAM_ID = new PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaA
 // PER deposit record layout offsets:
 // discriminator(8) + bump(1) + nonce(32) + amount(8) + depositor(32) +
 // stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + delegated(1) + executed(1)
+const PER_OFFSET_BUMP = 8
+const PER_OFFSET_NONCE = 9
 const PER_OFFSET_AMOUNT = 41
 const PER_OFFSET_STEALTH = 81
 const PER_OFFSET_EPHEMERAL = 113
 const PER_OFFSET_VIEW_TAG = 145
 const PER_OFFSET_EXECUTED = 147
+
+// PER deposit seed for PDA derivation
+const PER_DEPOSIT_SEED = 'per-deposit'
 
 // Scan interval (30 seconds to reduce RPC load)
 const SCAN_INTERVAL_MS = 30000
@@ -41,15 +46,29 @@ export interface PendingClaim {
   status: 'pending' | 'claiming' | 'claimed' | 'failed'
 }
 
+export interface DelegatedDeposit {
+  depositAddress: string
+  vaultAddress: string
+  amount: bigint
+  stealthPubkey: Uint8Array
+  nonce: Uint8Array
+  bump: number
+  executed: boolean
+}
+
 export interface UseAutoClaimReturn {
   isScanning: boolean
   pendingClaims: PendingClaim[]
+  delegatedDeposits: DelegatedDeposit[]
   totalPendingAmount: bigint
+  totalDelegatedAmount: bigint
   claimHistory: { signature: string; amount: bigint; timestamp: number; sender?: string }[]
   startScanning: () => void
   stopScanning: () => void
   claimAll: () => Promise<void>
   claimSingle: (vaultAddress: string) => Promise<boolean>
+  undelegateDeposit: (depositAddress: string) => Promise<boolean>
+  undelegateAll: () => Promise<void>
   lastScanTime: Date | null
   error: string | null
 }
@@ -59,6 +78,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
   const [isScanning, setIsScanning] = useState(false)
   const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([])
+  const [delegatedDeposits, setDelegatedDeposits] = useState<DelegatedDeposit[]>([])
   const [claimHistory, setClaimHistory] = useState<{ signature: string; amount: bigint; timestamp: number; sender?: string }[]>([])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -81,6 +101,11 @@ export function useAutoClaim(): UseAutoClaimReturn {
       .filter(c => c.status === 'pending')
       .reduce((sum, c) => sum + c.amount, BigInt(0))
   }, [pendingClaims])
+
+  // Calculate total delegated amount (waiting for TEE)
+  const totalDelegatedAmount = useMemo(() => {
+    return delegatedDeposits.reduce((sum, d) => sum + d.amount, BigInt(0))
+  }, [delegatedDeposits])
 
   // Magic Actions scan - scans PER deposit records
   const scanMagicActions = useCallback(async (keys: StealthKeyPair) => {
@@ -178,9 +203,27 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.log(`  - TEE Executed: ${executed}`)
         console.log(`  - Can Claim: ${canClaim}`)
 
-        // Skip if TEE hasn't executed yet - funds still in deposit record
+        // If TEE hasn't executed, track as delegated deposit (can be undelegated)
         if (!canClaim) {
-          console.log('[AutoClaim] Magic Actions: Waiting for TEE execution...')
+          console.log('[AutoClaim] Magic Actions: Waiting for TEE execution - tracking as delegated')
+
+          // Extract nonce and bump for undelegation
+          const nonce = new Uint8Array(data.slice(PER_OFFSET_NONCE, PER_OFFSET_NONCE + 32))
+          const bump = data[PER_OFFSET_BUMP]
+
+          // Track delegated deposit
+          setDelegatedDeposits(prev => {
+            if (prev.some(d => d.depositAddress === pubkey.toBase58())) return prev
+            return [...prev, {
+              depositAddress: pubkey.toBase58(),
+              vaultAddress: vaultPda.toBase58(),
+              amount,
+              stealthPubkey,
+              nonce,
+              bump,
+              executed: false,
+            }]
+          })
           continue
         }
 
@@ -395,6 +438,100 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [pendingClaims, claimSingle])
 
+  // Undelegate a single deposit to recover funds
+  const undelegateDeposit = useCallback(async (depositAddress: string): Promise<boolean> => {
+    if (!publicKey || !signTransaction) {
+      setError('Wallet not connected')
+      return false
+    }
+
+    const deposit = delegatedDeposits.find(d => d.depositAddress === depositAddress)
+    if (!deposit) {
+      setError('Deposit not found')
+      return false
+    }
+
+    try {
+      console.log('[AutoClaim] Undelegating deposit:', depositAddress)
+
+      const depositPda = new PublicKey(depositAddress)
+
+      // Derive delegation PDAs
+      const [delegationRecord] = PublicKey.findProgramAddressSync(
+        [Buffer.from('delegation'), depositPda.toBuffer()],
+        DELEGATION_PROGRAM_ID
+      )
+      const [delegationMetadata] = PublicKey.findProgramAddressSync(
+        [Buffer.from('delegation-metadata'), depositPda.toBuffer()],
+        DELEGATION_PROGRAM_ID
+      )
+      const [delegateBuffer] = PublicKey.findProgramAddressSync(
+        [Buffer.from('buffer'), depositPda.toBuffer()],
+        PROGRAM_IDS.STEALTH
+      )
+
+      // Build undelegate instruction
+      // Data: discriminator (1 byte = 0x30 for UNDELEGATE) + bump (1 byte)
+      const data = Buffer.alloc(9)
+      data.writeUInt8(0x30, 0) // UNDELEGATE discriminator
+      data.writeUInt8(deposit.bump, 8)
+
+      const tx = new Transaction()
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+      tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }))
+      tx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: publicKey, isSigner: true, isWritable: false },
+            { pubkey: depositPda, isSigner: false, isWritable: true },
+            { pubkey: delegateBuffer, isSigner: false, isWritable: true },
+            { pubkey: delegationRecord, isSigner: false, isWritable: true },
+            { pubkey: delegationMetadata, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            { pubkey: DELEGATION_PROGRAM_ID, isSigner: false, isWritable: false },
+            { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        })
+      )
+
+      tx.feePayer = publicKey
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
+
+      const signedTx = await signTransaction(tx)
+      const signature = await connection.sendRawTransaction(signedTx.serialize())
+      await connection.confirmTransaction(signature, 'confirmed')
+
+      console.log('[AutoClaim] Undelegate successful:', signature)
+
+      // Remove from delegated deposits
+      setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== depositAddress))
+
+      // Show success toast
+      showClaimSuccess({
+        signature,
+        amount: deposit.amount,
+        symbol: 'SOL',
+      })
+
+      return true
+    } catch (err) {
+      console.error('[AutoClaim] Undelegate failed:', err)
+      setError(err instanceof Error ? err.message : 'Undelegate failed')
+      return false
+    }
+  }, [publicKey, signTransaction, connection, delegatedDeposits])
+
+  // Undelegate all deposits
+  const undelegateAll = useCallback(async () => {
+    for (const deposit of delegatedDeposits) {
+      await undelegateDeposit(deposit.depositAddress)
+      await new Promise(r => setTimeout(r, 1000))
+    }
+  }, [delegatedDeposits, undelegateDeposit])
+
   // Auto-claim when payments detected
   useEffect(() => {
     const pendingCount = pendingClaims.filter(c => c.status === 'pending').length
@@ -408,12 +545,16 @@ export function useAutoClaim(): UseAutoClaimReturn {
   return {
     isScanning,
     pendingClaims,
+    delegatedDeposits,
     totalPendingAmount,
+    totalDelegatedAmount,
     claimHistory,
     startScanning,
     stopScanning,
     claimAll,
     claimSingle,
+    undelegateDeposit,
+    undelegateAll,
     lastScanTime,
     error,
   }
