@@ -70,10 +70,12 @@ export interface UseAutoClaimReturn {
   stopScanning: () => void
   claimAll: () => Promise<void>
   claimSingle: (vaultAddress: string) => Promise<boolean>
+  // Primary: execute on rollup (privacy-preserving)
   executePerTransfer: (deposit: DelegatedDeposit) => Promise<boolean>
-  executeAndClaimAll: () => Promise<void>
-  undelegateDeposit: (depositAddress: string) => Promise<boolean>
-  undelegateAll: () => Promise<void>
+  executeAllOnRollup: () => Promise<void>
+  // Fallback: undelegate to mainnet then execute
+  undelegateAndExecute: (deposit: DelegatedDeposit) => Promise<boolean>
+  undelegateAndClaimAll: () => Promise<void>
   lastScanTime: Date | null
   error: string | null
 }
@@ -443,99 +445,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [pendingClaims, claimSingle])
 
-  // Undelegate a single deposit to recover funds
-  const undelegateDeposit = useCallback(async (depositAddress: string): Promise<boolean> => {
-    if (!publicKey || !signTransaction) {
-      setError('Wallet not connected')
-      return false
-    }
-
-    const deposit = delegatedDeposits.find(d => d.depositAddress === depositAddress)
-    if (!deposit) {
-      setError('Deposit not found')
-      return false
-    }
-
-    try {
-      console.log('[AutoClaim] Undelegating deposit:', depositAddress)
-
-      const depositPda = new PublicKey(depositAddress)
-
-      // Derive delegation PDAs
-      const [delegationRecord] = PublicKey.findProgramAddressSync(
-        [Buffer.from('delegation'), depositPda.toBuffer()],
-        DELEGATION_PROGRAM_ID
-      )
-      const [delegationMetadata] = PublicKey.findProgramAddressSync(
-        [Buffer.from('delegation-metadata'), depositPda.toBuffer()],
-        DELEGATION_PROGRAM_ID
-      )
-      const [delegateBuffer] = PublicKey.findProgramAddressSync(
-        [Buffer.from('buffer'), depositPda.toBuffer()],
-        PROGRAM_IDS.STEALTH
-      )
-
-      // Build undelegate instruction
-      // Data: discriminator (1 byte = 0x30 for UNDELEGATE) + bump (1 byte)
-      const data = Buffer.alloc(9)
-      data.writeUInt8(0x30, 0) // UNDELEGATE discriminator
-      data.writeUInt8(deposit.bump, 8)
-
-      const tx = new Transaction()
-      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
-      tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }))
-      tx.add(
-        new TransactionInstruction({
-          keys: [
-            { pubkey: publicKey, isSigner: true, isWritable: true },
-            { pubkey: publicKey, isSigner: true, isWritable: false },
-            { pubkey: depositPda, isSigner: false, isWritable: true },
-            { pubkey: delegateBuffer, isSigner: false, isWritable: true },
-            { pubkey: delegationRecord, isSigner: false, isWritable: true },
-            { pubkey: delegationMetadata, isSigner: false, isWritable: true },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-            { pubkey: DELEGATION_PROGRAM_ID, isSigner: false, isWritable: false },
-            { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false },
-          ],
-          programId: PROGRAM_IDS.STEALTH,
-          data,
-        })
-      )
-
-      tx.feePayer = publicKey
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
-
-      const signedTx = await signTransaction(tx)
-      const signature = await connection.sendRawTransaction(signedTx.serialize())
-      await connection.confirmTransaction(signature, 'confirmed')
-
-      console.log('[AutoClaim] Undelegate successful:', signature)
-
-      // Remove from delegated deposits
-      setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== depositAddress))
-
-      // Show success toast
-      showClaimSuccess({
-        signature,
-        amount: deposit.amount,
-        symbol: 'SOL',
-      })
-
-      return true
-    } catch (err) {
-      console.error('[AutoClaim] Undelegate failed:', err)
-      setError(err instanceof Error ? err.message : 'Undelegate failed')
-      return false
-    }
-  }, [publicKey, signTransaction, connection, delegatedDeposits])
-
-  // Undelegate all deposits
-  const undelegateAll = useCallback(async () => {
-    for (const deposit of delegatedDeposits) {
-      await undelegateDeposit(deposit.depositAddress)
-      await new Promise(r => setTimeout(r, 1000))
-    }
-  }, [delegatedDeposits, undelegateDeposit])
 
   // MagicBlock rollup connection for delegated accounts
   const rollupConnection = useMemo(() => {
@@ -545,9 +454,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
     })
   }, [])
 
-  // Execute PER transfer - moves funds from deposit to stealth vault
-  // This is PERMISSIONLESS - anyone can call it (privacy preserved)
-  // Sends to MagicBlock rollup RPC since account is delegated
+  // Execute PER transfer on rollup - moves funds from deposit to stealth vault
+  // PRIVACY-PRESERVING: Executes inside MagicBlock TEE, then commits to mainnet
+  // Flow: rollup executes → state commits to L1 → funds in vault → auto-claim
   const executePerTransfer = useCallback(async (deposit: DelegatedDeposit): Promise<boolean> => {
     if (!publicKey || !signTransaction) {
       setError('Wallet not connected')
@@ -555,13 +464,14 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
 
     try {
-      console.log('[AutoClaim] Executing PER transfer via MagicBlock rollup...')
+      console.log('[AutoClaim] Executing PER transfer on MagicBlock rollup (TEE)...')
       console.log('  Deposit:', deposit.depositAddress)
 
       const depositPda = new PublicKey(deposit.depositAddress)
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
 
       console.log('  Vault:', vaultPda.toBase58())
+      console.log('  Amount:', Number(deposit.amount) / 1e9, 'SOL')
 
       // Build execute_per_transfer instruction
       // Data: discriminator (1 byte) + nonce (32 bytes) + vault_bump (1 byte)
@@ -587,20 +497,46 @@ export function useAutoClaim(): UseAutoClaimReturn {
       )
 
       tx.feePayer = publicKey
-      // Get blockhash from rollup
-      tx.recentBlockhash = (await rollupConnection.getLatestBlockhash()).blockhash
+      // Get blockhash from rollup (not mainnet!)
+      const { blockhash } = await rollupConnection.getLatestBlockhash()
+      tx.recentBlockhash = blockhash
 
+      console.log('[AutoClaim] Sending to MagicBlock rollup RPC...')
       const signedTx = await signTransaction(tx)
-      // Send to MagicBlock rollup (not mainnet)
-      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize())
-      await rollupConnection.confirmTransaction(signature, 'confirmed')
 
-      console.log('[AutoClaim] PER transfer executed on rollup:', signature)
+      // Send to MagicBlock rollup - TEE executes transfer privately
+      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true, // Rollup may have different preflight rules
+      })
+
+      console.log('[AutoClaim] Transaction sent to rollup:', signature)
+
+      // Wait for rollup confirmation
+      await rollupConnection.confirmTransaction(signature, 'confirmed')
+      console.log('[AutoClaim] Rollup confirmed, waiting for L1 commit...')
+
+      // Wait for state to commit to mainnet (rollup auto-commits)
+      // Poll mainnet for vault balance
+      let vaultReady = false
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 2000))
+        const vaultInfo = await connection.getAccountInfo(vaultPda)
+        if (vaultInfo && vaultInfo.lamports > 0) {
+          vaultReady = true
+          console.log('[AutoClaim] Vault funded on mainnet:', vaultInfo.lamports, 'lamports')
+          break
+        }
+        console.log('[AutoClaim] Waiting for L1 commit...', i + 1)
+      }
+
+      if (!vaultReady) {
+        console.warn('[AutoClaim] Vault not yet visible on mainnet, may need more time')
+      }
 
       // Remove from delegated deposits
       setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
 
-      // Add to pending claims (now claimable from vault)
+      // Add to pending claims (claimable from vault on mainnet)
       setPendingClaims(prev => {
         if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
         return [...prev, {
@@ -619,33 +555,199 @@ export function useAutoClaim(): UseAutoClaimReturn {
       setError(err instanceof Error ? err.message : 'Execute failed')
       return false
     }
-  }, [publicKey, signTransaction, connection])
+  }, [publicKey, signTransaction, rollupConnection, connection])
 
-  // Execute all PER transfers then claim
-  const executeAndClaimAll = useCallback(async () => {
-    console.log('[AutoClaim] Executing all PER transfers...')
-
-    // First execute all delegated deposits
-    for (const deposit of delegatedDeposits) {
-      await executePerTransfer(deposit)
-      await new Promise(r => setTimeout(r, 1000))
+  // Fallback: Undelegate on rollup then execute on mainnet
+  // Used when direct rollup execution fails
+  // Note: This still requires rollup access (delegated accounts can only be undelegated from rollup)
+  const undelegateAndExecute = useCallback(async (deposit: DelegatedDeposit): Promise<boolean> => {
+    if (!publicKey || !signTransaction) {
+      setError('Wallet not connected')
+      return false
     }
 
-    // Then claim all pending
-    await claimAll()
-  }, [delegatedDeposits, executePerTransfer, claimAll])
+    try {
+      console.log('[AutoClaim] Fallback: Undelegate on rollup, then execute...')
+      console.log('  Deposit:', deposit.depositAddress)
 
-  // Auto-execute and claim when payments detected
+      const depositPda = new PublicKey(deposit.depositAddress)
+      const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
+
+      // MagicBlock Magic Context and Program (for undelegate CPI)
+      const MAGIC_CONTEXT = new PublicKey('MagicContext1111111111111111111111111111111')
+      const MAGIC_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111')
+
+      // Step 1: Undelegate on rollup (0x14 = UNDELEGATE_PER_DEPOSIT)
+      // Data: nonce (32 bytes) + bump (1 byte)
+      const undelegateData = Buffer.alloc(34)
+      undelegateData.writeUInt8(0x14, 0) // UNDELEGATE_PER_DEPOSIT discriminator
+      Buffer.from(deposit.nonce).copy(undelegateData, 1)
+      undelegateData.writeUInt8(deposit.bump, 33)
+
+      const undelegateTx = new Transaction()
+      undelegateTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+      undelegateTx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: depositPda, isSigner: false, isWritable: true },
+            { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: false },
+            { pubkey: MAGIC_PROGRAM, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: undelegateData,
+        })
+      )
+
+      undelegateTx.feePayer = publicKey
+      undelegateTx.recentBlockhash = (await rollupConnection.getLatestBlockhash()).blockhash
+
+      const signedUndelegateTx = await signTransaction(undelegateTx)
+      const undelegateSig = await rollupConnection.sendRawTransaction(signedUndelegateTx.serialize(), {
+        skipPreflight: true,
+      })
+      await rollupConnection.confirmTransaction(undelegateSig, 'confirmed')
+
+      console.log('[AutoClaim] Undelegate confirmed on rollup:', undelegateSig)
+
+      // Wait for state to commit to mainnet
+      console.log('[AutoClaim] Waiting for L1 commit...')
+      await new Promise(r => setTimeout(r, 10000))
+
+      // Step 2: Execute transfer on mainnet (account is now undelegated)
+      const executeData = Buffer.alloc(34)
+      executeData.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
+      Buffer.from(deposit.nonce).copy(executeData, 1)
+      executeData.writeUInt8(vaultBump, 33)
+
+      const executeTx = new Transaction()
+      executeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+      executeTx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: depositPda, isSigner: false, isWritable: true },
+            { pubkey: vaultPda, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: executeData,
+        })
+      )
+
+      executeTx.feePayer = publicKey
+      executeTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
+
+      const signedExecuteTx = await signTransaction(executeTx)
+      const executeSig = await connection.sendRawTransaction(signedExecuteTx.serialize())
+      await connection.confirmTransaction(executeSig, 'confirmed')
+
+      console.log('[AutoClaim] Execute successful on mainnet:', executeSig)
+
+      // Remove from delegated deposits
+      setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+
+      // Add to pending claims
+      setPendingClaims(prev => {
+        if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
+        return [...prev, {
+          vaultAddress: vaultPda.toBase58(),
+          amount: deposit.amount,
+          sender: 'MAGIC_ACTIONS',
+          announcementPda: deposit.depositAddress,
+          stealthPubkey: deposit.stealthPubkey,
+          status: 'pending' as const,
+        }]
+      })
+
+      showPaymentReceived({
+        signature: executeSig,
+        amount: deposit.amount,
+        symbol: 'SOL',
+      })
+
+      return true
+    } catch (err) {
+      console.error('[AutoClaim] Undelegate + execute failed:', err)
+      setError(err instanceof Error ? err.message : 'Operation failed')
+      return false
+    }
+  }, [publicKey, signTransaction, connection, rollupConnection])
+
+  // Process all delegated deposits via rollup (preferred) or undelegate fallback
+  const executeAllOnRollup = useCallback(async () => {
+    console.log('[AutoClaim] Processing all delegated deposits via rollup...')
+
+    for (const deposit of delegatedDeposits) {
+      // Try rollup execution first (privacy-preserving)
+      let success = await executePerTransfer(deposit)
+
+      // If rollup fails, fall back to undelegate + execute on mainnet
+      if (!success) {
+        console.log('[AutoClaim] Rollup failed, trying undelegate fallback...')
+        success = await undelegateAndExecute(deposit)
+      }
+
+      if (success) {
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+
+    // Wait for L1 commits, then claim all pending
+    await new Promise(r => setTimeout(r, 5000))
+    await claimAll()
+  }, [delegatedDeposits, executePerTransfer, undelegateAndExecute, claimAll])
+
+  // Alias for backward compatibility
+  const undelegateAndClaimAll = executeAllOnRollup
+
+  // Track processing state to prevent duplicate triggers
+  const processingRef = useRef<Set<string>>(new Set())
+
+  // Auto-execute PER transfers on rollup when delegated deposits are found
+  // This is the magic: scanner finds deposit → triggers rollup → funds appear in vault
+  useEffect(() => {
+    if (!connected || !publicKey || delegatedDeposits.length === 0) return
+
+    const processDeposits = async () => {
+      for (const deposit of delegatedDeposits) {
+        // Skip if already processing
+        if (processingRef.current.has(deposit.depositAddress)) continue
+        processingRef.current.add(deposit.depositAddress)
+
+        console.log(`[AutoClaim] Auto-executing PER transfer for ${deposit.depositAddress}`)
+
+        try {
+          const success = await executePerTransfer(deposit)
+          if (success) {
+            console.log('[AutoClaim] PER transfer executed, funds moving to vault...')
+          }
+        } catch (err) {
+          console.error('[AutoClaim] Auto-execute failed:', err)
+        } finally {
+          processingRef.current.delete(deposit.depositAddress)
+        }
+
+        // Small delay between deposits
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+
+    // Delay to allow UI to settle
+    const timeout = setTimeout(processDeposits, 3000)
+    return () => clearTimeout(timeout)
+  }, [delegatedDeposits, connected, publicKey, executePerTransfer])
+
+  // Auto-claim pending payments from vaults (after PER transfer commits to L1)
   useEffect(() => {
     const pendingCount = pendingClaims.filter(c => c.status === 'pending').length
-    const delegatedCount = delegatedDeposits.length
 
-    if ((pendingCount > 0 || delegatedCount > 0) && connected && publicKey) {
-      console.log(`[AutoClaim] ${delegatedCount} delegated, ${pendingCount} pending - auto-processing...`)
-      const timeout = setTimeout(executeAndClaimAll, 2000)
+    if (pendingCount > 0 && connected && publicKey) {
+      console.log(`[AutoClaim] ${pendingCount} pending claims - auto-claiming from vaults...`)
+      const timeout = setTimeout(claimAll, 2000)
       return () => clearTimeout(timeout)
     }
-  }, [pendingClaims, delegatedDeposits, connected, publicKey, executeAndClaimAll])
+  }, [pendingClaims, connected, publicKey, claimAll])
 
   return {
     isScanning,
@@ -659,9 +761,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
     claimAll,
     claimSingle,
     executePerTransfer,
-    executeAndClaimAll,
-    undelegateDeposit,
-    undelegateAll,
+    executeAllOnRollup,
+    undelegateAndExecute,
+    undelegateAndClaimAll,
     lastScanTime,
     error,
   }

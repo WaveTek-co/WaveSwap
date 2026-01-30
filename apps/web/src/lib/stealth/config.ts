@@ -45,6 +45,8 @@ export const StealthDiscriminators = {
   DEPOSIT_AND_DELEGATE: 0x12,
   // Execute PER transfer (permissionless - for TEE/relayer/autoClaim)
   EXECUTE_PER_TRANSFER: 0x13,
+  // Undelegate PER deposit (fallback - manual recovery)
+  UNDELEGATE_PER_DEPOSIT: 0x14,
 };
 
 // DeFi instruction discriminators
