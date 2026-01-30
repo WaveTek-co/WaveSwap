@@ -37,6 +37,10 @@ export const StealthDiscriminators = {
   EXECUTE_MIXER_TRANSFER: 0x0a,
   INITIALIZE_RELAYER_AUTH: 0x0b,
   CLAIM_VIA_RELAYER: 0x0c,
+  // Test mixer pool (non-delegated, production-ready)
+  INITIALIZE_TEST_MIXER_POOL: 0x0F,
+  DEPOSIT_TO_TEST_MIXER: 0x10,
+  EXECUTE_TEST_MIXER_TRANSFER: 0x11,
 };
 
 // DeFi instruction discriminators
@@ -90,10 +94,18 @@ export function deriveAnnouncementPdaFromNonce(nonce: Uint8Array): [PublicKey, n
   );
 }
 
-// Mixer pool PDA (singleton)
+// Mixer pool PDA (singleton) - DEPRECATED, use deriveTestMixerPoolPda
 export function deriveMixerPoolPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("mixer-pool")],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Test mixer pool PDA (non-delegated, production-ready on devnet)
+export function deriveTestMixerPoolPda(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("test-mixer-pool")],
     PROGRAM_IDS.STEALTH
   );
 }

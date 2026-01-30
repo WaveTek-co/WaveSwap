@@ -24,7 +24,7 @@ import {
   StealthDiscriminators,
   deriveStealthVaultPda,
   deriveAnnouncementPdaFromNonce,
-  deriveMixerPoolPda,
+  deriveTestMixerPoolPda,
   deriveDepositRecordPda,
   deriveRelayerAuthPda,
 } from "./config";
@@ -156,7 +156,7 @@ export class PERPrivacyClient {
     pendingDeposits: number;
     mixDelaySlots: bigint;
   }> {
-    const [mixerPoolPda] = deriveMixerPoolPda();
+    const [mixerPoolPda] = deriveTestMixerPoolPda();
     const info = await this.mainnetConnection.getAccountInfo(mixerPoolPda);
 
     if (!info || info.data.length < 100) {
@@ -265,7 +265,7 @@ export class PERPrivacyClient {
     vaultPda?: PublicKey;
   }> {
     try {
-      const [mixerPoolPda] = deriveMixerPoolPda();
+      const [mixerPoolPda] = deriveTestMixerPoolPda();
       const [depositRecordPda, depositBump] = deriveDepositRecordPda(nonce);
       const [vaultPda] = deriveStealthVaultPda(stealthPubkey);
 
@@ -273,7 +273,7 @@ export class PERPrivacyClient {
       // Data: discriminator(1) + bump(1) + nonce(32) + amount(8) = 42 bytes
       const data = Buffer.alloc(42);
       let offset = 0;
-      data[offset++] = StealthDiscriminators.DEPOSIT_TO_MIXER;
+      data[offset++] = StealthDiscriminators.DEPOSIT_TO_TEST_MIXER;
       data[offset++] = depositBump;
       Buffer.from(nonce).copy(data, offset);
       offset += 32;
@@ -317,9 +317,9 @@ export class PERPrivacyClient {
   // This is the key privacy step - breaks the sender-vault link completely
   // The TEE proof is the ONLY authorization required
   //
-  // On-chain expects:
+  // On-chain expects (test mixer - non-delegated):
   // - accounts: submitter, mixer_pool, deposit_record, vault, announcement, system_program, instructions_sysvar
-  // - data: nonce (32) + stealth_pubkey (32) + tee_proof (168) = 232 bytes
+  // - data: nonce (32) + stealth_pubkey (32) + announcement_bump (1) + vault_bump (1) + tee_proof (168) = 234 bytes
   async executeMixerTransfer(
     submitter: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
     nonce: Uint8Array,
@@ -333,22 +333,26 @@ export class PERPrivacyClient {
     signature?: string;
   }> {
     try {
-      const [mixerPoolPda] = deriveMixerPoolPda();
+      const [mixerPoolPda] = deriveTestMixerPoolPda();
       const [depositRecordPda] = deriveDepositRecordPda(nonce);
+      const [, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
+      const [, vaultBump] = deriveStealthVaultPda(stealthPubkey);
 
       // Generate TEE proof if not provided (devnet)
       const proof = teeProof || createDevnetTeeProof(announcementPda.toBytes(), vaultPda.toBytes());
 
-      // Build execute mixer transfer instruction
-      // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) + tee_proof(168) = 233 bytes
-      // lib.rs consumes discriminator, passes remaining 232 bytes to execute_mixer_transfer::process
-      const data = Buffer.alloc(233);
+      // Build execute test mixer transfer instruction (non-delegated)
+      // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) + announcement_bump(1) + vault_bump(1) + tee_proof(168) = 235 bytes
+      // lib.rs consumes discriminator, passes remaining 234 bytes to execute_test_mixer_transfer::process
+      const data = Buffer.alloc(235);
       let offset = 0;
-      data[offset++] = StealthDiscriminators.EXECUTE_MIXER_TRANSFER;
+      data[offset++] = StealthDiscriminators.EXECUTE_TEST_MIXER_TRANSFER;
       Buffer.from(nonce).copy(data, offset);
       offset += 32;
       Buffer.from(stealthPubkey).copy(data, offset);
       offset += 32;
+      data[offset++] = announcementBump;
+      data[offset++] = vaultBump;
       Buffer.from(proof).copy(data, offset);
 
       const ix = new TransactionInstruction({
@@ -379,13 +383,17 @@ export class PERPrivacyClient {
     }
   }
 
-  // Complete privacy send: announcement → deposit → (wait) → mixer transfer
+  // Complete privacy send: USER signs ONCE (announcement + deposit), RELAYER executes mixer transfer
+  // CRITICAL: The user wallet MUST NOT sign the mixer transfer - that breaks privacy!
   async privacySend(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    params: PrivacySendParams,
-    waitForMixDelay: boolean = false
+    params: PrivacySendParams
   ): Promise<PrivacySendResult> {
     console.log("[PER Privacy] Starting full privacy send flow...");
+
+    if (!this.relayerEndpoint) {
+      return { success: false, error: "Relayer not configured. Call setRelayer() first for privacy." };
+    }
 
     // Step 1: Publish announcement
     console.log("[PER Privacy] Step 1: Publishing announcement...");
@@ -401,7 +409,7 @@ export class PERPrivacyClient {
 
     console.log("[PER Privacy] Announcement published:", announcementResult.signature);
 
-    // Step 2: Deposit to mixer
+    // Step 2: Deposit to mixer (USER signs this - LAST user transaction!)
     console.log("[PER Privacy] Step 2: Depositing to mixer pool...");
     const depositResult = await this.depositToMixer(
       wallet,
@@ -422,49 +430,65 @@ export class PERPrivacyClient {
 
     console.log("[PER Privacy] Deposited to mixer:", depositResult.signature);
 
-    // Step 3: Execute mixer transfer (or let PER do it)
-    if (waitForMixDelay) {
-      const poolStatus = await this.getMixerPoolStatus();
-      const delayMs = Number(poolStatus.mixDelaySlots) * 400; // ~400ms per slot
-      console.log(`[PER Privacy] Waiting ${delayMs}ms for mix delay...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs + 1000));
-    }
+    // Step 3: Submit to RELAYER for mixer execution
+    // CRITICAL: The RELAYER executes this, NOT the user wallet!
+    // This is what breaks the sender-vault link and provides privacy!
+    console.log("[PER Privacy] Step 3: Submitting to relayer for mixer execution...");
+    console.log("[PER Privacy] Relayer endpoint:", this.relayerEndpoint);
 
-    console.log("[PER Privacy] Step 3: Executing mixer transfer...");
-    const mixerResult = await this.executeMixerTransfer(
-      wallet,
-      announcementResult.nonce!,
-      announcementResult.announcementPda!,
-      depositResult.vaultPda!,
-      announcementResult.stealthConfig!.stealthPubkey
-    );
+    const mixerRequest = {
+      nonce: Buffer.from(announcementResult.nonce!).toString("base64"),
+      announcementPda: announcementResult.announcementPda!.toBase58(),
+      vaultPda: depositResult.vaultPda!.toBase58(),
+      stealthPubkey: Buffer.from(announcementResult.stealthConfig!.stealthPubkey).toString("base64"),
+      depositSignature: depositResult.signature,
+    };
 
-    if (!mixerResult.success) {
+    try {
+      const response = await fetch(`${this.relayerEndpoint}/execute-mixer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mixerRequest),
+      });
+
+      const mixerResult = await response.json() as { success: boolean; signature?: string; error?: string };
+
+      if (!mixerResult.success) {
+        return {
+          success: false,
+          error: `Relayer mixer execution failed: ${mixerResult.error}. Funds safe in mixer pool.`,
+          announcementSignature: announcementResult.signature,
+          announcementPda: announcementResult.announcementPda,
+          depositSignature: depositResult.signature,
+          depositRecordPda: depositResult.depositRecordPda,
+        };
+      }
+
+      console.log("[PER Privacy] Mixer transfer complete (by RELAYER):", mixerResult.signature);
+      console.log("[PER Privacy] FULL PRIVACY SEND COMPLETE!");
+
+      return {
+        success: true,
+        announcementSignature: announcementResult.signature,
+        announcementPda: announcementResult.announcementPda,
+        depositSignature: depositResult.signature,
+        depositRecordPda: depositResult.depositRecordPda,
+        mixerTransferSignature: mixerResult.signature,
+        vaultPda: depositResult.vaultPda,
+        stealthPubkey: announcementResult.stealthConfig!.stealthPubkey,
+        ephemeralPubkey: announcementResult.stealthConfig!.ephemeralPubkey,
+        viewTag: announcementResult.stealthConfig!.viewTag,
+      };
+    } catch (error: any) {
       return {
         success: false,
-        error: `Mixer transfer failed: ${mixerResult.error}`,
+        error: `Relayer request failed: ${error.message}`,
         announcementSignature: announcementResult.signature,
         announcementPda: announcementResult.announcementPda,
         depositSignature: depositResult.signature,
         depositRecordPda: depositResult.depositRecordPda,
       };
     }
-
-    console.log("[PER Privacy] Mixer transfer complete:", mixerResult.signature);
-    console.log("[PER Privacy] FULL PRIVACY SEND COMPLETE!");
-
-    return {
-      success: true,
-      announcementSignature: announcementResult.signature,
-      announcementPda: announcementResult.announcementPda,
-      depositSignature: depositResult.signature,
-      depositRecordPda: depositResult.depositRecordPda,
-      mixerTransferSignature: mixerResult.signature,
-      vaultPda: depositResult.vaultPda,
-      stealthPubkey: announcementResult.stealthConfig!.stealthPubkey,
-      ephemeralPubkey: announcementResult.stealthConfig!.ephemeralPubkey,
-      viewTag: announcementResult.stealthConfig!.viewTag,
-    };
   }
 
   // Privacy claim via relayer - recipient NEVER signs or appears on-chain

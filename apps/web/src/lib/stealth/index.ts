@@ -33,6 +33,7 @@ export {
   deriveStealthVaultPda,
   deriveStakePositionPda,
   deriveMixerPoolPda,
+  deriveTestMixerPoolPda,
   deriveDepositRecordPda,
   deriveRelayerAuthPda,
 } from "./config";
