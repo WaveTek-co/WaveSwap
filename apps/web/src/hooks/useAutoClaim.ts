@@ -259,7 +259,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           keys: [
             { pubkey: publicKey, isSigner: true, isWritable: true },
             { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
-            { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+            { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // read-only (on L1)
             { pubkey: escrowPda, isSigner: false, isWritable: true },
             { pubkey: magicContext, isSigner: false, isWritable: false },
             { pubkey: MAGIC_PROGRAM_ID, isSigner: false, isWritable: false },
