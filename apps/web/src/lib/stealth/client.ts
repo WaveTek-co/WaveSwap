@@ -846,10 +846,10 @@ export class WaveStealthClient {
     Buffer.from(nonce).copy(data, offset);
     offset += 32;
 
-    const amountBytes = Buffer.alloc(8);
-    amountBytes.writeBigUInt64LE(amountBigInt);
-    amountBytes.copy(data, offset);
-    offset += 8;
+    // Write amount as 8 bytes little-endian (browser-compatible)
+    for (let i = 0; i < 8; i++) {
+      data[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+    }
 
     Buffer.from(stealthConfig.stealthPubkey).copy(data, offset);
     offset += 32;
@@ -859,8 +859,12 @@ export class WaveStealthClient {
 
     data[offset++] = stealthConfig.viewTag;
 
-    // Commit frequency: 1000ms = 1 second
-    data.writeUInt32LE(1000, offset);
+    // Commit frequency: 1000ms = 1 second (write as 4 bytes little-endian, browser-compatible)
+    const commitFrequency = 1000;
+    data[offset++] = commitFrequency & 0xff;
+    data[offset++] = (commitFrequency >> 8) & 0xff;
+    data[offset++] = (commitFrequency >> 16) & 0xff;
+    data[offset++] = (commitFrequency >> 24) & 0xff;
 
     // Build deposit + delegate instruction
     tx.add(
@@ -936,11 +940,17 @@ export class WaveStealthClient {
 
     const data = accountInfo.data;
 
+    // Read amount as little-endian BigInt (browser-compatible)
+    let amount = BigInt(0);
+    for (let i = 0; i < 8; i++) {
+      amount |= BigInt(data[41 + i]) << BigInt(i * 8);
+    }
+
     return {
       exists: true,
       delegated: data[146] === 1,
       executed: data[147] === 1,
-      amount: Buffer.from(data.slice(41, 49)).readBigUInt64LE(),
+      amount,
     };
   }
 

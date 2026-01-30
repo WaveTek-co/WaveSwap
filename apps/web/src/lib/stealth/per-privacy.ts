@@ -166,9 +166,20 @@ export class PERPrivacyClient {
     // Parse mixer pool data
     // Layout: discriminator(8) + bump(1) + authority(32) + balance(8) + min_deposit(8) + max_deposit(8) + mix_delay_slots(8) + pending(4) + executed(4) + is_active(1)
     const data = info.data;
-    const balance = BigInt(data.readBigUInt64LE(41));
-    const mixDelaySlots = BigInt(data.readBigUInt64LE(65));
-    const pendingDeposits = data.readUInt32LE(73);
+
+    // Read balance as little-endian BigInt (browser-compatible)
+    let balance = BigInt(0);
+    for (let i = 0; i < 8; i++) {
+      balance |= BigInt(data[41 + i]) << BigInt(i * 8);
+    }
+
+    // Read mixDelaySlots as little-endian BigInt (browser-compatible)
+    let mixDelaySlots = BigInt(0);
+    for (let i = 0; i < 8; i++) {
+      mixDelaySlots |= BigInt(data[65 + i]) << BigInt(i * 8);
+    }
+
+    const pendingDeposits = data[73] | (data[74] << 8) | (data[75] << 16) | (data[76] << 24);
     const isActive = data[81] === 1;
 
     return {

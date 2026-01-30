@@ -150,8 +150,12 @@ export function deriveStealthVaultPda(stealthPubkey: Uint8Array): [PublicKey, nu
 }
 
 export function deriveStakePositionPda(owner: PublicKey, index: number): [PublicKey, number] {
+  // Write index as 4 bytes little-endian (browser-compatible)
   const indexBuffer = Buffer.alloc(4);
-  indexBuffer.writeUInt32LE(index);
+  indexBuffer[0] = index & 0xff;
+  indexBuffer[1] = (index >> 8) & 0xff;
+  indexBuffer[2] = (index >> 16) & 0xff;
+  indexBuffer[3] = (index >> 24) & 0xff;
   return PublicKey.findProgramAddressSync(
     [Buffer.from("stake_position"), owner.toBuffer(), indexBuffer],
     PROGRAM_IDS.DEFI

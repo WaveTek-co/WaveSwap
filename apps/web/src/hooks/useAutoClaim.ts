@@ -13,6 +13,7 @@ import {
 } from '@/lib/stealth'
 import { StealthScanner, DetectedPayment, isPaymentForUs, checkViewTag } from '@/lib/stealth/scanner'
 import { sha3_256 } from 'js-sha3'
+import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
 export interface PendingClaim {
   vaultAddress: string
@@ -28,7 +29,7 @@ export interface UseAutoClaimReturn {
   isScanning: boolean
   pendingClaims: PendingClaim[]
   totalPendingAmount: bigint
-  claimHistory: { signature: string; amount: bigint; timestamp: number }[]
+  claimHistory: { signature: string; amount: bigint; timestamp: number; sender?: string }[]
 
   // Actions
   startScanning: () => void
@@ -46,7 +47,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
   const [isScanning, setIsScanning] = useState(false)
   const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([])
-  const [claimHistory, setClaimHistory] = useState<{ signature: string; amount: bigint; timestamp: number }[]>([])
+  const [claimHistory, setClaimHistory] = useState<{ signature: string; amount: bigint; timestamp: number; sender?: string }[]>([])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stealthKeys, setStealthKeys] = useState<StealthKeyPair | null>(null)
@@ -186,6 +187,18 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         console.log(`[AutoClaim] Found payment: ${vaultPda.toBase58()}, Amount: ${vaultInfo.lamports / 1e9} SOL`)
 
+        // Check if this is a new payment we haven't seen
+        const isNewPayment = !pendingClaims.some(c => c.vaultAddress === vaultPda.toBase58())
+
+        if (isNewPayment) {
+          // Show "payment received" toast for new detections
+          showPaymentReceived({
+            signature: pubkey.toBase58(), // Use announcement as pseudo-signature for explorer
+            amount: BigInt(vaultInfo.lamports),
+            symbol: 'SOL',
+          })
+        }
+
         setPendingClaims(prev => {
           if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) {
             return prev
@@ -209,7 +222,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     } finally {
       setIsScanning(false)
     }
-  }, [publicKey, connection, signMessage, stealthKeys])
+  }, [publicKey, connection, signMessage, stealthKeys, pendingClaims])
 
   // Start manual scanning (privacy-preserving)
   const startScanning = useCallback(() => {
@@ -323,6 +336,14 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       console.log('[AutoClaim] Claim successful:', signature)
 
+      // Show enhanced toast with explorer link
+      showClaimSuccess({
+        signature,
+        amount,
+        symbol: 'SOL',
+        sender: pendingClaim.sender !== 'PRIVATE' ? pendingClaim.sender : undefined,
+      })
+
       // Update status
       setPendingClaims(prev => prev.map(c =>
         c.vaultAddress === vaultAddress ? { ...c, status: 'claimed' as const } : c
@@ -333,6 +354,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         signature,
         amount,
         timestamp: Date.now(),
+        sender: pendingClaim.sender,
       }])
 
       return true

@@ -18,6 +18,7 @@ import { useWaveSend } from '@/hooks/useWaveSend'
 import { useAutoClaim } from '@/hooks/useAutoClaim'
 import { toast } from 'sonner'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
+import { showSendConfirmation } from '@/components/ui/TransactionToast'
 
 interface WaveSendProps {
   privacyMode: boolean
@@ -276,19 +277,8 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
     })
   }, [connected, isValidRecipient, isValidAmount, hasEnoughBalance, isSending, isInitializing, privacyMode, isInitialized, recipientRegistered, canSend])
 
-  // Show toast when payments are claimed
-  useEffect(() => {
-    const newlyClaimed = claimHistory.filter(
-      c => Date.now() - c.timestamp < 5000 // Show toast for claims in last 5 seconds
-    )
-    for (const claim of newlyClaimed) {
-      const solAmount = Number(claim.amount) / LAMPORTS_PER_SOL
-      toast.success(`Auto-claimed ${solAmount.toFixed(4)} SOL!`, {
-        description: `Tx: ${claim.signature.slice(0, 8)}...${claim.signature.slice(-8)}`,
-        id: claim.signature, // Prevent duplicate toasts
-      })
-    }
-  }, [claimHistory])
+  // Note: Claim toasts are now shown directly by useAutoClaim hook
+  // This avoids duplicate toasts
 
   // Handle initialize keys
   const handleInitialize = useCallback(async () => {
@@ -337,13 +327,14 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
         tokenMint: currentToken.id === 'sol' ? undefined : currentToken.mintAddress,
       })
 
-      if (result.success) {
-        toast.success(
-          `Stealth transfer successful! ${amount} ${currentToken.symbol} sent privately.`,
-          {
-            description: `Tx: ${result.signature?.slice(0, 8)}...${result.signature?.slice(-8)}`,
-          }
-        )
+      if (result.success && result.signature) {
+        // Show enhanced toast with explorer link
+        showSendConfirmation({
+          signature: result.signature,
+          amount: parseFloat(amount),
+          symbol: currentToken.symbol,
+          recipient: recipient,
+        })
         // Clear form
         setAmount('')
         setRecipient('')
