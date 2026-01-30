@@ -37,8 +37,8 @@ const PER_DEPOSIT_SEED = 'per-deposit'
 // Scan interval (30 seconds to reduce RPC load)
 const SCAN_INTERVAL_MS = 30000
 
-// MagicBlock ephemeral rollup RPC (for delegated accounts)
-const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
+// MagicBlock Magic Router - automatically routes to correct ephemeral rollup
+const MAGICBLOCK_RPC = 'https://devnet-router.magicblock.app'
 
 export interface PendingClaim {
   vaultAddress: string
@@ -450,7 +450,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
   const rollupConnection = useMemo(() => {
     return new Connection(MAGICBLOCK_RPC, {
       commitment: 'confirmed',
-      confirmTransactionInitialTimeout: 60000,
+      confirmTransactionInitialTimeout: 120000, // 2 minutes for rollup
     })
   }, [])
 
@@ -464,10 +464,30 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
 
     try {
-      console.log('[AutoClaim] Executing PER transfer on MagicBlock rollup (TEE)...')
+      console.log('[AutoClaim] Executing PER transfer...')
       console.log('  Deposit:', deposit.depositAddress)
 
+      // Check current owner to determine if delegated
       const depositPda = new PublicKey(deposit.depositAddress)
+      const accountInfo = await connection.getAccountInfo(depositPda)
+
+      if (!accountInfo) {
+        console.error('[AutoClaim] Deposit account not found')
+        return false
+      }
+
+      const owner = accountInfo.owner.toBase58()
+      const isDelegated = owner === DELEGATION_PROGRAM_ID.toBase58()
+
+      console.log('  Owner:', owner)
+      console.log('  Delegated:', isDelegated)
+
+      // Use appropriate RPC based on delegation status
+      const targetConnection = isDelegated ? rollupConnection : connection
+      const targetName = isDelegated ? 'MagicBlock rollup' : 'Solana mainnet'
+
+      console.log(`  Target: ${targetName}`)
+
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
 
       console.log('  Vault:', vaultPda.toBase58())
@@ -497,40 +517,47 @@ export function useAutoClaim(): UseAutoClaimReturn {
       )
 
       tx.feePayer = publicKey
-      // Get blockhash from rollup (not mainnet!)
-      const { blockhash } = await rollupConnection.getLatestBlockhash()
+
+      // Get blockhash from target connection
+      console.log(`[AutoClaim] Getting blockhash from ${targetName}...`)
+      const { blockhash } = await targetConnection.getLatestBlockhash()
       tx.recentBlockhash = blockhash
 
-      console.log('[AutoClaim] Sending to MagicBlock rollup RPC...')
+      console.log('[AutoClaim] Signing transaction...')
       const signedTx = await signTransaction(tx)
 
-      // Send to MagicBlock rollup - TEE executes transfer privately
-      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: true, // Rollup may have different preflight rules
+      console.log(`[AutoClaim] Sending to ${targetName}...`)
+
+      // Send to target connection
+      const signature = await targetConnection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
       })
+      console.log('[AutoClaim] Transaction sent:', signature)
 
-      console.log('[AutoClaim] Transaction sent to rollup:', signature)
+      // Wait for confirmation
+      await targetConnection.confirmTransaction(signature, 'confirmed')
+      console.log('[AutoClaim] Transaction confirmed!')
 
-      // Wait for rollup confirmation
-      await rollupConnection.confirmTransaction(signature, 'confirmed')
-      console.log('[AutoClaim] Rollup confirmed, waiting for L1 commit...')
-
-      // Wait for state to commit to mainnet (rollup auto-commits)
-      // Poll mainnet for vault balance
-      let vaultReady = false
-      for (let i = 0; i < 10; i++) {
-        await new Promise(r => setTimeout(r, 2000))
-        const vaultInfo = await connection.getAccountInfo(vaultPda)
-        if (vaultInfo && vaultInfo.lamports > 0) {
-          vaultReady = true
-          console.log('[AutoClaim] Vault funded on mainnet:', vaultInfo.lamports, 'lamports')
-          break
+      // If delegated, wait for L1 commit
+      if (isDelegated) {
+        // Wait for state to commit to mainnet (rollup auto-commits)
+        // Poll mainnet for vault balance
+        let vaultReady = false
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          const vaultInfo = await connection.getAccountInfo(vaultPda)
+          if (vaultInfo && vaultInfo.lamports > 0) {
+            vaultReady = true
+            console.log('[AutoClaim] Vault funded on mainnet:', vaultInfo.lamports, 'lamports')
+            break
+          }
+          console.log('[AutoClaim] Waiting for L1 commit...', i + 1)
         }
-        console.log('[AutoClaim] Waiting for L1 commit...', i + 1)
-      }
 
-      if (!vaultReady) {
-        console.warn('[AutoClaim] Vault not yet visible on mainnet, may need more time')
+        if (!vaultReady) {
+          console.warn('[AutoClaim] Vault not yet visible on mainnet, may need more time')
+        }
       }
 
       // Remove from delegated deposits
