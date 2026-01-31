@@ -1,15 +1,56 @@
 // Client-side stealth cryptography for WaveSwap
 // Matches OceanVault on-chain program cryptographic operations exactly
+// Hybrid X-Wing post-quantum cryptography (ML-KEM-768 + X25519)
 
 import { sha3_256 } from "js-sha3";
 import { ed25519 } from "@noble/curves/ed25519";
+import {
+  XWingKeyPair,
+  XWingPublicKey,
+  XWingSecretKey,
+  xwingKeyGenFromSeed,
+  xwingEncapsulate,
+  xwingDecapsulate,
+  deriveXWingStealthAddress,
+  deriveXWingStealthPrivateKey,
+  checkXWingViewTag,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  XWING_PUBLIC_KEY_SIZE,
+  XWING_CIPHERTEXT_SIZE,
+  // New: Use Ed25519 spend key as X25519 component
+  generateXWingFromSpendKey,
+  ed25519ToX25519Keypair,
+} from "./xwing";
 
-// Stealth key pair from wallet signature
+// Re-export X-Wing types and functions for external use
+export {
+  XWingKeyPair,
+  XWingPublicKey,
+  XWingSecretKey,
+  xwingKeyGenFromSeed,
+  xwingEncapsulate,
+  xwingDecapsulate,
+  deriveXWingStealthAddress,
+  deriveXWingStealthPrivateKey,
+  checkXWingViewTag,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  XWING_PUBLIC_KEY_SIZE,
+  XWING_CIPHERTEXT_SIZE,
+  generateXWingFromSpendKey,
+  ed25519ToX25519Keypair,
+};
+
+// Stealth key pair from wallet signature (Ed25519 + X-Wing post-quantum)
 export interface StealthKeyPair {
+  // Ed25519 keys (for Solana transactions)
   spendPrivkey: Uint8Array;
   spendPubkey: Uint8Array;
   viewPrivkey: Uint8Array;
   viewPubkey: Uint8Array;
+  // X-Wing post-quantum keys (ML-KEM-768 + X25519)
+  xwingKeys?: XWingKeyPair;
 }
 
 // Stealth vault configuration for sending
@@ -21,6 +62,11 @@ export interface StealthVaultConfig {
 
 // Generate stealth keys from wallet signature
 // Uses OceanVault domain strings for compatibility
+//
+// X-Wing ARCHITECTURE (Post-Quantum):
+// - X25519 component = derived from Ed25519 spend key (same curve25519)
+// - ML-KEM-768 component = derived from signature
+// - This binds X-Wing identity to the stealth spend key
 export function generateViewingKeys(seed: Uint8Array): StealthKeyPair {
   // Derive spend keys with oceanvault domain
   const spendSeedHash = sha3_256(
@@ -36,11 +82,18 @@ export function generateViewingKeys(seed: Uint8Array): StealthKeyPair {
   const viewPrivkey = new Uint8Array(Buffer.from(viewSeedHash, "hex").slice(0, 32));
   const viewPubkey = ed25519.getPublicKey(viewPrivkey);
 
+  // X-Wing post-quantum keys:
+  // - X25519 part: Ed25519 spend key → X25519 (same curve, deterministic conversion)
+  // - ML-KEM-768 part: derived from signature seed
+  // User's Ed25519 spend identity IS the X25519 identity (no separate key!)
+  const xwingKeys = generateXWingFromSpendKey(spendPrivkey, seed);
+
   return {
     spendPrivkey,
     spendPubkey: new Uint8Array(spendPubkey),
     viewPrivkey,
     viewPubkey: new Uint8Array(viewPubkey),
+    xwingKeys,
   };
 }
 

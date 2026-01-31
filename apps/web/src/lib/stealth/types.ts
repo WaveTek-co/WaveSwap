@@ -3,8 +3,14 @@
 
 import { PublicKey } from "@solana/web3.js";
 
-// Re-export crypto types
-export type { StealthKeyPair, StealthVaultConfig } from "./crypto";
+// Re-export crypto types (includes X-Wing post-quantum types)
+export type {
+  StealthKeyPair,
+  StealthVaultConfig,
+  XWingKeyPair,
+  XWingPublicKey,
+  XWingSecretKey,
+} from "./crypto";
 
 // Registry account stored on-chain
 export interface RegistryAccount {

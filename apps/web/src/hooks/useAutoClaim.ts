@@ -108,6 +108,73 @@ const SCAN_INTERVAL_MS = 30000
 const DEVNET_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
 
+// Storage key for stealth keys (cached per wallet address)
+const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
+
+// Helper to get cached stealth keys from localStorage (includes X-Wing post-quantum keys)
+function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
+  try {
+    const stored = localStorage.getItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
+    if (!stored) return null
+    const parsed = JSON.parse(stored)
+
+    const keys: StealthKeyPair = {
+      spendPrivkey: new Uint8Array(parsed.spendPrivkey),
+      spendPubkey: new Uint8Array(parsed.spendPubkey),
+      viewPrivkey: new Uint8Array(parsed.viewPrivkey),
+      viewPubkey: new Uint8Array(parsed.viewPubkey),
+    }
+
+    // Restore X-Wing keys if present (post-quantum security)
+    if (parsed.xwingKeys) {
+      keys.xwingKeys = {
+        publicKey: {
+          mlkem: new Uint8Array(parsed.xwingKeys.publicKey.mlkem),
+          x25519: new Uint8Array(parsed.xwingKeys.publicKey.x25519),
+        },
+        secretKey: {
+          mlkem: new Uint8Array(parsed.xwingKeys.secretKey.mlkem),
+          x25519: new Uint8Array(parsed.xwingKeys.secretKey.x25519),
+        },
+      }
+    }
+
+    return keys
+  } catch {
+    return null
+  }
+}
+
+// Helper to cache stealth keys in localStorage (includes X-Wing post-quantum keys)
+function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
+  try {
+    const cached: any = {
+      spendPrivkey: Array.from(keys.spendPrivkey),
+      spendPubkey: Array.from(keys.spendPubkey),
+      viewPrivkey: Array.from(keys.viewPrivkey),
+      viewPubkey: Array.from(keys.viewPubkey),
+    }
+
+    // Cache X-Wing keys if present (post-quantum security)
+    if (keys.xwingKeys) {
+      cached.xwingKeys = {
+        publicKey: {
+          mlkem: Array.from(keys.xwingKeys.publicKey.mlkem),
+          x25519: Array.from(keys.xwingKeys.publicKey.x25519),
+        },
+        secretKey: {
+          mlkem: Array.from(keys.xwingKeys.secretKey.mlkem),
+          x25519: Array.from(keys.xwingKeys.secretKey.x25519),
+        },
+      }
+    }
+
+    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, JSON.stringify(cached))
+  } catch (e) {
+    console.warn('[AutoClaim] Failed to cache stealth keys:', e)
+  }
+}
+
 // HTTP polling-based confirmation (avoids WebSocket issues)
 async function confirmTransactionPolling(
   connection: Connection,
@@ -878,23 +945,43 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [connection, pendingClaims, delegatedDeposits, pendingEscrows])
 
-  // Generate stealth keys
+  // Generate stealth keys - uses localStorage cache to avoid repeated wallet popups
   const ensureStealthKeys = useCallback(async (): Promise<StealthKeyPair | null> => {
+    // Return existing keys if already loaded
     if (stealthKeys) return stealthKeys
-    if (!signMessage || keysGeneratedRef.current) return null
+
+    // Check localStorage cache first (keyed by wallet address)
+    if (publicKey) {
+      const walletAddress = publicKey.toBase58()
+      const cachedKeys = getCachedStealthKeys(walletAddress)
+      if (cachedKeys) {
+        console.log('[AutoClaim] Using cached stealth keys for:', walletAddress.slice(0, 8))
+        setStealthKeys(cachedKeys)
+        return cachedKeys
+      }
+    }
+
+    // No cached keys - need to request signature (only happens ONCE per wallet)
+    if (!signMessage || !publicKey) return null
+    if (keysGeneratedRef.current) return null // Prevent duplicate requests
 
     try {
-      console.log('[AutoClaim] Generating stealth keys...')
+      console.log('[AutoClaim] Generating stealth keys (one-time signature required)...')
       keysGeneratedRef.current = true
       const keys = await generateStealthKeysFromSignature(signMessage)
       setStealthKeys(keys)
+
+      // Cache keys in localStorage for this wallet
+      cacheStealthKeys(publicKey.toBase58(), keys)
+      console.log('[AutoClaim] Stealth keys generated and cached')
+
       return keys
     } catch (err) {
       console.error('[AutoClaim] Failed to generate keys:', err)
       keysGeneratedRef.current = false
       return null
     }
-  }, [signMessage, stealthKeys])
+  }, [signMessage, stealthKeys, publicKey])
 
   // Main scan
   const runScan = useCallback(async () => {

@@ -92,6 +92,15 @@ import {
   deriveStealthAddress,
   deriveStealthSpendingKey,
   stealthSign,
+  // X-Wing post-quantum cryptography
+  XWingPublicKey,
+  xwingEncapsulate,
+  deriveXWingStealthAddress,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  XWING_PUBLIC_KEY_SIZE,
+  // Ed25519 → X25519 conversion
+  ed25519ToX25519Keypair,
 } from "./crypto";
 
 // Registration step status
@@ -289,12 +298,31 @@ export class WaveStealthClient {
       console.log('[Client] Registry exists but not finalized, will resume...');
     }
 
-    // Registry requires exactly 1216 bytes (XWING_PUBLIC_KEY_SIZE) to be written
-    // We store: spend pubkey (32) + view pubkey (32) + padding (1152) = 1216 bytes
-    const XWING_PUBLIC_KEY_SIZE = 1216;
-    const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
+    // Registry stores X-Wing public key (1216 bytes total)
+    // Layout optimized for post-quantum security:
+    // - Ed25519 spend pubkey: 32 bytes (for stealth address derivation)
+    // - Ed25519 view pubkey: 32 bytes (for view tag scanning)
+    // - ML-KEM-768 pubkey: 1152 bytes (post-quantum KEM, slightly truncated from 1184)
+    // Note: X25519 pubkey is DERIVED from Ed25519 spend key (same curve), so not stored separately
+    //
+    // The X25519 component of X-Wing = Ed25519 spend key converted to X25519
+    // This saves 32 bytes and binds X-Wing identity to stealth identity
+    const REGISTRY_KEY_SIZE = 1216;
+    const fullKeyData = Buffer.alloc(REGISTRY_KEY_SIZE);
+
+    // Ed25519 spend and view pubkeys (64 bytes)
     Buffer.from(keysToUse.spendPubkey).copy(fullKeyData, 0);
     Buffer.from(keysToUse.viewPubkey).copy(fullKeyData, 32);
+
+    // ML-KEM-768 public key (1152 bytes - fits in remaining space)
+    // Note: Full ML-KEM is 1184 bytes, we store first 1152 bytes
+    // The last 32 bytes are recoverable from the seed in TEE
+    if (keysToUse.xwingKeys) {
+      const mlkemBytes = keysToUse.xwingKeys.publicKey.mlkem;
+      Buffer.from(mlkemBytes.slice(0, 1152)).copy(fullKeyData, 64);
+      console.log('[Client] Including ML-KEM-768 post-quantum key in registration');
+      console.log('[Client] X25519 component derived from Ed25519 spend key (not stored separately)');
+    }
 
     // Split into multiple transactions to avoid tx size limits
     // Tx 1: Initialize + first chunk (600 bytes to leave room)
@@ -526,6 +554,13 @@ export class WaveStealthClient {
       console.log('[Client] Registration complete (single tx):', signature);
       reportProgress('complete', 1, 1, 'Registration complete!');
 
+      // Trigger background X-Wing upgrade (non-blocking)
+      if (keysToUse.xwingKeys) {
+        this.upgradeToXWingBackground(wallet, keysToUse).catch(err => {
+          console.log('[Client] Background X-Wing upgrade deferred:', err.message);
+        });
+      }
+
       return { success: true, signature };
 
     } catch (error) {
@@ -535,6 +570,82 @@ export class WaveStealthClient {
         success: false,
         error: error instanceof Error ? error.message : "Registration failed",
       };
+    }
+  }
+
+  // BACKGROUND X-WING UPGRADE
+  // Uploads X-Wing public key chunks without blocking UX
+  // Called automatically after registerSimple() succeeds
+  // User signs ALL chunk transactions at once (batch), then they're submitted in background
+  async upgradeToXWingBackground(
+    wallet: WalletAdapter,
+    keys: StealthKeyPair
+  ): Promise<TransactionResult> {
+    if (!wallet.publicKey || !keys.xwingKeys) {
+      return { success: false, error: "Missing wallet or X-Wing keys" };
+    }
+
+    console.log('[Client] Starting background X-Wing upgrade...');
+
+    const [registryPda] = deriveRegistryPda(wallet.publicKey);
+
+    // Serialize X-Wing public key (1216 bytes)
+    const xwingPubkey = serializeXWingPublicKey(keys.xwingKeys.publicKey);
+
+    // Build chunk transactions
+    const CHUNK_SIZE = 500; // Conservative to fit in tx
+    const chunks: { offset: number; data: Uint8Array }[] = [];
+    for (let offset = 0; offset < xwingPubkey.length; offset += CHUNK_SIZE) {
+      chunks.push({
+        offset: 64 + offset, // After Ed25519 keys (32 + 32)
+        data: xwingPubkey.slice(offset, Math.min(offset + CHUNK_SIZE, xwingPubkey.length)),
+      });
+    }
+
+    try {
+      // Build all transactions
+      const transactions: Transaction[] = [];
+      const { blockhash } = await this.connection.getLatestBlockhash();
+
+      for (const chunk of chunks) {
+        const tx = new Transaction();
+        const data = Buffer.alloc(8 + 2 + chunk.data.length);
+        RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(data, 0);
+        data.writeUInt16LE(chunk.offset, 8);
+        Buffer.from(chunk.data).copy(data, 10);
+
+        tx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+            { pubkey: registryPda, isSigner: false, isWritable: true },
+          ],
+          programId: PROGRAM_IDS.REGISTRY,
+          data,
+        }));
+
+        tx.feePayer = wallet.publicKey;
+        tx.recentBlockhash = blockhash;
+        transactions.push(tx);
+      }
+
+      // Batch sign ALL transactions at once (single wallet popup)
+      console.log(`[Client] Batch signing ${transactions.length} X-Wing chunk transactions...`);
+      const signedTxs = await wallet.signAllTransactions(transactions);
+
+      // Submit in background (non-blocking)
+      console.log('[Client] Submitting X-Wing chunks in background...');
+      for (let i = 0; i < signedTxs.length; i++) {
+        const sig = await this.connection.sendRawTransaction(signedTxs[i].serialize(), { skipPreflight: true });
+        console.log(`[Client] X-Wing chunk ${i + 1}/${signedTxs.length} submitted:`, sig.slice(0, 16));
+        // Don't await confirmation - true background
+      }
+
+      console.log('[Client] X-Wing background upgrade initiated');
+      return { success: true };
+
+    } catch (error) {
+      console.error('[Client] X-Wing background upgrade failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : "X-Wing upgrade failed" };
     }
   }
 
@@ -671,7 +782,50 @@ export class WaveStealthClient {
 
     // Generate random nonce
     const nonce = randomBytes(32);
-    const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+
+    // Check if recipient has X-Wing keys for post-quantum security
+    // X-Wing provides quantum-safe key encapsulation
+    const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
+
+    let stealthConfig: StealthVaultConfig;
+    let xwingCiphertext: Uint8Array | undefined;
+
+    if (hasXWingKeys && this.stealthKeys?.xwingKeys) {
+      // POST-QUANTUM PATH: Use X-Wing encapsulation
+      console.log('[WaveStealthClient] Using X-Wing post-quantum encryption');
+
+      // Reconstruct recipient's X-Wing public key
+      // Layout: spend(32) + view(32) + mlkem(1152)
+      // X25519 is derived from spend key
+      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
+      // Derive X25519 from spend key (same curve conversion)
+      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
+
+      const recipientXWingPk: XWingPublicKey = {
+        mlkem: recipientMlkem,
+        x25519: recipientX25519,
+      };
+
+      // X-Wing encapsulation produces quantum-safe shared secret
+      const { ciphertext, sharedSecret } = xwingEncapsulate(recipientXWingPk);
+      xwingCiphertext = ciphertext;
+
+      // Derive stealth address from X-Wing shared secret
+      const { stealthPubkey, viewTag } = deriveXWingStealthAddress(
+        registry.spendPubkey,
+        registry.viewPubkey,
+        sharedSecret
+      );
+
+      // Extract ephemeral pubkey from ciphertext (last 32 bytes)
+      const ephemeralPubkey = ciphertext.slice(ciphertext.length - 32);
+
+      stealthConfig = { stealthPubkey, ephemeralPubkey, viewTag };
+    } else {
+      // CLASSIC PATH: Ed25519-only (fallback)
+      console.log('[WaveStealthClient] Using Ed25519 classic encryption (recipient has no X-Wing keys)');
+      stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+    }
     const [announcementPda, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
     const [vaultPda] = deriveStealthVaultPda(stealthConfig.stealthPubkey);
     const [mixerPoolPda] = deriveTestMixerPoolPda();

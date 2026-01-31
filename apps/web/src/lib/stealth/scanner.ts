@@ -13,7 +13,12 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { sha3_256 } from "js-sha3";
 import { ed25519 } from "@noble/curves/ed25519";
 import { PROGRAM_IDS, deriveStealthVaultPda } from "./config";
-import { StealthKeyPair } from "./crypto";
+import {
+  StealthKeyPair,
+  xwingDecapsulate,
+  deriveXWingStealthAddress,
+  checkXWingViewTag,
+} from "./crypto";
 
 // NEW privacy-preserving announcement structure offsets
 // Layout: discriminator(8) + bump(1) + timestamp(8) +
@@ -127,6 +132,88 @@ export function isPaymentForUs(
   }
 
   return true;
+}
+
+/**
+ * X-Wing POST-QUANTUM check if payment belongs to us
+ * Uses X-Wing decapsulation for quantum-safe shared secret derivation
+ *
+ * @param keys - Stealth keys including X-Wing keypair
+ * @param xwingCiphertext - X-Wing ciphertext from announcement (1120 bytes)
+ * @param expectedViewTag - View tag for fast rejection
+ * @param announcementStealthPubkey - Stealth pubkey from announcement
+ */
+export function isPaymentForUsXWing(
+  keys: StealthKeyPair,
+  xwingCiphertext: Uint8Array,
+  expectedViewTag: number,
+  announcementStealthPubkey: Uint8Array
+): boolean {
+  // Require X-Wing keys
+  if (!keys.xwingKeys) {
+    console.warn('[Scanner] X-Wing keys not available, falling back to classic');
+    return false;
+  }
+
+  try {
+    // Step 1: X-Wing decapsulation to recover shared secret
+    const sharedSecret = xwingDecapsulate(keys.xwingKeys.secretKey, xwingCiphertext);
+
+    // Step 2: Check view tag using X-Wing shared secret
+    if (!checkXWingViewTag(keys.viewPubkey, sharedSecret, expectedViewTag)) {
+      return false;
+    }
+
+    // Step 3: Derive stealth pubkey from X-Wing shared secret
+    const { stealthPubkey: derivedStealth } = deriveXWingStealthAddress(
+      keys.spendPubkey,
+      keys.viewPubkey,
+      sharedSecret
+    );
+
+    // Step 4: Compare with announcement's stealth pubkey
+    if (derivedStealth.length !== announcementStealthPubkey.length) {
+      return false;
+    }
+    for (let i = 0; i < derivedStealth.length; i++) {
+      if (derivedStealth[i] !== announcementStealthPubkey[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('[Scanner] X-Wing decapsulation failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Universal payment check - tries X-Wing first, falls back to Ed25519
+ */
+export function isPaymentForUsUniversal(
+  keys: StealthKeyPair,
+  ephemeralOrCiphertext: Uint8Array,
+  expectedViewTag: number,
+  announcementStealthPubkey: Uint8Array
+): boolean {
+  // If we have X-Wing keys and the data looks like X-Wing ciphertext (1120 bytes)
+  if (keys.xwingKeys && ephemeralOrCiphertext.length >= 1088) {
+    const isXWing = isPaymentForUsXWing(
+      keys,
+      ephemeralOrCiphertext,
+      expectedViewTag,
+      announcementStealthPubkey
+    );
+    if (isXWing) return true;
+  }
+
+  // Fall back to Ed25519 (ephemeral pubkey is 32 bytes)
+  const ephemeralPubkey = ephemeralOrCiphertext.length > 32
+    ? ephemeralOrCiphertext.slice(ephemeralOrCiphertext.length - 32) // Last 32 bytes
+    : ephemeralOrCiphertext;
+
+  return isPaymentForUs(keys, ephemeralPubkey, expectedViewTag, announcementStealthPubkey);
 }
 
 /**

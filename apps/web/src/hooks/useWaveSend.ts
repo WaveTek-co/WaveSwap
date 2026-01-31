@@ -13,8 +13,72 @@ import {
   RegistrationStep,
 } from '@/lib/stealth'
 
-// Storage key for stealth keys (only public keys stored, privkeys in memory)
-const STEALTH_KEYS_STORAGE_KEY = 'waveswap_stealth_keys'
+// Storage key for stealth keys (cached per wallet address for seamless UX)
+const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
+
+// Helper to get cached stealth keys from localStorage (includes X-Wing keys)
+function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
+  try {
+    const stored = localStorage.getItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
+    if (!stored) return null
+    const parsed = JSON.parse(stored)
+
+    const keys: StealthKeyPair = {
+      spendPrivkey: new Uint8Array(parsed.spendPrivkey),
+      spendPubkey: new Uint8Array(parsed.spendPubkey),
+      viewPrivkey: new Uint8Array(parsed.viewPrivkey),
+      viewPubkey: new Uint8Array(parsed.viewPubkey),
+    }
+
+    // Restore X-Wing keys if present (post-quantum security)
+    if (parsed.xwingKeys) {
+      keys.xwingKeys = {
+        publicKey: {
+          mlkem: new Uint8Array(parsed.xwingKeys.publicKey.mlkem),
+          x25519: new Uint8Array(parsed.xwingKeys.publicKey.x25519),
+        },
+        secretKey: {
+          mlkem: new Uint8Array(parsed.xwingKeys.secretKey.mlkem),
+          x25519: new Uint8Array(parsed.xwingKeys.secretKey.x25519),
+        },
+      }
+    }
+
+    return keys
+  } catch {
+    return null
+  }
+}
+
+// Helper to cache stealth keys in localStorage (includes X-Wing keys)
+function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
+  try {
+    const cached: any = {
+      spendPrivkey: Array.from(keys.spendPrivkey),
+      spendPubkey: Array.from(keys.spendPubkey),
+      viewPrivkey: Array.from(keys.viewPrivkey),
+      viewPubkey: Array.from(keys.viewPubkey),
+    }
+
+    // Cache X-Wing keys if present (post-quantum security)
+    if (keys.xwingKeys) {
+      cached.xwingKeys = {
+        publicKey: {
+          mlkem: Array.from(keys.xwingKeys.publicKey.mlkem),
+          x25519: Array.from(keys.xwingKeys.publicKey.x25519),
+        },
+        secretKey: {
+          mlkem: Array.from(keys.xwingKeys.secretKey.mlkem),
+          x25519: Array.from(keys.xwingKeys.secretKey.x25519),
+        },
+      }
+    }
+
+    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, JSON.stringify(cached))
+  } catch (e) {
+    console.warn('[WaveSend] Failed to cache stealth keys:', e)
+  }
+}
 
 export interface UseWaveSendReturn {
   // State
@@ -84,14 +148,27 @@ export function useWaveSend(): UseWaveSendReturn {
     }
   }, [publicKey, signTransaction, signMessage])
 
-  // Check registration status when wallet connects
+  // Auto-initialize from cache and check registration when wallet connects
   useEffect(() => {
-    const checkRegistration = async () => {
+    const initFromCache = async () => {
       if (!connected || !publicKey) {
         setIsRegistered(false)
+        setIsInitialized(false)
+        setStealthKeys(null)
         return
       }
 
+      // Try to restore cached stealth keys (no signature required!)
+      const walletAddress = publicKey.toBase58()
+      const cachedKeys = getCachedStealthKeys(walletAddress)
+      if (cachedKeys) {
+        console.log('[WaveSend] Auto-initialized from cache for:', walletAddress.slice(0, 8))
+        setStealthKeys(cachedKeys)
+        client.setKeys(cachedKeys)
+        setIsInitialized(true)
+      }
+
+      // Check registration status
       try {
         const registry = await client.getRegistry(publicKey)
         setIsRegistered(registry !== null && registry.isFinalized)
@@ -101,15 +178,28 @@ export function useWaveSend(): UseWaveSendReturn {
       }
     }
 
-    checkRegistration()
+    initFromCache()
   }, [connected, publicKey, client])
 
-  // Initialize stealth keys from wallet signature
+  // Initialize stealth keys - uses localStorage cache to avoid repeated wallet popups
   const initializeKeys = useCallback(async (): Promise<boolean> => {
     console.log('[WaveSend] initializeKeys called')
 
-    if (!signMessage) {
-      console.error('[WaveSend] signMessage not available')
+    // Check localStorage cache first (keyed by wallet address)
+    if (publicKey) {
+      const walletAddress = publicKey.toBase58()
+      const cachedKeys = getCachedStealthKeys(walletAddress)
+      if (cachedKeys) {
+        console.log('[WaveSend] Using cached stealth keys for:', walletAddress.slice(0, 8))
+        setStealthKeys(cachedKeys)
+        client.setKeys(cachedKeys)
+        setIsInitialized(true)
+        return true
+      }
+    }
+
+    if (!signMessage || !publicKey) {
+      console.error('[WaveSend] signMessage or publicKey not available')
       setError('Wallet does not support message signing')
       return false
     }
@@ -118,7 +208,7 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
 
     try {
-      console.log('[WaveSend] Calling client.initializeKeys...')
+      console.log('[WaveSend] Generating stealth keys (one-time signature required)...')
       const keys = await client.initializeKeys(signMessage)
       console.log('[WaveSend] Keys generated successfully:', {
         spendPubkey: Buffer.from(keys.spendPubkey).toString('hex').slice(0, 16) + '...',
@@ -128,16 +218,10 @@ export function useWaveSend(): UseWaveSendReturn {
       setStealthKeys(keys)
       setIsInitialized(true)
 
-      // Store public keys in localStorage (private keys stay in memory only)
-      localStorage.setItem(
-        STEALTH_KEYS_STORAGE_KEY,
-        JSON.stringify({
-          spendPubkey: Array.from(keys.spendPubkey),
-          viewPubkey: Array.from(keys.viewPubkey),
-        })
-      )
+      // Cache keys in localStorage for this wallet (full keys including privkeys for scanning)
+      cacheStealthKeys(publicKey.toBase58(), keys)
 
-      console.log('[WaveSend] Keys initialized and stored')
+      console.log('[WaveSend] Keys initialized and cached')
       return true
     } catch (err) {
       console.error('[WaveSend] initializeKeys error:', err)
@@ -147,11 +231,13 @@ export function useWaveSend(): UseWaveSendReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [signMessage, client])
+  }, [signMessage, client, publicKey])
 
-  // Register for stealth payments (multi-transaction flow)
+  // Register for stealth payments (X-Wing post-quantum registration)
+  // Uploads full X-Wing public key (1216 bytes) in chunks
+  // User batch-signs all chunk transactions at once
   const register = useCallback(async (): Promise<boolean> => {
-    console.log('[WaveSend] register called (multi-tx)')
+    console.log('[WaveSend] register called (X-Wing multi-tx)')
 
     if (!walletAdapter) {
       console.error('[WaveSend] walletAdapter not available')
@@ -165,9 +251,11 @@ export function useWaveSend(): UseWaveSendReturn {
       return false
     }
 
+    const hasXWing = !!stealthKeys.xwingKeys
     console.log('[WaveSend] Starting registration with keys:', {
       spendPubkey: Buffer.from(stealthKeys.spendPubkey).toString('hex').slice(0, 16) + '...',
       viewPubkey: Buffer.from(stealthKeys.viewPubkey).toString('hex').slice(0, 16) + '...',
+      hasXWingKeys: hasXWing,
     })
 
     setIsLoading(true)
@@ -175,18 +263,19 @@ export function useWaveSend(): UseWaveSendReturn {
     setRegistrationProgress(null)
 
     try {
-      // Use simplified single-tx registration (user signs ONCE)
-      // X-Wing post-quantum crypto happens inside TEE at transfer time
-      console.log('[WaveSend] Calling client.registerSimple (single-tx)...')
-      const result = await client.registerSimple(
+      // Use full X-Wing registration (uploads 1216-byte public key in chunks)
+      // User batch-signs all transactions for post-quantum security
+      console.log('[WaveSend] Calling client.register (X-Wing multi-tx)...')
+      const result = await client.register(
         walletAdapter,
         stealthKeys,
+        undefined, // xwingPubkey already in stealthKeys
         (progress) => {
           console.log('[WaveSend] Registration progress:', progress)
           setRegistrationProgress(progress)
         }
       )
-      console.log('[WaveSend] registerSimple result:', result)
+      console.log('[WaveSend] register result:', result)
 
       if (result.success) {
         console.log('[WaveSend] Registration successful, tx:', result.signature)

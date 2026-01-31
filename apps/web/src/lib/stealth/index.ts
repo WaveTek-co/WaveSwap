@@ -14,8 +14,28 @@ export {
   checkStealthAddress,
   stealthSign,
   stealthVerify,
+  // X-Wing post-quantum cryptography
+  xwingKeyGenFromSeed,
+  xwingEncapsulate,
+  xwingDecapsulate,
+  deriveXWingStealthAddress,
+  deriveXWingStealthPrivateKey,
+  checkXWingViewTag,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  XWING_PUBLIC_KEY_SIZE,
+  XWING_CIPHERTEXT_SIZE,
+  // Ed25519 → X25519 conversion (X-Wing uses spend key as X25519)
+  generateXWingFromSpendKey,
+  ed25519ToX25519Keypair,
 } from "./crypto";
-export type { StealthKeyPair, StealthVaultConfig } from "./crypto";
+export type {
+  StealthKeyPair,
+  StealthVaultConfig,
+  XWingKeyPair,
+  XWingPublicKey,
+  XWingSecretKey,
+} from "./crypto";
 
 export {
   PROGRAM_IDS,
@@ -55,9 +75,19 @@ export type {
   WaveStakeParams,
   WaveSwapParams,
   SwapQuote,
+  // X-Wing types (re-exported from types.ts)
+  XWingKeyPair as XWingKeyPairType,
+  XWingPublicKey as XWingPublicKeyType,
+  XWingSecretKey as XWingSecretKeyType,
 } from "./types";
 
-export { StealthScanner, isPaymentForUs, deriveStealthFromEphemeral } from "./scanner";
+export {
+  StealthScanner,
+  isPaymentForUs,
+  isPaymentForUsXWing,
+  isPaymentForUsUniversal,
+  deriveStealthFromEphemeral,
+} from "./scanner";
 export type { DetectedPayment, ScannerConfig } from "./scanner";
 
 // PER Privacy Integration - Full privacy flow with MagicBlock
