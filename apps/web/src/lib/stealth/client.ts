@@ -486,14 +486,15 @@ export class WaveStealthClient {
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // Priority 1: Use PER Mixer Pool for IDEAL PRIVACY ARCHITECTURE
-    // This is the recommended approach: shared pool + MagicBlock TEE
+    // Priority 1: Use MagicBlock PER with DEPOSIT_AND_DELEGATE for IDEAL PRIVACY
+    // This delegates the deposit to MagicBlock TEE (Intel TDX) which automatically
+    // executes the stealth transfer - achieving TRUE SENDER UNLINKABILITY
     if (this.useMagicBlockPer) {
-      console.log('[WaveStealthClient] Using PER Mixer Pool for IDEAL PRIVACY');
-      console.log('[WaveStealthClient] → Sender deposits to shared pool (anonymity set)');
-      console.log('[WaveStealthClient] → PER executes claim inside TEE');
-      console.log('[WaveStealthClient] → Recipient withdraws from escrow on L1');
-      return this.waveSendViaPerMixerPool(wallet, params);
+      console.log('[WaveStealthClient] Using MagicBlock PER for IDEAL PRIVACY ARCHITECTURE');
+      console.log('[WaveStealthClient] → deposit_and_delegate to TEE validator');
+      console.log('[WaveStealthClient] → TEE executes stealth transfer automatically');
+      console.log('[WaveStealthClient] → Sender wallet NEVER linked to vault on-chain');
+      return this.waveSendViaPer(wallet, params);
     }
 
     // Priority 2: Use mixer pool with relayer for privacy (if configured)
@@ -1048,11 +1049,15 @@ export class WaveStealthClient {
       await this.connection.confirmTransaction(signature, 'confirmed');
 
       console.log('[WaveStealthClient] ✓ Deposit + Delegate complete (USER SIGNED ONCE):', signature);
-      console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER');
-      console.log('[WaveStealthClient] ✓ PER (inside TEE) will automatically execute mixer transfer');
-      console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE!');
+      console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER (TEE Validator)');
+      console.log('[WaveStealthClient] ✓ PER (inside Intel TDX TEE) will automatically execute stealth transfer');
+      console.log('[WaveStealthClient] ✓ SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE!');
 
-      // PER automatically executes mixer transfer inside TEE
+      // PER automatically executes stealth transfer inside TEE
+      // The TEE will:
+      // 1. Read the deposit record with stealth config
+      // 2. Execute transfer to stealth vault
+      // 3. Commit state back to L1
       // No need for manual trigger - Magic Actions handles this
 
       return {
@@ -1065,6 +1070,7 @@ export class WaveStealthClient {
         // Additional info for tracking
         perDepositPda,
         nonce: Buffer.from(nonce).toString('hex'),
+        delegated: true, // Indicates deposit is delegated to MagicBlock TEE
       } as SendResult;
     } catch (error) {
       console.error('[WaveStealthClient] PER send error:', error);

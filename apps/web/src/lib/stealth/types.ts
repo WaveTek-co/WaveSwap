@@ -80,8 +80,10 @@ export interface SendResult extends TransactionResult {
   // Mixer pool flow fields
   depositRecordPda?: PublicKey;
   nonce?: string; // hex-encoded nonce for tracking
-  // PER flow fields
+  // PER flow fields (Magic Actions + MagicBlock TEE)
   perDepositPda?: PublicKey;
+  escrowPda?: PublicKey;
+  delegated?: boolean; // true if delegated to MagicBlock TEE
 }
 
 // Token info
