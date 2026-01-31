@@ -43,7 +43,7 @@ interface StakingState {
 
 export function useWaveStake() {
   const { connected, publicKey, signTransaction } = useWallet()
-  const [connection] = useState(() => new Connection('https://api.devnet.solana.com'))
+  const [connection] = useState(() => new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'))
   const [state, setState] = useState<StakingState>({
     userStakes: {},
     pools: {},

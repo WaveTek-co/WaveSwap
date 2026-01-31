@@ -53,9 +53,10 @@ export function useWaveSend(): UseWaveSendReturn {
   const [registrationProgress, setRegistrationProgress] = useState<RegistrationProgress | null>(null)
 
   // Initialize the stealth client with DEVNET connection
-  // Note: We create our own devnet connection because the app's connection might be mainnet
+  // Uses Helius RPC if configured, falls back to public devnet
   const devnetConnection = useMemo(() => {
-    return new Connection('https://api.devnet.solana.com', 'confirmed')
+    const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    return new Connection(rpcUrl, 'confirmed')
   }, [])
 
   const client = useMemo(() => {

@@ -120,7 +120,8 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       }
 
       try {
-        const devnetConnection = new Connection('https://api.devnet.solana.com', 'confirmed')
+        const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+        const devnetConnection = new Connection(rpcUrl, 'confirmed')
         const balances: { [key: string]: string } = { wave: '0', wealth: '0', sol: '0', usdc: '0' }
 
         // Fetch SOL balance from Devnet

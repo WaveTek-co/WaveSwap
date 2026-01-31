@@ -153,7 +153,8 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
 
     try {
       // Get recipient's registry to get their spend/view pubkeys
-      const connection = new Connection('https://api.devnet.solana.com', 'confirmed')
+      const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+      const connection = new Connection(rpcUrl, 'confirmed')
       const [registryPda] = deriveRegistryPda(recipientWallet)
 
       const registryInfo = await connection.getAccountInfo(registryPda)
@@ -277,7 +278,8 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     try {
       console.log('[PER Privacy] Starting privacy-preserving scan...')
 
-      const connection = new Connection('https://api.devnet.solana.com', 'confirmed')
+      const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+      const connection = new Connection(rpcUrl, 'confirmed')
 
       // Fetch all announcements
       const accounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
