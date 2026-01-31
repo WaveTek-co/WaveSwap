@@ -471,7 +471,6 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       )}
 
       {/* Incoming Payments Banner - Auto-claim status */}
-      {console.log('[WaveSend] Render - delegatedDeposits:', delegatedDeposits.length, 'per-mixer:', delegatedDeposits.filter(d => d.type === 'per-mixer').length)}
       {privacyMode && connected && (pendingClaims.length > 0 || pendingEscrows.length > 0 || delegatedDeposits.length > 0 || isScanning) && (
         <div
           className="p-4 rounded-xl"
@@ -500,43 +499,37 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
           {/* Include both 'per' (DEPOSIT_AND_DELEGATE) and 'per-mixer' type deposits */}
           {delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length > 0 && (
             <div className="space-y-2 mt-3">
-              <div className="text-xs font-medium mb-2" style={{ color: theme.colors.info }}>
-                Private Deposits (via MagicBlock TEE)
-              </div>
               {delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').slice(0, 5).map((deposit) => (
                 <div
                   key={deposit.depositAddress}
-                  className="flex items-center justify-between p-2 rounded-lg"
-                  style={{ background: `${theme.colors.info}10` }}
+                  className="flex items-center justify-between p-3 rounded-lg"
+                  style={{ background: `${theme.colors.surface}40` }}
                 >
                   <div>
-                    <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
-                      {deposit.type.toUpperCase()}: {deposit.depositAddress.slice(0, 4)}...{deposit.depositAddress.slice(-4)}
+                    <div className="text-xs font-medium" style={{ color: theme.colors.success }}>
+                      PRIVATE ADDRESS
                     </div>
-                    <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
+                    <div className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
                       {(Number(deposit.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
-                    </div>
-                    <div className="text-xs" style={{ color: theme.colors.textMuted }}>
-                      Ready to claim via MagicBlock TEE
                     </div>
                   </div>
                   <button
                     onClick={async () => {
                       try {
-                        toast.info('Triggering claim via MagicBlock...')
+                        toast.info('Claiming private payment...')
                         const success = await triggerMagicAction(deposit)
                         if (success) {
-                          toast.success('Claim triggered!')
+                          toast.success('Claim successful!')
                         } else {
-                          toast.error('Claim trigger failed')
+                          toast.error('Claim failed')
                         }
                       } catch (err) {
-                        toast.error('Error triggering claim')
+                        toast.error('Error claiming payment')
                       }
                     }}
-                    className="px-3 py-1 rounded text-xs font-medium transition-all hover:opacity-80"
+                    className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80"
                     style={{
-                      background: theme.colors.info,
+                      background: theme.colors.success,
                       color: '#000'
                     }}
                   >
@@ -546,7 +539,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
               ))}
               {delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length > 5 && (
                 <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
-                  +{delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length - 5} more deposits
+                  +{delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length - 5} more payments
                 </div>
               )}
             </div>
@@ -555,20 +548,17 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
           {/* Pending Escrows (from PER mixer pool - ready for withdrawal) */}
           {pendingEscrows.length > 0 && (
             <div className="space-y-2 mt-3">
-              <div className="text-xs font-medium mb-2" style={{ color: theme.colors.success }}>
-                Ready to Withdraw (Escrows on L1)
-              </div>
               {pendingEscrows.slice(0, 5).map((escrow) => (
                 <div
                   key={escrow.escrowAddress}
-                  className="flex items-center justify-between p-2 rounded-lg"
+                  className="flex items-center justify-between p-3 rounded-lg"
                   style={{ background: `${theme.colors.surface}40` }}
                 >
                   <div>
-                    <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
-                      PER Escrow: {escrow.escrowAddress.slice(0, 4)}...{escrow.escrowAddress.slice(-4)}
+                    <div className="text-xs font-medium" style={{ color: theme.colors.success }}>
+                      PRIVATE ADDRESS
                     </div>
-                    <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
+                    <div className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
                       {(Number(escrow.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
                   </div>
@@ -579,28 +569,28 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                         try {
                           const success = await withdrawFromEscrow(escrow)
                           if (success) {
-                            toast.success('Withdrawal successful!')
+                            toast.success('Claim successful!')
                           } else {
-                            toast.error('Withdrawal failed')
+                            toast.error('Claim failed')
                           }
                         } catch (err) {
-                          toast.error('Withdrawal error')
+                          toast.error('Error claiming payment')
                         } finally {
                           setWithdrawingEscrow(null)
                         }
                       }}
                       disabled={withdrawingEscrow === escrow.escrowAddress}
-                      className="px-3 py-1 rounded text-xs font-medium transition-all hover:opacity-80 disabled:opacity-50"
+                      className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80 disabled:opacity-50"
                       style={{
                         background: theme.colors.success,
                         color: '#000'
                       }}
                     >
-                      {withdrawingEscrow === escrow.escrowAddress ? 'Withdrawing...' : 'Withdraw'}
+                      {withdrawingEscrow === escrow.escrowAddress ? 'Claiming...' : 'Claim'}
                     </button>
                   ) : (
                     <div
-                      className="px-2 py-1 rounded text-xs font-medium"
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium"
                       style={{
                         background: escrow.status === 'withdrawn' ? `${theme.colors.success}20` :
                                     escrow.status === 'withdrawing' ? `${theme.colors.info}20` :
@@ -610,8 +600,8 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                                theme.colors.error
                       }}
                     >
-                      {escrow.status === 'withdrawn' ? 'Withdrawn' :
-                       escrow.status === 'withdrawing' ? 'Withdrawing...' :
+                      {escrow.status === 'withdrawn' ? 'Claimed' :
+                       escrow.status === 'withdrawing' ? 'Claiming...' :
                        'Failed'}
                     </div>
                   )}
@@ -619,7 +609,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
               ))}
               {pendingEscrows.length > 5 && (
                 <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
-                  +{pendingEscrows.length - 5} more escrows
+                  +{pendingEscrows.length - 5} more payments
                 </div>
               )}
             </div>
@@ -628,25 +618,22 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
           {/* Legacy Pending Claims (direct vault transfers) */}
           {pendingClaims.length > 0 && (
             <div className="space-y-2 mt-3">
-              <div className="text-xs font-medium mb-2" style={{ color: theme.colors.warning }}>
-                Legacy Claims (Direct Vaults)
-              </div>
               {pendingClaims.slice(0, 3).map((claim) => (
                 <div
                   key={claim.vaultAddress}
-                  className="flex items-center justify-between p-2 rounded-lg"
+                  className="flex items-center justify-between p-3 rounded-lg"
                   style={{ background: `${theme.colors.surface}40` }}
                 >
                   <div>
-                    <div className="text-xs" style={{ color: theme.colors.textSecondary }}>
-                      From: {claim.sender.slice(0, 4)}...{claim.sender.slice(-4)}
+                    <div className="text-xs font-medium" style={{ color: theme.colors.success }}>
+                      PRIVATE ADDRESS
                     </div>
-                    <div className="text-sm font-medium" style={{ color: theme.colors.textPrimary }}>
+                    <div className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
                       {(Number(claim.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
                   </div>
                   <div
-                    className="px-2 py-1 rounded text-xs font-medium"
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium"
                     style={{
                       background: claim.status === 'claimed' ? `${theme.colors.success}20` :
                                   claim.status === 'claiming' ? `${theme.colors.info}20` :
@@ -661,7 +648,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                     {claim.status === 'claimed' ? 'Claimed' :
                      claim.status === 'claiming' ? 'Claiming...' :
                      claim.status === 'failed' ? 'Failed' :
-                     'Auto-claiming...'}
+                     'Claiming...'}
                   </div>
                 </div>
               ))}
