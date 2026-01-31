@@ -9,7 +9,9 @@ import {
   WaveSendParams,
   SendResult,
   NATIVE_SOL_MINT,
-} from '@waveswap/sdk'
+  RegistrationProgress,
+  RegistrationStep,
+} from '@/lib/stealth'
 
 // Storage key for stealth keys (only public keys stored, privkeys in memory)
 const STEALTH_KEYS_STORAGE_KEY = 'waveswap_stealth_keys'
@@ -21,6 +23,7 @@ export interface UseWaveSendReturn {
   isLoading: boolean
   isSending: boolean
   error: string | null
+  registrationProgress: RegistrationProgress | null
 
   // Actions
   initializeKeys: () => Promise<boolean>
@@ -31,6 +34,7 @@ export interface UseWaveSendReturn {
     tokenMint?: string
   }) => Promise<SendResult>
   checkRecipientRegistered: (address: string) => Promise<boolean>
+  claimByVault: (vaultAddress: string) => Promise<{ success: boolean; signature?: string; error?: string }>
 
   // Utilities
   clearError: () => void
@@ -46,14 +50,20 @@ export function useWaveSend(): UseWaveSendReturn {
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stealthKeys, setStealthKeys] = useState<StealthKeyPair | null>(null)
+  const [registrationProgress, setRegistrationProgress] = useState<RegistrationProgress | null>(null)
 
-  // Initialize the stealth client
+  // Initialize the stealth client with DEVNET connection
+  // Note: We create our own devnet connection because the app's connection might be mainnet
+  const devnetConnection = useMemo(() => {
+    return new Connection('https://api.devnet.solana.com', 'confirmed')
+  }, [])
+
   const client = useMemo(() => {
     return new WaveStealthClient({
-      connection,
+      connection: devnetConnection,
       network: 'devnet',
     })
-  }, [connection])
+  }, [devnetConnection])
 
   // Create wallet adapter object for SDK
   const walletAdapter = useMemo(() => {
@@ -95,7 +105,10 @@ export function useWaveSend(): UseWaveSendReturn {
 
   // Initialize stealth keys from wallet signature
   const initializeKeys = useCallback(async (): Promise<boolean> => {
+    console.log('[WaveSend] initializeKeys called')
+
     if (!signMessage) {
+      console.error('[WaveSend] signMessage not available')
       setError('Wallet does not support message signing')
       return false
     }
@@ -104,7 +117,13 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
 
     try {
+      console.log('[WaveSend] Calling client.initializeKeys...')
       const keys = await client.initializeKeys(signMessage)
+      console.log('[WaveSend] Keys generated successfully:', {
+        spendPubkey: Buffer.from(keys.spendPubkey).toString('hex').slice(0, 16) + '...',
+        viewPubkey: Buffer.from(keys.viewPubkey).toString('hex').slice(0, 16) + '...',
+      })
+
       setStealthKeys(keys)
       setIsInitialized(true)
 
@@ -117,8 +136,10 @@ export function useWaveSend(): UseWaveSendReturn {
         })
       )
 
+      console.log('[WaveSend] Keys initialized and stored')
       return true
     } catch (err) {
+      console.error('[WaveSend] initializeKeys error:', err)
       const message = err instanceof Error ? err.message : 'Failed to initialize keys'
       setError(message)
       return false
@@ -127,34 +148,60 @@ export function useWaveSend(): UseWaveSendReturn {
     }
   }, [signMessage, client])
 
-  // Register for stealth payments
+  // Register for stealth payments (multi-transaction flow)
   const register = useCallback(async (): Promise<boolean> => {
+    console.log('[WaveSend] register called (multi-tx)')
+
     if (!walletAdapter) {
+      console.error('[WaveSend] walletAdapter not available')
       setError('Wallet not connected')
       return false
     }
 
     if (!stealthKeys) {
+      console.error('[WaveSend] stealthKeys not available')
       setError('Stealth keys not initialized. Please initialize first.')
       return false
     }
 
+    console.log('[WaveSend] Starting registration with keys:', {
+      spendPubkey: Buffer.from(stealthKeys.spendPubkey).toString('hex').slice(0, 16) + '...',
+      viewPubkey: Buffer.from(stealthKeys.viewPubkey).toString('hex').slice(0, 16) + '...',
+    })
+
     setIsLoading(true)
     setError(null)
+    setRegistrationProgress(null)
 
     try {
-      const result = await client.register(walletAdapter, stealthKeys)
+      console.log('[WaveSend] Calling client.register with progress callback...')
+      const result = await client.register(
+        walletAdapter,
+        stealthKeys,
+        undefined,
+        (progress) => {
+          console.log('[WaveSend] Registration progress:', progress)
+          setRegistrationProgress(progress)
+        }
+      )
+      console.log('[WaveSend] register result:', result)
 
       if (result.success) {
+        console.log('[WaveSend] Registration successful, tx:', result.signature)
         setIsRegistered(true)
+        setRegistrationProgress(null)
         return true
       } else {
+        console.error('[WaveSend] Registration failed:', result.error)
         setError(result.error || 'Registration failed')
+        setRegistrationProgress(null)
         return false
       }
     } catch (err) {
+      console.error('[WaveSend] register error:', err)
       const message = err instanceof Error ? err.message : 'Registration failed'
       setError(message)
+      setRegistrationProgress(null)
       return false
     } finally {
       setIsLoading(false)
@@ -181,7 +228,10 @@ export function useWaveSend(): UseWaveSendReturn {
       amount: string
       tokenMint?: string
     }): Promise<SendResult> => {
+      console.log('[WaveSend] send called with params:', params)
+
       if (!walletAdapter) {
+        console.error('[WaveSend] walletAdapter not available')
         return { success: false, error: 'Wallet not connected' }
       }
 
@@ -213,6 +263,12 @@ export function useWaveSend(): UseWaveSendReturn {
           ? BigInt(Math.floor(amountFloat * LAMPORTS_PER_SOL))
           : BigInt(Math.floor(amountFloat * 1e6)) // Assume 6 decimals for SPL tokens
 
+        console.log('[WaveSend] Sending stealth transfer:', {
+          recipient: recipientWallet.toBase58(),
+          amount: amount.toString(),
+          isSol,
+        })
+
         const sendParams: WaveSendParams = {
           recipientWallet,
           amount,
@@ -220,6 +276,7 @@ export function useWaveSend(): UseWaveSendReturn {
         }
 
         const result = await client.waveSend(walletAdapter, sendParams)
+        console.log('[WaveSend] waveSend result:', result)
 
         if (!result.success) {
           setError(result.error || 'Send failed')
@@ -227,6 +284,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
         return result
       } catch (err) {
+        console.error('[WaveSend] send error:', err)
         const message = err instanceof Error ? err.message : 'Send failed'
         setError(message)
         return { success: false, error: message }
@@ -242,16 +300,53 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
   }, [])
 
+  // Claim by vault address (manual claim)
+  const claimByVault = useCallback(
+    async (vaultAddress: string): Promise<{ success: boolean; signature?: string; error?: string }> => {
+      if (!walletAdapter) {
+        return { success: false, error: 'Wallet not connected' }
+      }
+
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const result = await client.claimByVaultAddress(walletAdapter, vaultAddress)
+        console.log('[WaveSend] claim result:', result)
+
+        if (!result.success) {
+          setError(result.error || 'Claim failed')
+        }
+
+        return {
+          success: result.success,
+          signature: result.signature,
+          error: result.error,
+        }
+      } catch (err) {
+        console.error('[WaveSend] claim error:', err)
+        const message = err instanceof Error ? err.message : 'Claim failed'
+        setError(message)
+        return { success: false, error: message }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [walletAdapter, client]
+  )
+
   return {
     isInitialized,
     isRegistered,
     isLoading,
     isSending,
     error,
+    registrationProgress,
     initializeKeys,
     register,
     send,
     checkRecipientRegistered,
+    claimByVault,
     clearError,
   }
 }

@@ -17,6 +17,7 @@ import { GlobalWalletModal } from '@/components/Wallets/GlobalWalletModal'
 import WalletErrorBoundary from '@/components/Wallets/WalletErrorBoundary'
 import Footer from '@/components/Footer'
 import { TermsGuard } from '@/components/TermsGuard'
+import { Toaster } from 'sonner'
 
 // Using local Helvetica Neue and JetBrains Mono fonts only
 
@@ -105,6 +106,19 @@ export default function RootLayout({
                               </div>
                               <PrivacyReminder />
                               <GlobalWalletModal />
+                              <Toaster
+                                position="bottom-right"
+                                toastOptions={{
+                                  style: {
+                                    background: 'transparent',
+                                    border: 'none',
+                                    boxShadow: 'none',
+                                    padding: 0,
+                                  },
+                                }}
+                                expand={false}
+                                richColors
+                              />
                             </div>
                             </WaveSwapProvider>
                             </GlobalModalProvider>
