@@ -496,13 +496,14 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
             )}
           </div>
 
-          {/* PER Mixer Deposits (awaiting claim) - IDEAL PRIVACY - Show these first! */}
-          {delegatedDeposits.filter(d => d.type === 'per-mixer').length > 0 && (
+          {/* Delegated Deposits (awaiting claim) - IDEAL PRIVACY - Show these first! */}
+          {/* Include both 'per' (DEPOSIT_AND_DELEGATE) and 'per-mixer' type deposits */}
+          {delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length > 0 && (
             <div className="space-y-2 mt-3">
               <div className="text-xs font-medium mb-2" style={{ color: theme.colors.info }}>
-                Private Deposits (via PER Mixer Pool)
+                Private Deposits (via MagicBlock TEE)
               </div>
-              {delegatedDeposits.filter(d => d.type === 'per-mixer').slice(0, 5).map((deposit) => (
+              {delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').slice(0, 5).map((deposit) => (
                 <div
                   key={deposit.depositAddress}
                   className="flex items-center justify-between p-2 rounded-lg"
@@ -543,9 +544,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                   </button>
                 </div>
               ))}
-              {delegatedDeposits.filter(d => d.type === 'per-mixer').length > 5 && (
+              {delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length > 5 && (
                 <div className="text-xs text-center" style={{ color: theme.colors.textMuted }}>
-                  +{delegatedDeposits.filter(d => d.type === 'per-mixer').length - 5} more deposits
+                  +{delegatedDeposits.filter(d => d.type === 'per-mixer' || d.type === 'per').length - 5} more deposits
                 </div>
               )}
             </div>
