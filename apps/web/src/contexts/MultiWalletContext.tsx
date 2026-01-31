@@ -361,6 +361,7 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
 
       // Handle different wallet types
       switch (walletName.toLowerCase()) {
+        case 'phantom':
         case 'phantom-embedded':
         case 'phantom-injected':
         case 'google':
@@ -377,6 +378,7 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
             case 'phantom-embedded':
               provider = 'phantom'
               break
+            case 'phantom':
             case 'phantom-injected':
               provider = 'injected'
               break
@@ -403,14 +405,31 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
             const result = await connect(authOptions)
             console.log('Connect returned:', result)
             console.log(`Successfully connected with Phantom SDK provider: ${provider}`)
-          } catch (error) {
-            console.log('=== ERROR CAUGHT ===')
-            console.log('Error object:', error)
-            console.log('Error type:', typeof error)
+          } catch (error: any) {
+            console.log('=== Phantom SDK ERROR - Trying fallback ===')
             console.log('Error message:', error?.message)
-            console.log('Error name:', error?.name)
-            console.log('Error stack:', error?.stack)
-            console.log('Stringified error:', JSON.stringify(error, null, 2))
+
+            // Fallback: Try native Phantom extension for injected provider
+            if (provider === 'injected' && typeof window !== 'undefined') {
+              const phantomProvider = (window as any).phantom?.solana
+              if (phantomProvider?.isPhantom) {
+                console.log('Falling back to native Phantom extension...')
+                try {
+                  const response = await phantomProvider.connect()
+                  const pubkey = response.publicKey
+                  if (pubkey) {
+                    setCurrentWalletType('phantom-native')
+                    setExternalConnected(true)
+                    setExternalPublicKey(new PublicKey(pubkey.toString()))
+                    console.log('Successfully connected via native Phantom:', pubkey.toString())
+                    break
+                  }
+                } catch (nativeError: any) {
+                  console.error('Native Phantom fallback failed:', nativeError)
+                  throw new Error(`Phantom connection failed: ${nativeError.message || error.message}`)
+                }
+              }
+            }
             throw error
           }
           break
@@ -612,6 +631,24 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
     try {
       console.log('Attempting to disconnect wallet')
 
+      // Disconnect native phantom if connected
+      if (currentWalletType === 'phantom-native') {
+        const phantomProvider = typeof window !== 'undefined' ? (window as any).phantom?.solana : null
+        if (phantomProvider?.disconnect) {
+          await phantomProvider.disconnect()
+        }
+      }
+
+      // Disconnect other native wallets
+      if (currentWalletType === 'backpack' && typeof window !== 'undefined') {
+        const backpack = (window as any).backpack
+        if (backpack?.disconnect) await backpack.disconnect()
+      }
+      if (currentWalletType === 'solflare' && typeof window !== 'undefined') {
+        const solflare = (window as any).solflare
+        if (solflare?.disconnect) await solflare.disconnect()
+      }
+
       // Clear external wallet states
       setExternalConnected(false)
       setExternalPublicKey(null)
@@ -647,6 +684,53 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
     }
   }, [disconnect, isConnected])
 
+  // Get native phantom provider for fallback signing
+  const nativePhantom = typeof window !== 'undefined' ? (window as any).phantom?.solana : null
+
+  // Create sign functions that work with both SDK and native phantom
+  const signMessage = useCallback(async (message: Uint8Array): Promise<Uint8Array> => {
+    if (solana?.signMessage) {
+      return solana.signMessage(message)
+    }
+    if (currentWalletType === 'phantom-native' && nativePhantom?.signMessage) {
+      const { signature } = await nativePhantom.signMessage(message, 'utf8')
+      return signature
+    }
+    throw new Error('Signing not available')
+  }, [solana, currentWalletType, nativePhantom])
+
+  const signTransaction = useCallback(async (transaction: Transaction | VersionedTransaction): Promise<Transaction | VersionedTransaction> => {
+    if (solana?.signTransaction) {
+      return solana.signTransaction(transaction)
+    }
+    if (currentWalletType === 'phantom-native' && nativePhantom?.signTransaction) {
+      return nativePhantom.signTransaction(transaction)
+    }
+    if (currentWalletType === 'backpack' && (window as any).backpack?.signTransaction) {
+      return (window as any).backpack.signTransaction(transaction)
+    }
+    if (currentWalletType === 'solflare' && (window as any).solflare?.signTransaction) {
+      return (window as any).solflare.signTransaction(transaction)
+    }
+    throw new Error('Signing not available')
+  }, [solana, currentWalletType, nativePhantom])
+
+  const signAllTransactions = useCallback(async (transactions: (Transaction | VersionedTransaction)[]): Promise<(Transaction | VersionedTransaction)[]> => {
+    if (solana?.signAllTransactions) {
+      return solana.signAllTransactions(transactions)
+    }
+    if (currentWalletType === 'phantom-native' && nativePhantom?.signAllTransactions) {
+      return nativePhantom.signAllTransactions(transactions)
+    }
+    if (currentWalletType === 'backpack' && (window as any).backpack?.signAllTransactions) {
+      return (window as any).backpack.signAllTransactions(transactions)
+    }
+    if (currentWalletType === 'solflare' && (window as any).solflare?.signAllTransactions) {
+      return (window as any).solflare.signAllTransactions(transactions)
+    }
+    throw new Error('Signing not available')
+  }, [solana, currentWalletType, nativePhantom])
+
   const contextValue: MultiWalletContextType = {
     connection,
     publicKey,
@@ -656,16 +740,16 @@ function MultiWalletContextInner({ children }: { children: ReactNode }) {
     error,
     configError: configInitializationError,
     isUsingFallbackConfig: !!configInitializationError,
-    wallet: solana || null,
+    wallet: solana || nativePhantom || null,
     availableWallets,
     backpackAdapter,
     solflareAdapter,
     walletConnectClient,
     connect: handleConnect,
     disconnect: handleDisconnect,
-    signMessage: solana?.signMessage ? solana.signMessage.bind(solana) : (() => Promise.reject(new Error('Not available'))),
-    signTransaction: solana?.signTransaction ? solana.signTransaction.bind(solana) : (() => Promise.reject(new Error('Not available'))),
-    signAllTransactions: solana?.signAllTransactions ? solana.signAllTransactions.bind(solana) : (() => Promise.reject(new Error('Not available'))),
+    signMessage,
+    signTransaction,
+    signAllTransactions,
     getBalance,
     clearError,
     checkConnectionHealth,
