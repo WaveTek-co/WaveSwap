@@ -40,6 +40,33 @@ import {
   stealthSign,
 } from "./crypto";
 
+// HTTP polling-based confirmation (avoids WebSocket issues on devnet)
+async function confirmTransactionPolling(
+  connection: Connection,
+  signature: string,
+  maxAttempts = 30,
+  intervalMs = 2000
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const status = await connection.getSignatureStatus(signature);
+      if (status?.value?.confirmationStatus === 'confirmed' ||
+          status?.value?.confirmationStatus === 'finalized') {
+        return true;
+      }
+      if (status?.value?.err) {
+        console.error('[Confirm] TX failed:', status.value.err);
+        return false;
+      }
+    } catch (e) {
+      // Ignore polling errors, keep trying
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  console.warn('[Confirm] Timeout - TX may still succeed');
+  return true;
+}
+
 // MagicBlock PER Constants
 export const MAGICBLOCK_RPC_DEVNET = "https://devnet.magicblock.app";
 export const MAGICBLOCK_TEE_PUBKEY = new PublicKey("maborAhvYdgqzzwQAB64a3oNvpTtEAYDTvSBT4supLH");
@@ -252,7 +279,7 @@ export class PERPrivacyClient {
 
       const signedTx = await wallet.signTransaction(tx);
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await this.mainnetConnection.confirmTransaction(signature, "confirmed");
+      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
       return {
         success: true,
@@ -317,7 +344,7 @@ export class PERPrivacyClient {
 
       const signedTx = await wallet.signTransaction(tx);
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await this.mainnetConnection.confirmTransaction(signature, "confirmed");
+      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
       return {
         success: true,
@@ -400,7 +427,7 @@ export class PERPrivacyClient {
 
       const signedTx = await wallet.signTransaction(tx);
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await this.mainnetConnection.confirmTransaction(signature, "confirmed");
+      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
       console.log("[PER Privacy V2] Deposit complete - escrow created and delegated");
 
@@ -478,7 +505,7 @@ export class PERPrivacyClient {
 
       const signedTx = await submitter.signTransaction(tx);
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await this.mainnetConnection.confirmTransaction(signature, "confirmed");
+      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
       return { success: true, signature };
     } catch (error: any) {

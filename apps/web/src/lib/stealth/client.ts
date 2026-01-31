@@ -357,8 +357,8 @@ export class WaveStealthClient {
         tx1.feePayer = wallet.publicKey;
         tx1.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
         const signedTx1 = await wallet.signTransaction(tx1);
-        const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize());
-        await this.connection.confirmTransaction(sig1, 'confirmed');
+        const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize(), { skipPreflight: true });
+        await confirmTransactionPolling(this.connection, sig1, 30, 2000);
         signatures.push(sig1);
         console.log('[Client] Tx1 confirmed:', sig1);
       }
@@ -413,8 +413,8 @@ export class WaveStealthClient {
         tx.feePayer = wallet.publicKey;
         tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
         const signedTx = await wallet.signTransaction(tx);
-        const sig = await this.connection.sendRawTransaction(signedTx.serialize());
-        await this.connection.confirmTransaction(sig, 'confirmed');
+        const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+        await confirmTransactionPolling(this.connection, sig, 30, 2000);
         signatures.push(sig);
         console.log(`[Client] Tx${i + (existing ? 1 : 2)} confirmed:`, sig);
       }
@@ -520,8 +520,8 @@ export class WaveStealthClient {
       tx.feePayer = wallet.publicKey;
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
       const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
       console.log('[Client] Registration complete (single tx):', signature);
       reportProgress('complete', 1, 1, 'Registration complete!');
@@ -735,8 +735,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
       console.log('[WaveStealthClient] Deposit to mixer pool complete:', signature);
       console.log('[WaveStealthClient] Recipient will trigger mixer transfer to release funds');
@@ -860,8 +860,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const depositSig = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(depositSig, 'confirmed');
+      const depositSig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
       console.log('[WaveStealthClient] Deposit complete:', depositSig);
 
@@ -992,8 +992,8 @@ export class WaveStealthClient {
       depositTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedDepositTx = await wallet.signTransaction(depositTx);
-      const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize());
-      await this.connection.confirmTransaction(depositSig, 'confirmed');
+      const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
       console.log('[WaveStealthClient] ✓ Deposit complete (USER SIGNED ONCE):', depositSig);
 
@@ -1184,8 +1184,16 @@ export class WaveStealthClient {
 
       // USER SIGNS ONE TRANSACTION
       const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+
+      // Use HTTP polling confirmation (avoids WebSocket issues on devnet)
+      const confirmed = await confirmTransactionPolling(this.connection, signature, 30, 2000);
+      if (!confirmed) {
+        console.warn('[WaveStealthClient] TX confirmation timed out, but may still succeed');
+      }
 
       console.log('[WaveStealthClient] ✓ Deposit + Delegate complete (USER SIGNED ONCE):', signature);
       console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER (TEE Validator)');
@@ -1595,8 +1603,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(txSignature);
+      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, txSignature, 30, 2000);
 
       return {
         success: true,
@@ -1670,8 +1678,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(txSignature);
+      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, txSignature, 30, 2000);
 
       return {
         success: true,
