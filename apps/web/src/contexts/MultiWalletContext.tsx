@@ -6,6 +6,16 @@ import { config } from '@/lib/config'
 
 declare global {
   interface Window {
+    solana?: {
+      isPhantom?: boolean
+      isConnected?: boolean
+      connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: PublicKey }>
+      disconnect(): Promise<void>
+      signTransaction(transaction: Transaction | VersionedTransaction): Promise<Transaction | VersionedTransaction>
+      signAllTransactions(transactions: (Transaction | VersionedTransaction)[]): Promise<(Transaction | VersionedTransaction)[]>
+      signMessage(message: Uint8Array, encoding: string): Promise<{ signature: Uint8Array }>
+      publicKey?: PublicKey
+    }
     phantom?: {
       solana?: {
         isPhantom?: boolean
@@ -82,8 +92,8 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
     const tryAutoConnect = async () => {
       if (typeof window === 'undefined') return
 
-      const phantom = window.phantom?.solana
-      if (phantom?.isPhantom && phantom.isConnected && phantom.publicKey) {
+      const phantom = window.phantom?.solana || window.solana
+      if (phantom?.isPhantom && phantom.publicKey) {
         setWalletName('phantom')
         setPublicKey(new PublicKey(phantom.publicKey.toString()))
         setConnected(true)
@@ -92,7 +102,7 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
     }
 
     // Small delay to ensure wallet extension is loaded
-    const timer = setTimeout(tryAutoConnect, 100)
+    const timer = setTimeout(tryAutoConnect, 200)
     return () => clearTimeout(timer)
   }, [])
 
@@ -101,7 +111,7 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
 
     switch (walletName) {
       case 'phantom':
-        return window.phantom?.solana
+        return window.phantom?.solana || window.solana
       case 'backpack':
         return window.backpack
       case 'solflare':
@@ -144,24 +154,27 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
       switch (name.toLowerCase()) {
         case 'phantom':
         case 'phantom-injected':
-          provider = window.phantom?.solana
+          // Try window.phantom.solana first, then window.solana as fallback
+          provider = window.phantom?.solana || (window as any).solana
           if (!provider?.isPhantom) {
             throw new Error('Phantom wallet not installed. Please install from phantom.app')
           }
+
+          // If already connected, just use existing publicKey
+          if (provider.publicKey) {
+            console.log('Using existing Phantom connection')
+            response = { publicKey: provider.publicKey }
+            break
+          }
+
+          // Try eager connection first (silent, no popup)
           try {
-            // Check if already connected
-            if (provider.isConnected && provider.publicKey) {
-              response = { publicKey: provider.publicKey }
-            } else {
-              response = await provider.connect({ onlyIfTrusted: false })
-            }
-          } catch (phantomErr: any) {
-            console.error('Phantom connect error:', phantomErr)
-            // User rejected or closed popup
-            if (phantomErr?.code === 4001 || phantomErr?.message?.includes('rejected')) {
-              throw new Error('Connection rejected by user')
-            }
-            throw phantomErr
+            response = await provider.connect({ onlyIfTrusted: true })
+            console.log('Eager connect successful:', response)
+          } catch {
+            // Eager failed, try full connect
+            console.log('Trying full Phantom connect...')
+            response = await provider.connect()
           }
           break
 
