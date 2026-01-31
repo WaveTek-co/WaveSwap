@@ -9,7 +9,8 @@ declare global {
     phantom?: {
       solana?: {
         isPhantom?: boolean
-        connect(): Promise<{ publicKey: PublicKey }>
+        isConnected?: boolean
+        connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: PublicKey }>
         disconnect(): Promise<void>
         signTransaction(transaction: Transaction | VersionedTransaction): Promise<Transaction | VersionedTransaction>
         signAllTransactions(transactions: (Transaction | VersionedTransaction)[]): Promise<(Transaction | VersionedTransaction)[]>
@@ -76,6 +77,25 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
 
   const availableWallets = useMemo(() => ['phantom', 'backpack', 'solflare'], [])
 
+  // Auto-reconnect on page load if wallet was previously connected
+  useEffect(() => {
+    const tryAutoConnect = async () => {
+      if (typeof window === 'undefined') return
+
+      const phantom = window.phantom?.solana
+      if (phantom?.isPhantom && phantom.isConnected && phantom.publicKey) {
+        setWalletName('phantom')
+        setPublicKey(new PublicKey(phantom.publicKey.toString()))
+        setConnected(true)
+        console.log('Auto-reconnected to Phantom:', phantom.publicKey.toString())
+      }
+    }
+
+    // Small delay to ensure wallet extension is loaded
+    const timer = setTimeout(tryAutoConnect, 100)
+    return () => clearTimeout(timer)
+  }, [])
+
   const getWalletProvider = useCallback(() => {
     if (typeof window === 'undefined') return null
 
@@ -128,7 +148,21 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
           if (!provider?.isPhantom) {
             throw new Error('Phantom wallet not installed. Please install from phantom.app')
           }
-          response = await provider.connect()
+          try {
+            // Check if already connected
+            if (provider.isConnected && provider.publicKey) {
+              response = { publicKey: provider.publicKey }
+            } else {
+              response = await provider.connect({ onlyIfTrusted: false })
+            }
+          } catch (phantomErr: any) {
+            console.error('Phantom connect error:', phantomErr)
+            // User rejected or closed popup
+            if (phantomErr?.code === 4001 || phantomErr?.message?.includes('rejected')) {
+              throw new Error('Connection rejected by user')
+            }
+            throw phantomErr
+          }
           break
 
         case 'backpack':
