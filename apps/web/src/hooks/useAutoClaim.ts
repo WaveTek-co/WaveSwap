@@ -104,7 +104,8 @@ const SCAN_INTERVAL_MS = 30000
 
 // RPC endpoints
 // Use HTTP-only endpoints to avoid WebSocket issues
-const DEVNET_RPC = 'https://api.devnet.solana.com'
+// IMPORTANT: Public devnet RPC is rate-limited. Use Helius/QuickNode for production.
+const DEVNET_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
 
 // HTTP polling-based confirmation (avoids WebSocket issues)
@@ -257,14 +258,19 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
 
       if (deposit.type === 'per-mixer') {
-        // IDEAL PRIVACY ARCHITECTURE: PER Mixer Pool flow
-        // Send execute_per_claim to MagicBlock rollup
-        // This creates a ClaimEscrow that commits to L1
-        console.log('[MagicAction] PER Mixer Pool flow - triggering execute_per_claim')
+        // PER Mixer Pool V2 flow:
+        // - Escrow was pre-created and delegated during deposit (V2)
+        // - TEE fills the escrow and commits it back to L1
+        console.log('[MagicAction] PER Mixer Pool V2 flow - triggering execute_per_claim_v2')
 
         const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda()
         const [depositRecordPda] = derivePerDepositRecordPda(deposit.nonce)
         const [escrowPda, escrowBump] = deriveClaimEscrowPda(deposit.nonce)
+
+        // Check if escrow exists on L1 (V2 flow creates it during deposit)
+        const escrowInfo = await connection.getAccountInfo(escrowPda)
+        const useV2 = escrowInfo && escrowInfo.lamports > 0
+        console.log('[MagicAction] Escrow pre-exists:', useV2, escrowInfo?.lamports || 0, 'lamports')
 
         // MagicBlock Ephemeral Rollups program and context
         const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
@@ -277,23 +283,36 @@ export function useAutoClaim(): UseAutoClaimReturn {
         // Data: pool_bump(1) + nonce(32) + escrow_bump(1) = 34 bytes
         const data = Buffer.alloc(35)
         let offset = 0
-        data[offset++] = StealthDiscriminators.EXECUTE_PER_CLAIM
+        // Use V2 if escrow exists, otherwise fall back to V1
+        data[offset++] = useV2 ? StealthDiscriminators.EXECUTE_PER_CLAIM_V2 : StealthDiscriminators.EXECUTE_PER_CLAIM
         data[offset++] = poolBump
         Buffer.from(deposit.nonce).copy(data, offset); offset += 32
         data[offset] = escrowBump
 
+        // V2 accounts: payer, pool, escrow, magic_context, magic_program, system_program
+        // V1 accounts: payer, pool, deposit_record, escrow, magic_context, magic_program, system_program
+        const accountsV2 = [
+          { pubkey: publicKey, isSigner: true, isWritable: true },
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          { pubkey: magicContext, isSigner: false, isWritable: true },
+          { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ]
+        const accountsV1 = [
+          { pubkey: publicKey, isSigner: true, isWritable: true },
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
+          { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // read-only (on L1)
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          { pubkey: magicContext, isSigner: false, isWritable: true },
+          { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ]
+
         const tx = new Transaction()
         tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
         tx.add(new TransactionInstruction({
-          keys: [
-            { pubkey: publicKey, isSigner: true, isWritable: true },
-            { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
-            { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // read-only (on L1)
-            { pubkey: escrowPda, isSigner: false, isWritable: true },
-            { pubkey: magicContext, isSigner: false, isWritable: true },
-            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          ],
+          keys: useV2 ? accountsV2 : accountsV1,
           programId: PROGRAM_IDS.STEALTH,
           data,
         }))

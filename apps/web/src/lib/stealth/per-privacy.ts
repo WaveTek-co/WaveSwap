@@ -27,6 +27,12 @@ import {
   deriveTestMixerPoolPda,
   deriveDepositRecordPda,
   deriveRelayerAuthPda,
+  derivePerMixerPoolPda,
+  derivePerDepositRecordPda,
+  deriveClaimEscrowPda,
+  deriveEscrowBufferPda,
+  deriveEscrowDelegationRecordPda,
+  deriveEscrowDelegationMetadataPda,
 } from "./config";
 import {
   StealthKeyPair,
@@ -318,6 +324,92 @@ export class PERPrivacyClient {
         signature,
         depositRecordPda,
         vaultPda,
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // STEP 2 (V2): Deposit to PER mixer pool with pre-created escrow
+  // This creates both the deposit record AND the claim escrow on L1,
+  // then delegates the escrow to MagicBlock so TEE can fill it later.
+  // This is the IDEAL privacy architecture - escrows created on L1 can be committed.
+  async depositToPerMixerV2(
+    wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
+    amount: bigint,
+    stealthPubkey: Uint8Array,
+    ephemeralPubkey: Uint8Array,
+    viewTag: number,
+    commitFreqMs: number = 10000
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    signature?: string;
+    depositRecordPda?: PublicKey;
+    escrowPda?: PublicKey;
+    nonce?: Uint8Array;
+  }> {
+    try {
+      // Generate random nonce
+      const nonce = crypto.getRandomValues(new Uint8Array(32));
+
+      const [perMixerPoolPda] = derivePerMixerPoolPda();
+      const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
+      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+      const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
+      const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
+      const [delegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
+
+      // Build deposit V2 instruction
+      // Data: record_bump(1) + escrow_bump(1) + nonce(32) + amount(8) +
+      //       stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + commit_freq_ms(4) = 111 bytes
+      const data = Buffer.alloc(112);
+      let offset = 0;
+      data[offset++] = StealthDiscriminators.DEPOSIT_TO_PER_MIXER_V2;
+      data[offset++] = recordBump;
+      data[offset++] = escrowBump;
+      Buffer.from(nonce).copy(data, offset); offset += 32;
+      for (let i = 0; i < 8; i++) {
+        data[offset++] = Number((amount >> BigInt(i * 8)) & BigInt(0xff));
+      }
+      Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
+      Buffer.from(ephemeralPubkey).copy(data, offset); offset += 32;
+      data[offset++] = viewTag;
+      data.writeUInt32LE(commitFreqMs, offset);
+
+      const ix = new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          { pubkey: escrowBuffer, isSigner: false, isWritable: true },
+          { pubkey: delegationRecord, isSigner: false, isWritable: true },
+          { pubkey: delegationMetadata, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
+          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false }, // owner_program
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      });
+
+      const tx = new Transaction().add(ix);
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.mainnetConnection.getLatestBlockhash()).blockhash;
+
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
+      await this.mainnetConnection.confirmTransaction(signature, "confirmed");
+
+      console.log("[PER Privacy V2] Deposit complete - escrow created and delegated");
+
+      return {
+        success: true,
+        signature,
+        depositRecordPda,
+        escrowPda,
+        nonce,
       };
     } catch (error: any) {
       return { success: false, error: error.message };

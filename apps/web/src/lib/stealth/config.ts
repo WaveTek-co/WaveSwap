@@ -10,6 +10,7 @@ export const PROGRAM_IDS = {
   BRIDGE: new PublicKey("AwZHcaizUMSsQC7fNAMbrahK2w3rLYXUDFCK4MvMKz1f"),
   DELEGATION: new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"),
   MAGICBLOCK_ER: new PublicKey("ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL"),
+  PERMISSION: new PublicKey("ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"),
 };
 
 // Native SOL mint address
@@ -52,6 +53,13 @@ export const StealthDiscriminators = {
   DEPOSIT_TO_PER_MIXER: 0x16,
   EXECUTE_PER_CLAIM: 0x17,
   WITHDRAW_FROM_ESCROW: 0x18,
+  DELEGATE_PER_MIXER_POOL: 0x19,
+  UNDELEGATE_PER_MIXER_POOL: 0x1A,
+  CREATE_POOL_PERMISSION: 0x1B,
+  // V2 instructions with pre-delegated escrows
+  DEPOSIT_TO_PER_MIXER_V2: 0x1C,
+  EXECUTE_PER_CLAIM_V2: 0x1D,
+  UNDELEGATE_ESCROW: 0x1E,
 };
 
 // DeFi instruction discriminators
@@ -228,5 +236,37 @@ export function deriveClaimEscrowPda(nonce: Uint8Array): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("claim-escrow"), Buffer.from(nonce)],
     PROGRAM_IDS.STEALTH
+  );
+}
+
+// Permission PDA for TEE visibility (MagicBlock ACL)
+export function derivePermissionPda(permissionedAccount: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("permission:"), permissionedAccount.toBuffer()],
+    PROGRAM_IDS.PERMISSION
+  );
+}
+
+// Escrow delegation buffer PDA (for delegating escrow to MagicBlock)
+export function deriveEscrowBufferPda(escrowPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("buffer"), escrowPda.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Escrow delegation record PDA
+export function deriveEscrowDelegationRecordPda(escrowPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation"), escrowPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// Escrow delegation metadata PDA
+export function deriveEscrowDelegationMetadataPda(escrowPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation-metadata"), escrowPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
   );
 }
