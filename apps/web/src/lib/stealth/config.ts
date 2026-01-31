@@ -63,6 +63,11 @@ export const StealthDiscriminators = {
   DEPOSIT_TO_PER_MIXER_V2: 0x1C,
   EXECUTE_PER_CLAIM_V2: 0x1D,
   UNDELEGATE_ESCROW: 0x1E,
+  // 3-phase Magic Actions flow (NEW - 2026-01-31)
+  // Phase 1: DEPOSIT_AND_DELEGATE (0x12) - creates deposit + delegates to PER
+  // Phase 2: EXECUTE_PER_TRANSFER (0x13) - marks executed + undelegates to L1
+  // Phase 3: CREATE_VAULT_FROM_DEPOSIT (0x24) - creates vault on L1 from executed deposit
+  CREATE_VAULT_FROM_DEPOSIT: 0x24,
 };
 
 // DeFi instruction discriminators

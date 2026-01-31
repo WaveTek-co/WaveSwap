@@ -357,17 +357,78 @@ export function useAutoClaim(): UseAutoClaimReturn {
         return false
 
       } else if (deposit.type === 'per') {
-        // Legacy PER flow: Send execute_per_transfer to MagicBlock rollup
+        // NEW 3-Phase PER flow (2026-01-31):
+        // Phase 1: DEPOSIT_AND_DELEGATE already done (deposit exists)
+        // Phase 2: EXECUTE_PER_TRANSFER in PER (marks executed + undelegates)
+        // Phase 3: CREATE_VAULT_FROM_DEPOSIT on L1 (creates vault from executed deposit)
         const depositPda = new PublicKey(deposit.depositAddress)
 
-        const data = Buffer.alloc(34)
-        data.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
-        Buffer.from(deposit.nonce).copy(data, 1)
-        data.writeUInt8(vaultBump, 33)
+        // MagicBlock Ephemeral Rollups program and context
+        const MAGICBLOCK_ER_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111')
+        const MAGIC_CONTEXT = new PublicKey('MagicContext1111111111111111111111111111111')
 
-        const tx = new Transaction()
-        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
-        tx.add(new TransactionInstruction({
+        // Phase 2: EXECUTE_PER_TRANSFER in PER
+        // Data: discriminator(1) + nonce(32) = 33 bytes
+        const executeData = Buffer.alloc(33)
+        executeData.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
+        Buffer.from(deposit.nonce).copy(executeData, 1)
+
+        const executeTx = new Transaction()
+        executeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }))
+        executeTx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: depositPda, isSigner: false, isWritable: true },
+            { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },
+            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: executeData,
+        }))
+
+        executeTx.feePayer = publicKey
+        const { blockhash } = await rollupConnection.getLatestBlockhash()
+        executeTx.recentBlockhash = blockhash
+
+        console.log('[MagicAction] Phase 2: Signing EXECUTE_PER_TRANSFER...')
+        const signedExecuteTx = await signTransaction(executeTx)
+
+        console.log('[MagicAction] Sending to MagicBlock rollup...')
+        const executeSignature = await rollupConnection.sendRawTransaction(signedExecuteTx.serialize(), { skipPreflight: true })
+        console.log('[MagicAction] Sent:', executeSignature)
+
+        // Wait for PER confirmation
+        await confirmTransactionPolling(rollupConnection, executeSignature, 15, 1000)
+        console.log('[MagicAction] PER confirmed, waiting for undelegation to L1...')
+
+        // Wait for deposit to be undelegated back to L1 (owner changes to stealth program)
+        let undelegated = false
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          const depositInfo = await connection.getAccountInfo(depositPda)
+          if (depositInfo && depositInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
+            console.log('[MagicAction] Deposit undelegated to L1!')
+            undelegated = true
+            break
+          }
+          console.log('[MagicAction] Waiting for undelegation...', i + 1, '/20')
+        }
+
+        if (!undelegated) {
+          console.warn('[MagicAction] Undelegation timeout')
+          return false
+        }
+
+        // Phase 3: CREATE_VAULT_FROM_DEPOSIT on L1
+        // Data: discriminator(1) + nonce(32) + vault_bump(1) = 34 bytes
+        const createVaultData = Buffer.alloc(34)
+        createVaultData.writeUInt8(StealthDiscriminators.CREATE_VAULT_FROM_DEPOSIT, 0)
+        Buffer.from(deposit.nonce).copy(createVaultData, 1)
+        createVaultData.writeUInt8(vaultBump, 33)
+
+        const createVaultTx = new Transaction()
+        createVaultTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }))
+        createVaultTx.add(new TransactionInstruction({
           keys: [
             { pubkey: publicKey, isSigner: true, isWritable: true },
             { pubkey: depositPda, isSigner: false, isWritable: true },
@@ -375,47 +436,41 @@ export function useAutoClaim(): UseAutoClaimReturn {
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
           programId: PROGRAM_IDS.STEALTH,
-          data,
+          data: createVaultData,
         }))
 
-        tx.feePayer = publicKey
-        const { blockhash } = await rollupConnection.getLatestBlockhash()
-        tx.recentBlockhash = blockhash
+        createVaultTx.feePayer = publicKey
+        const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
+        createVaultTx.recentBlockhash = l1Blockhash
 
-        console.log('[MagicAction] Signing PER transaction...')
-        const signedTx = await signTransaction(tx)
+        console.log('[MagicAction] Phase 3: Signing CREATE_VAULT_FROM_DEPOSIT...')
+        const signedCreateVaultTx = await signTransaction(createVaultTx)
 
-        console.log('[MagicAction] Sending to MagicBlock rollup...')
-        const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
-        console.log('[MagicAction] Sent:', signature)
+        console.log('[MagicAction] Sending to L1...')
+        const vaultSignature = await connection.sendRawTransaction(signedCreateVaultTx.serialize())
+        await confirmTransactionPolling(connection, vaultSignature)
+        console.log('[MagicAction] Vault created:', vaultSignature)
 
-        // Use HTTP polling instead of WebSocket confirmation
-        await confirmTransactionPolling(rollupConnection, signature, 15, 1000)
-        console.log('[MagicAction] Rollup confirmed, waiting for L1 commit...')
-
-        // Poll mainnet for vault
-        for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 2000))
-          const vaultInfo = await connection.getAccountInfo(vaultPda)
-          if (vaultInfo && vaultInfo.lamports > 0) {
-            console.log('[MagicAction] Funds arrived in vault:', vaultInfo.lamports)
-            setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
-            setPendingClaims(prev => {
-              if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
-              return [...prev, {
-                vaultAddress: vaultPda.toBase58(),
-                amount: BigInt(vaultInfo.lamports),
-                sender: 'MAGIC_ACTIONS',
-                announcementPda: deposit.depositAddress,
-                stealthPubkey: deposit.stealthPubkey,
-                status: 'pending' as const,
-              }]
-            })
-            showPaymentReceived({ signature, amount: BigInt(vaultInfo.lamports), symbol: 'SOL' })
-            return true
-          }
+        // Verify vault exists
+        const vaultInfo = await connection.getAccountInfo(vaultPda)
+        if (vaultInfo && vaultInfo.lamports > 0) {
+          console.log('[MagicAction] Funds in vault:', vaultInfo.lamports)
+          setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+          setPendingClaims(prev => {
+            if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
+            return [...prev, {
+              vaultAddress: vaultPda.toBase58(),
+              amount: BigInt(vaultInfo.lamports),
+              sender: 'MAGIC_ACTIONS',
+              announcementPda: deposit.depositAddress,
+              stealthPubkey: deposit.stealthPubkey,
+              status: 'pending' as const,
+            }]
+          })
+          showPaymentReceived({ signature: vaultSignature, amount: BigInt(vaultInfo.lamports), symbol: 'SOL' })
+          return true
         }
-        console.warn('[MagicAction] Vault not visible yet')
+        console.warn('[MagicAction] Vault created but empty?')
         return false
 
       } else {
