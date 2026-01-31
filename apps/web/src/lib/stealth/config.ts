@@ -3,8 +3,9 @@
 import { PublicKey } from "@solana/web3.js";
 
 // OceanVault Program IDs (Devnet)
+// CRITICAL: Must match deployed on-chain programs
 export const PROGRAM_IDS = {
-  REGISTRY: new PublicKey("6pNpYWSfcVyFaRFQGZHduBSXPZ3CWKG2iV7ve7BUXfJR"),
+  REGISTRY: new PublicKey("DgoW9MneWt6B3mBZqDf52csXMtJpgqwaHgP46tPs1tWu"),
   STEALTH: new PublicKey("4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX"),
   DEFI: new PublicKey("8Xi4D44Xt3DnT6r8LogM4K9CSt3bHtpc1m21nErGawaA"),
   BRIDGE: new PublicKey("AwZHcaizUMSsQC7fNAMbrahK2w3rLYXUDFCK4MvMKz1f"),
@@ -21,6 +22,8 @@ export const RegistryDiscriminators = {
   INITIALIZE_REGISTRY: Buffer.from([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
   UPLOAD_KEY_CHUNK: Buffer.from([0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
   FINALIZE_REGISTRY: Buffer.from([0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+  // Simplified single-tx registration (Ed25519 viewing keys only)
+  REGISTER_SIMPLE: Buffer.from([0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
 };
 
 // Stealth instruction discriminators (must match on-chain program)

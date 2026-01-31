@@ -175,17 +175,18 @@ export function useWaveSend(): UseWaveSendReturn {
     setRegistrationProgress(null)
 
     try {
-      console.log('[WaveSend] Calling client.register with progress callback...')
-      const result = await client.register(
+      // Use simplified single-tx registration (user signs ONCE)
+      // X-Wing post-quantum crypto happens inside TEE at transfer time
+      console.log('[WaveSend] Calling client.registerSimple (single-tx)...')
+      const result = await client.registerSimple(
         walletAdapter,
         stealthKeys,
-        undefined,
         (progress) => {
           console.log('[WaveSend] Registration progress:', progress)
           setRegistrationProgress(progress)
         }
       )
-      console.log('[WaveSend] register result:', result)
+      console.log('[WaveSend] registerSimple result:', result)
 
       if (result.success) {
         console.log('[WaveSend] Registration successful, tx:', result.signature)

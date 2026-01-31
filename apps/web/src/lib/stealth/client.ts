@@ -432,14 +432,131 @@ export class WaveStealthClient {
     }
   }
 
+  // SIMPLIFIED SINGLE-TRANSACTION REGISTRATION
+  //
+  // This is the RECOMMENDED approach - user signs ONCE
+  // Only stores Ed25519 viewing keys (64 bytes)
+  // X-Wing post-quantum crypto happens inside the TEE at transfer time
+  //
+  // Instruction data layout (73 bytes total):
+  // - discriminator: 8 bytes (0x07)
+  // - bump: 1 byte
+  // - spend_pubkey: 32 bytes
+  // - view_pubkey: 32 bytes
+  async registerSimple(
+    wallet: WalletAdapter,
+    keys?: StealthKeyPair,
+    onProgress?: (progress: RegistrationProgress) => void
+  ): Promise<TransactionResult> {
+    console.log('[Client] registerSimple called (single-tx approach)');
+
+    const reportProgress = (step: RegistrationStep, currentTx: number, totalTx: number, message: string) => {
+      console.log(`[Client] Progress: ${step} - ${message}`);
+      if (onProgress) {
+        onProgress({ step, currentTx, totalTx, message });
+      }
+    };
+
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const keysToUse = keys || this.stealthKeys;
+    if (!keysToUse) {
+      return { success: false, error: "Stealth keys not initialized" };
+    }
+
+    const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
+    console.log('[Client] Registry PDA:', registryPda.toBase58(), 'bump:', bump);
+
+    // Check if already registered
+    console.log('[Client] Checking if already registered...');
+    const existing = await this.connection.getAccountInfo(registryPda);
+    if (existing && existing.data.length > 0) {
+      // Check discriminator - accept both old and new format
+      const disc = existing.data.slice(0, 8).toString();
+      if (disc === 'REGISTRY' || disc === 'SIMPREG\0') {
+        console.log('[Client] Already registered');
+        return { success: false, error: "Already registered" };
+      }
+    }
+
+    reportProgress('initializing', 1, 1, 'Registering (single transaction)...');
+
+    try {
+      const tx = new Transaction();
+
+      // Build instruction data: discriminator(8) + bump(1) + spend_pubkey(32) + view_pubkey(32) = 73 bytes
+      const data = Buffer.alloc(73);
+      let offset = 0;
+
+      // Discriminator (8 bytes)
+      RegistryDiscriminators.REGISTER_SIMPLE.copy(data, offset);
+      offset += 8;
+
+      // Bump (1 byte)
+      data.writeUInt8(bump, offset);
+      offset += 1;
+
+      // Spend pubkey (32 bytes)
+      Buffer.from(keysToUse.spendPubkey).copy(data, offset);
+      offset += 32;
+
+      // View pubkey (32 bytes)
+      Buffer.from(keysToUse.viewPubkey).copy(data, offset);
+
+      tx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+            { pubkey: registryPda, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.REGISTRY,
+          data,
+        })
+      );
+
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
+      await this.connection.confirmTransaction(signature, 'confirmed');
+
+      console.log('[Client] Registration complete (single tx):', signature);
+      reportProgress('complete', 1, 1, 'Registration complete!');
+
+      return { success: true, signature };
+
+    } catch (error) {
+      console.error('[Client] registerSimple error:', error);
+      reportProgress('error', 0, 1, error instanceof Error ? error.message : 'Registration failed');
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Registration failed",
+      };
+    }
+  }
+
   // Fetch recipient's registry
-  // On-chain layout (1260 bytes):
-  // - discriminator: 8 bytes (0-7)
-  // - bump: 1 byte (8)
-  // - owner: 32 bytes (9-40)
-  // - is_finalized: 1 byte (41)
-  // - bytes_written: 2 bytes (42-43)
-  // - xwing_public_key: 1216 bytes (44-1259)
+  // Supports both formats:
+  //
+  // OLD format (1260 bytes) - "REGISTRY":
+  // - discriminator: 8 bytes
+  // - bump: 1 byte
+  // - owner: 32 bytes
+  // - is_finalized: 1 byte
+  // - bytes_written: 2 bytes
+  // - xwing_public_key: 1216 bytes (spend[32] + view[32] + padding[1152])
+  //
+  // NEW format (112 bytes) - "SIMPREG\0":
+  // - discriminator: 8 bytes
+  // - bump: 1 byte
+  // - owner: 32 bytes
+  // - is_finalized: 1 byte (always 1)
+  // - spend_pubkey: 32 bytes
+  // - view_pubkey: 32 bytes
+  // - reserved: 6 bytes
   async getRegistry(owner: PublicKey): Promise<RegistryAccount | null> {
     const [registryPda] = deriveRegistryPda(owner);
     const account = await this.connection.getAccountInfo(registryPda);
@@ -447,26 +564,48 @@ export class WaveStealthClient {
     if (!account) return null;
 
     const data = account.data;
-    if (data.length < 44) return null; // MIN_SIZE = 44
 
     // Check discriminator
     const discriminator = data.slice(0, 8).toString();
-    if (discriminator !== 'REGISTRY') {
-      console.log('[Client] Invalid registry discriminator:', discriminator);
-      return null;
+
+    // Handle NEW simplified format (SIMPREG)
+    if (discriminator === 'SIMPREG\0') {
+      if (data.length < 106) return null; // Minimum size for simple registry
+
+      const isFinalized = data[41] === 1;
+      console.log('[Client] Simple registry detected, isFinalized:', isFinalized);
+
+      // Simple registry layout:
+      // disc(8) + bump(1) + owner(32) + is_finalized(1) + spend(32) + view(32) + reserved(6)
+      return {
+        owner: new PublicKey(data.slice(9, 41)),
+        spendPubkey: new Uint8Array(data.slice(42, 74)),
+        viewPubkey: new Uint8Array(data.slice(74, 106)),
+        xwingPubkey: new Uint8Array(64), // Not used in simple format
+        createdAt: 0,
+        isFinalized,
+      };
     }
 
-    const isFinalized = data[41] === 1;
-    console.log('[Client] Registry isFinalized byte:', data[41], '=', isFinalized);
+    // Handle OLD format (REGISTRY)
+    if (discriminator === 'REGISTRY') {
+      if (data.length < 44) return null;
 
-    return {
-      owner: new PublicKey(data.slice(9, 41)),
-      spendPubkey: new Uint8Array(data.slice(44, 76)),
-      viewPubkey: new Uint8Array(data.slice(76, 108)),
-      xwingPubkey: new Uint8Array(data.slice(44, 1260)),
-      createdAt: 0,
-      isFinalized,
-    };
+      const isFinalized = data[41] === 1;
+      console.log('[Client] Legacy registry detected, isFinalized:', isFinalized);
+
+      return {
+        owner: new PublicKey(data.slice(9, 41)),
+        spendPubkey: new Uint8Array(data.slice(44, 76)),
+        viewPubkey: new Uint8Array(data.slice(76, 108)),
+        xwingPubkey: new Uint8Array(data.slice(44, Math.min(1260, data.length))),
+        createdAt: 0,
+        isFinalized,
+      };
+    }
+
+    console.log('[Client] Unknown registry discriminator:', discriminator);
+    return null;
   }
 
   // Wave Send - PRODUCTION-READY stealth transfers with FULL PRIVACY
