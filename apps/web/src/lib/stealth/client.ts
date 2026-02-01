@@ -2488,33 +2488,26 @@ export class WaveStealthClient {
       await new Promise(r => setTimeout(r, 5000));
 
       // Create MagicBlock PER connection
-      const MAGICBLOCK_RPC = 'https://devnet.magicblock.app';
-      const perConnection = new Connection(MAGICBLOCK_RPC, 'confirmed');
+      const MAGICBLOCK_PER_RPC = 'https://devnet.magicblock.app';
+      const perConnection = new Connection(MAGICBLOCK_PER_RPC, 'confirmed');
 
       // Build POOL_TO_ESCROW_V4 instruction
-      const [poolPda, poolBump] = derivePerMixerPoolPda();
-      const escrowBump = escrowPda.toBuffer()[31]; // Last byte is bump
-      const xwingCtBump = xwingCtPda.toBuffer()[31];
-
-      // Re-derive bumps properly
-      const [, escrowBumpDerived] = deriveClaimEscrowPda(nonce);
-      const [, xwingCtBumpDerived] = deriveXWingCiphertextPda(escrowPda);
-
+      // Using poolBump, escrowBump, xwingCtBump from lines 2298-2301 above
       // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
       const poolToEscrowData = Buffer.alloc(36);
       let p2eOffset = 0;
       poolToEscrowData[p2eOffset++] = StealthDiscriminators.POOL_TO_ESCROW_V4;
       poolToEscrowData[p2eOffset++] = poolBump;
       Buffer.from(nonce).copy(poolToEscrowData, p2eOffset); p2eOffset += 32;
-      poolToEscrowData[p2eOffset++] = escrowBumpDerived;
-      poolToEscrowData[p2eOffset++] = xwingCtBumpDerived;
+      poolToEscrowData[p2eOffset++] = escrowBump;
+      poolToEscrowData[p2eOffset++] = xwingCtBump;
 
       const poolToEscrowTx = new Transaction();
       poolToEscrowTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }));
       poolToEscrowTx.add(new TransactionInstruction({
         keys: [
           { pubkey: wallet.publicKey, isSigner: true, isWritable: true },   // tee_authority (any signer)
-          { pubkey: poolPda, isSigner: false, isWritable: true },           // pool
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },   // pool
           { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // deposit_record (read-only on L1)
           { pubkey: escrowPda, isSigner: false, isWritable: true },         // claim_escrow
           { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // xwing_ciphertext
