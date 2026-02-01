@@ -2461,6 +2461,8 @@ export class WaveStealthClient {
           { pubkey: xwingCtDelegationRecord, isSigner: false, isWritable: true },
           // 18. [writable] xwing_ct_delegation_metadata
           { pubkey: xwingCtDelegationMetadata, isSigner: false, isWritable: true },
+          // 19. [writable] per_mixer_pool (receives user's deposit!)
+          { pubkey: derivePerMixerPoolPda()[0], isSigner: false, isWritable: true },
         ],
         programId: PROGRAM_IDS.STEALTH,
         data: completeData,
