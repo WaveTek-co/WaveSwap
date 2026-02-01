@@ -14,6 +14,9 @@ export const PROGRAM_IDS = {
   PERMISSION: new PublicKey("ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"),
 };
 
+// Master authority wallet - receives rent fees from closed accounts
+export const MASTER_AUTHORITY = new PublicKey("DNKKC4uCNE55w66GFENJSEo7PYVSDLnSL62jvHoNeeBU");
+
 // Native SOL mint address
 export const NATIVE_SOL_MINT = new PublicKey("So11111111111111111111111111111111111111112");
 
@@ -63,11 +66,30 @@ export const StealthDiscriminators = {
   DEPOSIT_TO_PER_MIXER_V2: 0x1C,
   EXECUTE_PER_CLAIM_V2: 0x1D,
   UNDELEGATE_ESCROW: 0x1E,
+  // V3 instructions with ENCRYPTED destination (ideal privacy)
+  // Destination wallet is encrypted with X-Wing shared secret
+  // Only receiver can decrypt by decapsulating X-Wing ciphertext
+  DEPOSIT_TO_PER_MIXER_V3: 0x1F,
+  EXECUTE_PER_CLAIM_V3: 0x20,
   // 3-phase Magic Actions flow (NEW - 2026-01-31)
   // Phase 1: DEPOSIT_AND_DELEGATE (0x12) - creates deposit + delegates to PER
   // Phase 2: EXECUTE_PER_TRANSFER (0x13) - marks executed + undelegates to L1
   // Phase 3: CREATE_VAULT_FROM_DEPOSIT (0x24) - creates vault on L1 from executed deposit
   CREATE_VAULT_FROM_DEPOSIT: 0x24,
+  // V4 TRUE PRIVACY: Pool intermediary breaks sender↔receiver link
+  // TX1a (L1): CREATE + UPLOAD + COMPLETE - creates deposit record + delegates escrow
+  // TX1b (PER): INPUT_TO_POOL - moves funds from input escrow to pool
+  // TX2 (PER): POOL_TO_ESCROW - creates stealth address + XWing ciphertext
+  // TX3 (PER): CLAIM_ESCROW - TEE verifies, triggers undelegation
+  // TX4 (L1): WITHDRAW_FROM_ESCROW - funds to receiver
+  DEPOSIT_TO_POOL_V4: 0x25,
+  POOL_TO_ESCROW_V4: 0x26,
+  CLAIM_ESCROW_V4: 0x27,
+  CREATE_V4_DEPOSIT: 0x28,
+  UPLOAD_V4_CIPHERTEXT: 0x29,
+  COMPLETE_V4_DEPOSIT: 0x2a,
+  INPUT_TO_POOL_V4: 0x2b,
+  TEE_PROCESS_DEPOSIT: 0x2c,
 };
 
 // DeFi instruction discriminators
@@ -247,6 +269,18 @@ export function deriveClaimEscrowPda(nonce: Uint8Array): [PublicKey, number] {
   );
 }
 
+// X-Wing Ciphertext PDA (stores full X-Wing ciphertext for receiver decapsulation)
+// Derived from escrow PDA - scanner can find it automatically
+export function deriveXWingCiphertextPda(escrowPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("xwing-ct"), escrowPda.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// X-Wing ciphertext account size (for rent calculation)
+export const XWING_CIPHERTEXT_ACCOUNT_SIZE = 1160; // 8 discriminator + 32 escrow_pda + 1120 ciphertext
+
 // Permission PDA for TEE visibility (MagicBlock ACL)
 export function derivePermissionPda(permissionedAccount: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
@@ -278,3 +312,66 @@ export function deriveEscrowDelegationMetadataPda(escrowPda: PublicKey): [Public
     PROGRAM_IDS.DELEGATION
   );
 }
+
+// Permission PDA for TEE undelegation (MagicBlock Permission Program)
+export function deriveEscrowPermissionPda(escrowPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("permission:"), escrowPda.toBuffer()],
+    PROGRAM_IDS.PERMISSION
+  );
+}
+
+// Permission delegation buffer PDA
+export function derivePermissionDelegationBufferPda(permissionPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("buffer"), permissionPda.toBuffer()],
+    PROGRAM_IDS.PERMISSION
+  );
+}
+
+// Permission delegation record PDA
+export function derivePermissionDelegationRecordPda(permissionPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation"), permissionPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// Permission delegation metadata PDA
+export function derivePermissionDelegationMetadataPda(permissionPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation-metadata"), permissionPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// XWing CT buffer PDA
+export function deriveXWingCtBufferPda(xwingCtPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("buffer"), xwingCtPda.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// XWing CT delegation record PDA
+export function deriveXWingCtDelegationRecordPda(xwingCtPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation"), xwingCtPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// XWing CT delegation metadata PDA
+export function deriveXWingCtDelegationMetadataPda(xwingCtPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation-metadata"), xwingCtPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// MagicBlock TEE Validator
+export const TEE_VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57");
+
+// MagicBlock Magic Context (for commit/undelegate CPIs)
+export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
+export const MAGIC_PROGRAM = new PublicKey("Magic11111111111111111111111111111111111111");

@@ -28,6 +28,10 @@ export {
   // Ed25519 → X25519 conversion (X-Wing uses spend key as X25519)
   generateXWingFromSpendKey,
   ed25519ToX25519Keypair,
+  // Privacy: Encrypted destination functions
+  encryptDestinationWallet,
+  decryptDestinationWallet,
+  deriveStealthPubkeyFromSharedSecret,
 } from "./crypto";
 export type {
   StealthKeyPair,
@@ -39,6 +43,7 @@ export type {
 
 export {
   PROGRAM_IDS,
+  MASTER_AUTHORITY,
   NATIVE_SOL_MINT,
   RegistryDiscriminators,
   StealthDiscriminators,
@@ -59,6 +64,23 @@ export {
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
+  deriveXWingCiphertextPda,
+  XWING_CIPHERTEXT_ACCOUNT_SIZE,
+  // V4 PDAs
+  deriveEscrowBufferPda,
+  deriveEscrowDelegationRecordPda,
+  deriveEscrowDelegationMetadataPda,
+  deriveEscrowPermissionPda,
+  derivePermissionDelegationBufferPda,
+  derivePermissionDelegationRecordPda,
+  derivePermissionDelegationMetadataPda,
+  deriveXWingCtBufferPda,
+  deriveXWingCtDelegationRecordPda,
+  deriveXWingCtDelegationMetadataPda,
+  // MagicBlock constants
+  TEE_VALIDATOR,
+  MAGIC_CONTEXT,
+  MAGIC_PROGRAM,
 } from "./config";
 
 export type {
@@ -87,8 +109,13 @@ export {
   isPaymentForUsXWing,
   isPaymentForUsUniversal,
   deriveStealthFromEphemeral,
+  // V3 escrow scanning
+  checkViewTagV3,
+  verifyStealthPubkeyV3,
+  isEscrowForUsV3,
+  scanForEscrowsV3,
 } from "./scanner";
-export type { DetectedPayment, ScannerConfig } from "./scanner";
+export type { DetectedPayment, ScannerConfig, DetectedEscrowV3 } from "./scanner";
 
 // PER Privacy Integration - Full privacy flow with MagicBlock
 export { PERPrivacyClient, MAGICBLOCK_RPC_DEVNET, MAGICBLOCK_TEE_PUBKEY } from "./per-privacy";
