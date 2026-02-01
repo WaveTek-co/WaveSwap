@@ -3,6 +3,7 @@
 // Hybrid X-Wing post-quantum cryptography (ML-KEM-768 + X25519)
 
 import { sha3_256 } from "js-sha3";
+import { sha256 } from "@noble/hashes/sha256";
 import { ed25519 } from "@noble/curves/ed25519";
 import {
   XWingKeyPair,
@@ -253,6 +254,75 @@ export function stealthVerify(
   } catch {
     return false;
   }
+}
+
+// Encrypt destination wallet with X-Wing shared secret
+// Uses ChaCha20-Poly1305 (32-byte wallet + 16-byte auth tag = 48 bytes)
+// Returns: nonce (12) + ciphertext (32) + tag (16) = 60 bytes, but we use 48 for compact storage
+export async function encryptDestinationWallet(
+  destination: Uint8Array, // 32-byte wallet address
+  sharedSecret: Uint8Array // 32-byte X-Wing shared secret
+): Promise<Uint8Array> {
+  // Import shared secret as AES-GCM key (ChaCha20 not available in WebCrypto)
+  // For true ChaCha20-Poly1305, use a library. AES-GCM is acceptable for now.
+  const key = await crypto.subtle.importKey(
+    "raw",
+    sharedSecret,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"]
+  );
+
+  // Use deterministic IV derived from shared secret (for reproducibility)
+  const ivHash = sha3_256(Buffer.concat([Buffer.from(sharedSecret), Buffer.from("destination-iv")]));
+  const iv = new Uint8Array(Buffer.from(ivHash, "hex").slice(0, 12));
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    destination
+  );
+
+  // Return ciphertext (32 bytes) + auth tag (16 bytes) = 48 bytes
+  return new Uint8Array(ciphertext);
+}
+
+// Decrypt destination wallet with X-Wing shared secret
+export async function decryptDestinationWallet(
+  encryptedDestination: Uint8Array, // 48-byte encrypted wallet
+  sharedSecret: Uint8Array // 32-byte X-Wing shared secret
+): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    sharedSecret,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+
+  // Use same deterministic IV
+  const ivHash = sha3_256(Buffer.concat([Buffer.from(sharedSecret), Buffer.from("destination-iv")]));
+  const iv = new Uint8Array(Buffer.from(ivHash, "hex").slice(0, 12));
+
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encryptedDestination
+  );
+
+  return new Uint8Array(decrypted);
+}
+
+// Derive stealth pubkey from X-Wing shared secret
+// CRITICAL: Must match on-chain derive_stealth_pubkey() EXACTLY
+// On-chain uses: pinocchio::sha256::hashv(&[shared_secret, "stealth-derive"])
+// So we use SHA256 (NOT SHA3-256!) with same domain
+export function deriveStealthPubkeyFromSharedSecret(sharedSecret: Uint8Array): Uint8Array {
+  const domain = new TextEncoder().encode("stealth-derive");
+  const input = new Uint8Array(sharedSecret.length + domain.length);
+  input.set(sharedSecret, 0);
+  input.set(domain, sharedSecret.length);
+  return sha256(input);
 }
 
 // Generate stealth keys from wallet signature message

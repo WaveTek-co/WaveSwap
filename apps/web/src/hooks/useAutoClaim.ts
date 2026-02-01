@@ -53,14 +53,15 @@ const MIXER_OFFSET_IS_EXECUTED = 121
 
 // PER Mixer Pool deposit record constants (delegated shared pool)
 // Discriminator: "PERDEPRC" (8 bytes)
-// Total size: 180 bytes
+// Total size: 210 bytes (CRITICAL: must match on-chain PerDepositRecord::SPACE)
+// Layout: 8+1+32+8+8+32+32+1+1+1+32+48+6 = 210
 const PER_MIXER_DEPOSIT_DISCRIMINATOR = 'PERDEPRC'
-const PER_MIXER_DEPOSIT_SIZE = 180
+const PER_MIXER_DEPOSIT_SIZE = 210
 
 // PER Mixer deposit layout offsets (from per_mixer.rs PerDepositRecord)
 // discriminator(8) + bump(1) + nonce(32) + amount(8) + deposit_slot(8) +
 // stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + is_executed(1) +
-// is_claimed(1) + escrow_pda(32) + reserved(22) = 178 bytes (padded to 180)
+// is_claimed(1) + escrow_pda(32) + encrypted_destination(48) + reserved(6) = 210 bytes
 const PER_MIXER_OFFSET_BUMP = 8
 const PER_MIXER_OFFSET_NONCE = 9
 const PER_MIXER_OFFSET_AMOUNT = 41
@@ -71,6 +72,7 @@ const PER_MIXER_OFFSET_VIEW_TAG = 121
 const PER_MIXER_OFFSET_IS_EXECUTED = 122
 const PER_MIXER_OFFSET_IS_CLAIMED = 123
 const PER_MIXER_OFFSET_ESCROW = 124
+const PER_MIXER_OFFSET_ENCRYPTED_DEST = 156 // 124 + 32 = 156
 
 // Claim Escrow constants (created by PER, holds funds for recipient)
 // Discriminator: "CLAIMESC" (8 bytes)

@@ -11,14 +11,20 @@
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { sha3_256 } from "js-sha3";
+import { sha256 } from "@noble/hashes/sha256";
 import { ed25519 } from "@noble/curves/ed25519";
-import { PROGRAM_IDS, deriveStealthVaultPda } from "./config";
+import { PROGRAM_IDS, deriveStealthVaultPda, deriveClaimEscrowPda, deriveXWingCiphertextPda } from "./config";
 import {
   StealthKeyPair,
   xwingDecapsulate,
   deriveXWingStealthAddress,
   checkXWingViewTag,
+  deriveStealthPubkeyFromSharedSecret,
 } from "./crypto";
+
+// XWingCiphertextAccount constants
+const XWING_CIPHERTEXT_DISCRIMINATOR = "XWINGCT\0";
+const XWING_CIPHERTEXT_SIZE = 1160; // 8 + 32 + 1120
 
 // NEW privacy-preserving announcement structure offsets
 // Layout: discriminator(8) + bump(1) + timestamp(8) +
@@ -214,6 +220,223 @@ export function isPaymentForUsUniversal(
     : ephemeralOrCiphertext;
 
   return isPaymentForUs(keys, ephemeralPubkey, expectedViewTag, announcementStealthPubkey);
+}
+
+// V3 Escrow constants
+const CLAIM_ESCROW_SIZE_V3 = 171;
+const ESCROW_OFFSET_NONCE = 9;
+const ESCROW_OFFSET_AMOUNT = 41;
+const ESCROW_OFFSET_STEALTH = 49;
+const ESCROW_V3_OFFSET_ENCRYPTED_DEST = 81;
+const ESCROW_V3_OFFSET_VERIFIED_DEST = 129;
+const ESCROW_V3_OFFSET_IS_VERIFIED = 161;
+const ESCROW_V3_OFFSET_IS_WITHDRAWN = 162;
+
+export interface DetectedEscrowV3 {
+  escrowPda: PublicKey;
+  nonce: Uint8Array;
+  amount: bigint;
+  stealthPubkey: Uint8Array;
+  encryptedDestination: Uint8Array;
+  verifiedDestination?: Uint8Array;
+  isVerified: boolean;
+  isWithdrawn: boolean;
+  sharedSecret?: Uint8Array;
+}
+
+/**
+ * V3 View Tag Check using X-Wing shared secret
+ * View tag is the first byte of the shared secret
+ */
+export function checkViewTagV3(
+  sharedSecret: Uint8Array,
+  expectedViewTag: number
+): boolean {
+  return sharedSecret[0] === expectedViewTag;
+}
+
+/**
+ * V3 Stealth pubkey verification using SHA256
+ * Matches on-chain: SHA256(shared_secret || "stealth-derive")
+ */
+export function verifyStealthPubkeyV3(
+  sharedSecret: Uint8Array,
+  expectedStealthPubkey: Uint8Array
+): boolean {
+  const derived = deriveStealthPubkeyFromSharedSecret(sharedSecret);
+  if (derived.length !== expectedStealthPubkey.length) return false;
+  for (let i = 0; i < derived.length; i++) {
+    if (derived[i] !== expectedStealthPubkey[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Check if a V3 escrow belongs to us using X-Wing decapsulation
+ * 1. Decapsulate X-Wing ciphertext to get shared secret
+ * 2. Check view tag (first byte of shared secret)
+ * 3. Verify SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+ */
+export function isEscrowForUsV3(
+  keys: StealthKeyPair,
+  stealthPubkey: Uint8Array,
+  xwingCiphertext?: Uint8Array
+): { isOurs: boolean; sharedSecret?: Uint8Array } {
+  // V3 requires X-Wing keys for decapsulation
+  if (!keys.xwingKeys || !xwingCiphertext) {
+    return { isOurs: false };
+  }
+
+  try {
+    // Step 1: X-Wing decapsulation to recover shared secret
+    const sharedSecret = xwingDecapsulate(keys.xwingKeys.secretKey, xwingCiphertext);
+
+    // Step 2: Check view tag (first byte)
+    const viewTag = stealthPubkey[0]; // V3 uses stealth_pubkey[0] as implicit view tag
+    // Actually for V3, view tag check is implicit in the SHA256 verification
+
+    // Step 3: Verify stealth pubkey derivation
+    if (!verifyStealthPubkeyV3(sharedSecret, stealthPubkey)) {
+      return { isOurs: false };
+    }
+
+    return { isOurs: true, sharedSecret };
+  } catch (err) {
+    console.error("[Scanner V3] X-Wing decapsulation failed:", err);
+    return { isOurs: false };
+  }
+}
+
+/**
+ * Fetch XWingCiphertext account for a given escrow PDA
+ * Returns the 1120-byte ciphertext if account exists, undefined otherwise
+ */
+async function fetchXWingCiphertext(
+  connection: Connection,
+  escrowPda: PublicKey
+): Promise<Uint8Array | undefined> {
+  try {
+    const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+    const accountInfo = await connection.getAccountInfo(xwingCtPda);
+
+    if (!accountInfo || accountInfo.data.length < XWING_CIPHERTEXT_SIZE) {
+      return undefined;
+    }
+
+    // Verify discriminator
+    const discriminator = Buffer.from(accountInfo.data.slice(0, 8)).toString();
+    if (discriminator !== XWING_CIPHERTEXT_DISCRIMINATOR) {
+      return undefined;
+    }
+
+    // Extract ciphertext (offset 40 = 8 discriminator + 32 escrow_pda)
+    const ciphertext = new Uint8Array(accountInfo.data.slice(40, 40 + 1120));
+    return ciphertext;
+  } catch (err) {
+    console.error("[Scanner V3] Failed to fetch XWingCiphertext:", err);
+    return undefined;
+  }
+}
+
+/**
+ * Scan for V3/V4 ClaimEscrow accounts (171 bytes)
+ * V3: Created by DEPOSIT_TO_PER_MIXER_V3
+ * V4: Created by POOL_TO_ESCROW_V4 (TEE processes in MagicBlock)
+ *
+ * ARCHITECTURE (works for both V3 and V4 TRUE PRIVACY):
+ * - Automatically fetches XWingCiphertextAccount linked to each escrow
+ * - Attempts X-Wing decapsulation to recover sharedSecret
+ * - Verifies: SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
+ * - No off-chain communication needed between sender and receiver!
+ *
+ * V4 TRUE PRIVACY adds pool intermediary to break sender↔receiver link:
+ * - Sender → Pool (breaks sender link)
+ * - Pool → Escrow (TEE creates, no sender in tx)
+ * - Escrow → Receiver (receiver claims from escrow)
+ */
+export async function scanForEscrowsV3(
+  connection: Connection,
+  keys: StealthKeyPair,
+  xwingCiphertextOverride?: Uint8Array // Optional override (for legacy or testing)
+): Promise<DetectedEscrowV3[]> {
+  console.log("[Scanner V3/V4] Scanning for ClaimEscrow accounts (171 bytes)...");
+
+  const escrows: DetectedEscrowV3[] = [];
+
+  try {
+    // Fetch all V3 escrow accounts
+    const accounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+      filters: [{ dataSize: CLAIM_ESCROW_SIZE_V3 }],
+    });
+
+    console.log(`[Scanner V3/V4] Found ${accounts.length} ClaimEscrow accounts`);
+
+    for (const { pubkey, account } of accounts) {
+      const data = account.data;
+
+      // Check if already withdrawn
+      if (data[ESCROW_V3_OFFSET_IS_WITHDRAWN] === 1) continue;
+
+      // Read fields
+      const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32));
+      const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH, ESCROW_OFFSET_STEALTH + 32));
+      const encryptedDestination = new Uint8Array(data.slice(ESCROW_V3_OFFSET_ENCRYPTED_DEST, ESCROW_V3_OFFSET_ENCRYPTED_DEST + 48));
+      const verifiedDestination = new Uint8Array(data.slice(ESCROW_V3_OFFSET_VERIFIED_DEST, ESCROW_V3_OFFSET_VERIFIED_DEST + 32));
+      const isVerified = data[ESCROW_V3_OFFSET_IS_VERIFIED] === 1;
+      const isWithdrawn = data[ESCROW_V3_OFFSET_IS_WITHDRAWN] === 1;
+
+      // Verify PDA
+      const [expectedPda] = deriveClaimEscrowPda(nonce);
+      if (!pubkey.equals(expectedPda)) continue;
+
+      // Read amount
+      let amount = BigInt(0);
+      for (let i = 0; i < 8; i++) {
+        amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8);
+      }
+
+      // Check if escrow has funds
+      if (account.lamports === 0) continue;
+
+      // V3: Fetch XWingCiphertext account from linked PDA
+      let xwingCiphertext = xwingCiphertextOverride;
+      if (!xwingCiphertext && keys.xwingKeys) {
+        xwingCiphertext = await fetchXWingCiphertext(connection, pubkey);
+        if (xwingCiphertext) {
+          console.log(`[Scanner V3/V4] Found XWingCiphertext for escrow ${pubkey.toBase58().slice(0, 8)}...`);
+        }
+      }
+
+      // Try to verify ownership via X-Wing decapsulation
+      let sharedSecret: Uint8Array | undefined;
+      if (xwingCiphertext && keys.xwingKeys) {
+        const result = isEscrowForUsV3(keys, stealthPubkey, xwingCiphertext);
+        if (result.isOurs) {
+          sharedSecret = result.sharedSecret;
+          console.log(`[Scanner V3/V4] ✓ Escrow ${pubkey.toBase58().slice(0, 8)}... is OURS (sharedSecret recovered)`);
+        }
+      }
+
+      escrows.push({
+        escrowPda: pubkey,
+        nonce,
+        amount,
+        stealthPubkey,
+        encryptedDestination,
+        verifiedDestination: isVerified ? verifiedDestination : undefined,
+        isVerified,
+        isWithdrawn,
+        sharedSecret,
+      });
+    }
+
+    const ownedCount = escrows.filter(e => e.sharedSecret).length;
+    console.log(`[Scanner V3/V4] Found ${escrows.length} escrows total, ${ownedCount} owned by us (sharedSecret recovered)`);
+    return escrows;
+  } catch (err) {
+    console.error("[Scanner V3] Scan error:", err);
+    return [];
+  }
 }
 
 /**

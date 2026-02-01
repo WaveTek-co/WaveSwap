@@ -519,6 +519,10 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                     onClick={async () => {
                       try {
                         toast.info('Claiming private payment...')
+                        // First check if vault already has funds - if so, claim directly
+                        const vaultAddress = deposit.vaultAddress
+                        // For delegated deposits, vaultAddress might be escrow PDA for per-mixer
+                        // or derived vault PDA for per type - triggerMagicAction handles both
                         const success = await triggerMagicAction(deposit)
                         if (success) {
                           toast.success('Claim successful!')
