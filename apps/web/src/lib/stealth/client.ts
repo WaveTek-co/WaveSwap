@@ -118,11 +118,6 @@ import {
   encryptDestinationWallet,
   deriveStealthPubkeyFromSharedSecret,
 } from "./crypto";
-import {
-  deriveEscrowBufferPda,
-  deriveEscrowDelegationRecordPda,
-  deriveEscrowDelegationMetadataPda,
-} from "./config";
 
 // Registration step status
 export type RegistrationStep =
