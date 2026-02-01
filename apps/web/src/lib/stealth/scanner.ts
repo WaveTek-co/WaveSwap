@@ -223,24 +223,15 @@ export async function scanForEscrowsV4(
   connection: Connection,
   keys: StealthKeyPair
 ): Promise<DetectedEscrowV4[]> {
-  console.log("[V4 Scanner] Scanning for ClaimEscrow accounts (L1 + delegated)...");
-
   const escrows: DetectedEscrowV4[] = [];
 
   try {
-    // Fetch L1 ClaimEscrow accounts (owned by stealth program)
-    const l1Accounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-      filters: [{ dataSize: CLAIM_ESCROW_SIZE }],
-    });
-
-    // Fetch DELEGATED ClaimEscrow accounts (owned by delegation program)
-    const delegatedAccounts = await connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-      filters: [{ dataSize: CLAIM_ESCROW_SIZE }],
-    });
-
-    // Combine both - delegated accounts are the new V4 flow
+    // Fetch L1 + delegated ClaimEscrow accounts
+    const [l1Accounts, delegatedAccounts] = await Promise.all([
+      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
+      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
+    ]);
     const accounts = [...l1Accounts, ...delegatedAccounts];
-    console.log(`[V4 Scanner] Found ${l1Accounts.length} L1 + ${delegatedAccounts.length} delegated = ${accounts.length} total`);
 
     let oursCount = 0;
     for (const { pubkey, account } of accounts) {
@@ -289,7 +280,6 @@ export async function scanForEscrowsV4(
             isOurs = true;
             sharedSecret = result.sharedSecret;
             oursCount++;
-            console.log(`[V4 Scanner] ✓ FOUND OUR ESCROW: ${pubkey.toBase58().slice(0, 8)}... (${Number(amount) / 1e9} SOL)`);
           }
         }
       }
@@ -308,9 +298,6 @@ export async function scanForEscrowsV4(
       });
     }
 
-    console.log(`[V4 Scanner] ═══════════════════════════════════════════════════`);
-    console.log(`[V4 Scanner] SCAN COMPLETE: ${escrows.length} escrows, ${oursCount} OURS`);
-    console.log(`[V4 Scanner] ═══════════════════════════════════════════════════`);
 
     return escrows;
   } catch (err) {

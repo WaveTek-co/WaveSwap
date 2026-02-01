@@ -764,24 +764,12 @@ export class WaveStealthClient {
     //
     // This is the ONLY flow that provides TRUE cryptographic privacy!
     if (this.useMagicBlockPer && this.stealthKeys?.xwingKeys) {
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] V4 TRUE PRIVACY FLOW (MAXIMUM PRIVACY)');
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] → CREATE_V4_DEPOSIT + UPLOAD_CIPHERTEXT + COMPLETE');
-      console.log('[WaveStealthClient] → TEE processes: INPUT → POOL → OUTPUT');
-      console.log('[WaveStealthClient] → Sender wallet NEVER appears in pool/escrow TXs!');
-      console.log('[WaveStealthClient] → TRUE sender↔receiver unlinkability');
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
       return this.waveSendV4(wallet, params);
     }
 
     // Priority 2: V3 PER Mixer Pool (good privacy, simpler flow)
     // Note: V3 still has nonce linkability - use V4 for maximum privacy
     if (this.useMagicBlockPer) {
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] V3 PER Mixer Pool (requires X-Wing keys for V4)');
-      console.log('[WaveStealthClient] WARNING: V3 has nonce linkability - V4 is preferred');
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
       return this.waveSendViaPerMixerPool(wallet, params);
     }
 
@@ -1591,9 +1579,6 @@ export class WaveStealthClient {
       return this.waveSendViaPerMixerPool(wallet, params);
     }
 
-    console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-    console.log('[WaveStealthClient] V3 PER MIXER POOL - IDEAL PRIVACY ARCHITECTURE');
-    console.log('[WaveStealthClient] ═══════════════════════════════════════════');
 
     // Generate random nonce
     const nonce = randomBytes(32);
@@ -1614,16 +1599,13 @@ export class WaveStealthClient {
       const encapResult = xwingEncapsulate(recipientXWingPk);
       xwingCiphertext = encapResult.ciphertext;
       sharedSecret = encapResult.sharedSecret;
-      console.log('[WaveStealthClient] V3: X-Wing encapsulation complete');
     } else {
       // Generate random shared secret if no X-Wing keys
       sharedSecret = randomBytes(32);
-      console.log('[WaveStealthClient] V3: Using random shared secret (no X-Wing keys)');
     }
 
     // V3: Derive stealth pubkey using SHA256 (MUST match on-chain)
     const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
-    console.log('[WaveStealthClient] V3: Stealth pubkey derived via SHA256');
 
     // Ephemeral pubkey from X-Wing ciphertext or random
     const ephemeralPubkey = xwingCiphertext
@@ -1638,7 +1620,6 @@ export class WaveStealthClient {
       params.recipientWallet.toBytes(),
       sharedSecret
     );
-    console.log('[WaveStealthClient] V3: Destination encrypted (', encryptedDestination.length, 'bytes)');
 
     // Derive PDAs
     const [perMixerPoolPda] = derivePerMixerPoolPda();
@@ -1707,7 +1688,6 @@ export class WaveStealthClient {
     if (hasFullXWing) {
       Buffer.from(xwingCiphertext).copy(data, offset);
       offset += 1120;
-      console.log('[WaveStealthClient] V3: Full X-Wing ciphertext included (1120 bytes)');
     }
 
     // Build V3 deposit instruction
@@ -1744,22 +1724,9 @@ export class WaveStealthClient {
         maxRetries: 3,
       });
 
-      console.log('[WaveStealthClient] V3 TX sent:', signature);
 
       // Use HTTP polling confirmation
       const confirmed = await confirmTransactionPolling(this.connection, signature, 20, 2000);
-      console.log('[WaveStealthClient] V3 TX confirmed:', confirmed);
-
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] ✓ V3 DEPOSIT COMPLETE (SENDER SIGNED ONCE)');
-      console.log('[WaveStealthClient] ✓ Deposit record:', depositRecordPda.toBase58());
-      console.log('[WaveStealthClient] ✓ Escrow (delegated to MagicBlock):', escrowPda.toBase58());
-      console.log('[WaveStealthClient] ✓ Destination ENCRYPTED in escrow');
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] SHARE WITH RECEIVER (SECURELY):');
-      console.log('[WaveStealthClient] - Nonce:', Buffer.from(nonce).toString('hex'));
-      console.log('[WaveStealthClient] - SharedSecret:', Buffer.from(sharedSecret).toString('hex'));
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
 
       return {
         success: true,
@@ -2287,13 +2254,8 @@ export class WaveStealthClient {
       return this.waveSendViaPerMixerPoolV3(wallet, params);
     }
 
-    console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-    console.log('[WaveStealthClient] V4 TRUE PRIVACY FLOW');
-    console.log('[WaveStealthClient] Sender wallet will NOT appear in escrow transactions!');
-    console.log('[WaveStealthClient] ═══════════════════════════════════════════');
 
     const reportProgress = (step: string, current: number, total: number) => {
-      console.log(`[WaveStealthClient] V4 Progress: ${step} (${current}/${total})`);
       onProgress?.(step, current, total);
     };
 
@@ -2388,7 +2350,6 @@ export class WaveStealthClient {
         maxRetries: 3,
       });
       await confirmTransactionPolling(this.connection, createSig, 20, 2000);
-      console.log('[WaveStealthClient] V4 Step 1 complete: Deposit record created');
 
       // ══════════════════════════════════════════════════════════════════════
       // STEP 2: UPLOAD_V4_CIPHERTEXT (chunk the 1120-byte X-Wing ciphertext)
@@ -2441,9 +2402,7 @@ export class WaveStealthClient {
           maxRetries: 3,
         });
         await confirmTransactionPolling(this.connection, uploadSig, 20, 2000);
-        console.log(`[WaveStealthClient] V4 Step 2: Chunk ${i + 1}/${totalChunks} confirmed`);
       }
-      console.log('[WaveStealthClient] V4 Step 2 complete: All ciphertext uploaded');
 
       // ══════════════════════════════════════════════════════════════════════
       // STEP 3: COMPLETE_V4_DEPOSIT (creates input_escrow + delegates everything)
@@ -2516,22 +2475,12 @@ export class WaveStealthClient {
       });
       await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
 
-      console.log('[WaveStealthClient] V4 Step 3 complete: Escrow delegated to MagicBlock PER');
 
       // ══════════════════════════════════════════════════════════════════════
       // STEP 4: TEE HANDLES THE REST AUTOMATICALLY
       // ══════════════════════════════════════════════════════════════════════
       reportProgress('Delegated to TEE - processing automatically', 4, 4);
 
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] V4 TRUE PRIVACY DEPOSIT COMPLETE');
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] Deposit record:', depositRecordPda.toBase58());
-      console.log('[WaveStealthClient] Input escrow (delegated):', escrowPda.toBase58());
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
-      console.log('[WaveStealthClient] TEE will now process: INPUT → POOL → OUTPUT');
-      console.log('[WaveStealthClient] Your wallet will NOT appear in pool/escrow transactions!');
-      console.log('[WaveStealthClient] ═══════════════════════════════════════════');
 
       return {
         success: true,

@@ -719,12 +719,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
     const destination = destinationWallet || publicKey
 
     try {
-      console.log('[TEE Claim] ═══════════════════════════════════════════')
       console.log('[TEE Claim] V4 TRUE PRIVACY CLAIM VIA MAGICBLOCK TEE')
       console.log('[TEE Claim] Escrow:', escrow.escrowAddress)
       console.log('[TEE Claim] Destination:', destination.toBase58())
       console.log('[TEE Claim] Amount:', Number(escrow.amount) / LAMPORTS_PER_SOL, 'SOL')
-      console.log('[TEE Claim] ═══════════════════════════════════════════')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
@@ -862,10 +860,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
             }])
             showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
 
-            console.log('[TEE Claim] ═══════════════════════════════════════════')
-            console.log('[TEE Claim] ✓ V4 PRIVATE CLAIM COMPLETE')
-            console.log('[TEE Claim] ═══════════════════════════════════════════')
-            return true
+                  console.log('[TEE Claim] ✓ V4 PRIVATE CLAIM COMPLETE')
+                  return true
           }
         }
       }
@@ -967,7 +963,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
   // Scan for deposits
   const scanForDeposits = useCallback(async (keys: StealthKeyPair): Promise<number> => {
-    console.log('[AutoClaim] Scanning for deposits...')
     let foundCount = 0
 
     try {
@@ -976,7 +971,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         filters: [{ dataSize: PER_DEPOSIT_SIZE }],
       }).catch(() => [])
 
-      console.log(`[AutoClaim] Found ${delegationAccounts.length} delegated PER records`)
 
       for (const { pubkey, account } of delegationAccounts) {
         const data = account.data
@@ -990,7 +984,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
 
         foundCount++
-        console.log('[AutoClaim] Found PER deposit for us:', pubkey.toBase58())
 
         const nonce = new Uint8Array(data.slice(PER_OFFSET_NONCE, PER_OFFSET_NONCE + 32))
         const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
@@ -1039,7 +1032,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         filters: [{ dataSize: PER_DEPOSIT_SIZE }],
       }).catch(() => [])
 
-      console.log(`[AutoClaim] Found ${executedPerAccounts.length} executed PER records`)
 
       for (const { pubkey, account } of executedPerAccounts) {
         const data = account.data
@@ -1061,7 +1053,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         if (vaultInfo && vaultInfo.lamports > 0) {
           foundCount++
-          console.log('[AutoClaim] Found executed deposit with vault:', vaultPda.toBase58(), 'balance:', vaultInfo.lamports)
 
           const vaultAddress = vaultPda.toBase58()
           if (!pendingClaims.some(c => c.vaultAddress === vaultAddress)) {
@@ -1089,7 +1080,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         return []
       })
 
-      console.log(`[AutoClaim] Found ${perMixerAccounts.length} PER Mixer deposit records`)
 
       for (const { pubkey, account } of perMixerAccounts) {
         const data = account.data
@@ -1108,7 +1098,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
 
         foundCount++
-        console.log('[AutoClaim] Found PER Mixer deposit for us:', pubkey.toBase58())
 
         const nonce = new Uint8Array(data.slice(PER_MIXER_OFFSET_NONCE, PER_MIXER_OFFSET_NONCE + 32))
 
@@ -1138,13 +1127,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
         } else {
           // No escrow yet - add to delegated deposits (waiting for PER execution)
           const depositAddr = pubkey.toBase58()
-          console.log('[AutoClaim] Adding PER Mixer to delegatedDeposits:', depositAddr)
           setDelegatedDeposits(prev => {
             if (prev.some(d => d.depositAddress === depositAddr)) {
-              console.log('[AutoClaim] Already in delegatedDeposits, skipping:', depositAddr)
               return prev
             }
-            console.log('[AutoClaim] Added to delegatedDeposits, new count:', prev.length + 1)
             return [...prev, {
               depositAddress: depositAddr,
               vaultAddress: escrowPda.toBase58(),
@@ -1164,7 +1150,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         filters: [{ dataSize: MIXER_DEPOSIT_SIZE }],
       }).catch(() => [])
 
-      console.log(`[AutoClaim] Found ${mixerAccounts.length} mixer deposit records`)
 
       for (const { pubkey, account } of mixerAccounts) {
         const data = account.data
@@ -1185,7 +1170,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
 
         foundCount++
-        console.log('[AutoClaim] Found mixer deposit for us:', pubkey.toBase58())
 
         const nonce = new Uint8Array(data.slice(MIXER_OFFSET_NONCE, MIXER_OFFSET_NONCE + 32))
         const vaultBytes = data.slice(MIXER_OFFSET_VAULT_PDA, MIXER_OFFSET_VAULT_PDA + 32)
@@ -1239,7 +1223,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         filters: [{ dataSize: CLAIM_ESCROW_SIZE_V3 }],
       }).catch(() => [])
 
-      console.log(`[AutoClaim] Found ${escrowAccountsV1.length} V1 + ${escrowAccountsV3.length} V3 claim escrows`)
 
       // Process V1 escrows
       for (const { pubkey, account } of escrowAccountsV1) {
@@ -1264,7 +1247,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         if (account.lamports === 0) continue
 
         foundCount++
-        console.log('[AutoClaim] Found V1 claim escrow:', pubkey.toBase58())
 
         const escrowAddress = pubkey.toBase58()
         if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
@@ -1286,21 +1268,16 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // Uses X-Wing decapsulation to identify our escrows
       // ONLY includes escrows that belong to us (isOurs === true)
       if (keys.xwingKeys) {
-        console.log('[AutoClaim] ═══════════════════════════════════════════════════')
-        console.log('[AutoClaim] V4 TRUE PRIVACY SCANNER')
-        console.log('[AutoClaim] ═══════════════════════════════════════════════════')
 
         const v4Escrows = await scanForEscrowsV4(connection, keys)
 
         // Only process escrows that belong to us
         const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
-        console.log(`[AutoClaim] Found ${ourEscrows.length} escrows belonging to us`)
 
         for (const escrow of ourEscrows) {
           foundCount++
           const escrowAddress = escrow.escrowPda.toBase58()
 
-          console.log(`[AutoClaim] ✓ OUR ESCROW: ${escrowAddress.slice(0, 8)}... (${Number(escrow.amount) / 1e9} SOL)`)
 
           if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
             setPendingEscrows(prev => {
@@ -1321,7 +1298,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
           }
         }
 
-        console.log('[AutoClaim] ═══════════════════════════════════════════════════')
       } else {
         // Fallback: Manual V3 escrow scanning without X-Wing (legacy)
         for (const { pubkey, account } of escrowAccountsV3) {
@@ -1354,7 +1330,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
           const isVerified = data[ESCROW_V3_OFFSET_IS_VERIFIED] === 1
 
           foundCount++
-          console.log('[AutoClaim] Found V3 claim escrow (legacy):', pubkey.toBase58(), 'verified:', isVerified)
 
           const escrowAddress = pubkey.toBase58()
           if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
@@ -1377,7 +1352,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
         }
       }
 
-      console.log(`[AutoClaim] Found ${foundCount} deposits/escrows for us`)
       return foundCount
     } catch (err) {
       console.error('[AutoClaim] Scan error:', err)
@@ -1395,7 +1369,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const walletAddress = publicKey.toBase58()
       const cachedKeys = getCachedStealthKeys(walletAddress)
       if (cachedKeys) {
-        console.log('[AutoClaim] Using cached stealth keys for:', walletAddress.slice(0, 8))
         setStealthKeys(cachedKeys)
         return cachedKeys
       }
@@ -1406,14 +1379,12 @@ export function useAutoClaim(): UseAutoClaimReturn {
     if (keysGeneratedRef.current) return null // Prevent duplicate requests
 
     try {
-      console.log('[AutoClaim] Generating stealth keys (one-time signature required)...')
       keysGeneratedRef.current = true
       const keys = await generateStealthKeysFromSignature(signMessage)
       setStealthKeys(keys)
 
       // Cache keys in localStorage for this wallet
       cacheStealthKeys(publicKey.toBase58(), keys)
-      console.log('[AutoClaim] Stealth keys generated and cached')
 
       return keys
     } catch (err) {
@@ -1495,7 +1466,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const signature = await connection.sendRawTransaction(signedTx.serialize())
       await confirmTransactionPolling(connection, signature)
 
-      console.log('[AutoClaim] Claimed:', signature)
       showClaimSuccess({ signature, amount: BigInt(vaultInfo.lamports), symbol: 'SOL' })
 
       setPendingClaims(prev => prev.map(c =>
