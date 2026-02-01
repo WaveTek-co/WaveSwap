@@ -2398,20 +2398,24 @@ export class WaveStealthClient {
       const CHUNK_SIZE = 800;
       const totalChunks = Math.ceil(xwingCiphertext.length / CHUNK_SIZE);
 
+      // Build all chunk upload instructions in a single transaction
+      const uploadTx = new Transaction();
+      uploadTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
+
       for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
         const chunkStart = chunkIdx * CHUNK_SIZE;
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, xwingCiphertext.length);
         const chunk = xwingCiphertext.slice(chunkStart, chunkEnd);
 
-        const uploadData = Buffer.alloc(1 + 32 + 2 + chunk.length);
+        // Data: discriminator(1) + nonce(32) + offset(2) + chunk_len(2) + chunk
+        const uploadData = Buffer.alloc(1 + 32 + 2 + 2 + chunk.length);
         let uOffset = 0;
         uploadData[uOffset++] = StealthDiscriminators.UPLOAD_V4_CIPHERTEXT;
         Buffer.from(nonce).copy(uploadData, uOffset); uOffset += 32;
         uploadData.writeUInt16LE(chunkStart, uOffset); uOffset += 2;
+        uploadData.writeUInt16LE(chunk.length, uOffset); uOffset += 2;
         Buffer.from(chunk).copy(uploadData, uOffset);
 
-        const uploadTx = new Transaction();
-        uploadTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 100_000 }));
         uploadTx.add(new TransactionInstruction({
           keys: [
             { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
@@ -2420,17 +2424,17 @@ export class WaveStealthClient {
           programId: PROGRAM_IDS.STEALTH,
           data: uploadData,
         }));
-
-        uploadTx.feePayer = wallet.publicKey;
-        uploadTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-        const signedUploadTx = await wallet.signTransaction(uploadTx);
-        const uploadSig = await this.connection.sendRawTransaction(signedUploadTx.serialize(), {
-          skipPreflight: true,
-          maxRetries: 3,
-        });
-        await confirmTransactionPolling(this.connection, uploadSig, 15, 2000);
-        console.log(`[WaveStealthClient] V4 Step 2: Uploaded chunk ${chunkIdx + 1}/${totalChunks}`);
       }
+
+      uploadTx.feePayer = wallet.publicKey;
+      uploadTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedUploadTx = await wallet.signTransaction(uploadTx);
+      const uploadSig = await this.connection.sendRawTransaction(signedUploadTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+      await confirmTransactionPolling(this.connection, uploadSig, 15, 2000);
+      console.log(`[WaveStealthClient] V4 Step 2: Uploaded all ${totalChunks} chunks in single tx`);
 
       // ══════════════════════════════════════════════════════════════════════
       // STEP 3: COMPLETE_V4_DEPOSIT (creates input_escrow + delegates everything)
