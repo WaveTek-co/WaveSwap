@@ -701,10 +701,11 @@ export function useAutoClaim(): UseAutoClaimReturn {
   // V4 PRIVACY ARCHITECTURE:
   // 1. Receiver scans ClaimEscrows, X-Wing decapsulates to get sharedSecret
   // 2. Verifies locally: SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
-  // 3. Calls CLAIM_ESCROW_V4 on PER with sharedSecret
-  // 4. TEE verifies: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
-  // 5. TEE sets verified_destination and undelegates escrow to L1
-  // 6. Call WITHDRAW_FROM_ESCROW on L1 to receive funds
+  // 3. Calls POOL_TO_ESCROW_V4 on PER to fund escrow from pool (if needed)
+  // 4. Calls CLAIM_ESCROW_V4 on PER with sharedSecret
+  // 5. TEE verifies: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+  // 6. TEE sets verified_destination and undelegates escrow to L1
+  // 7. Call WITHDRAW_FROM_ESCROW on L1 to receive funds
   //
   const claimViaTEE = useCallback(async (
     escrow: PendingEscrow,
@@ -744,6 +745,67 @@ export function useAutoClaim(): UseAutoClaimReturn {
       }
 
       console.log('[TEE Claim] V4: Shared secret verified locally')
+
+      // =====================================================
+      // STEP 0: POOL_TO_ESCROW_V4 - Fund escrow from pool (if needed)
+      // =====================================================
+      // V4 architecture: complete_v4_deposit sends funds to POOL, not escrow
+      // We need to call POOL_TO_ESCROW_V4 to move funds POOL→ESCROW
+      // This breaks the sender→escrow on-chain link (sender NOT in this TX)
+      const escrowPda = new PublicKey(escrow.escrowAddress)
+      const escrowInfo = await connection.getAccountInfo(escrowPda)
+      const escrowRent = 2039280 // Rent for 171-byte ClaimEscrow
+      const needsFunding = escrowInfo && escrowInfo.lamports < Number(escrow.amount) + escrowRent
+
+      if (needsFunding) {
+        console.log('[TEE Claim] V4: Escrow needs funding from pool')
+        console.log('[TEE Claim] V4: Calling POOL_TO_ESCROW_V4 on PER...')
+
+        // Derive PDAs for POOL_TO_ESCROW_V4
+        const [poolPda, poolBump] = derivePerMixerPoolPda()
+        const [depositRecordPda] = derivePerDepositRecordPda(escrow.nonce)
+        const [escrowPdaDerived, escrowBump] = deriveClaimEscrowPda(escrow.nonce)
+        const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPdaDerived)
+
+        // Data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
+        const poolToEscrowData = Buffer.alloc(36)
+        let pOffset = 0
+        poolToEscrowData[pOffset++] = StealthDiscriminators.POOL_TO_ESCROW_V4
+        poolToEscrowData[pOffset++] = poolBump
+        Buffer.from(escrow.nonce).copy(poolToEscrowData, pOffset); pOffset += 32
+        poolToEscrowData[pOffset++] = escrowBump
+        poolToEscrowData[pOffset++] = xwingCtBump
+
+        const poolToEscrowTx = new Transaction()
+        poolToEscrowTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 500000 }))
+        poolToEscrowTx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },      // tee_authority/signer
+            { pubkey: poolPda, isSigner: false, isWritable: true },       // pool
+            { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // deposit_record (read-only)
+            { pubkey: escrowPdaDerived, isSigner: false, isWritable: true },  // claim_escrow
+            { pubkey: xwingCtPda, isSigner: false, isWritable: true },    // xwing_ciphertext
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: poolToEscrowData,
+        }))
+
+        poolToEscrowTx.feePayer = publicKey
+        const { blockhash: perBlockhash } = await rollupConnection.getLatestBlockhash()
+        poolToEscrowTx.recentBlockhash = perBlockhash
+
+        const signedPoolTx = await signTransaction!(poolToEscrowTx)
+        const poolToEscrowSig = await rollupConnection.sendRawTransaction(signedPoolTx.serialize(), { skipPreflight: true })
+        console.log('[TEE Claim] V4: POOL_TO_ESCROW_V4 sent:', poolToEscrowSig)
+
+        // Wait for confirmation
+        const poolConfirmed = await confirmTransactionPolling(rollupConnection, poolToEscrowSig, 20, 2000)
+        if (!poolConfirmed) {
+          console.warn('[TEE Claim] V4: POOL_TO_ESCROW_V4 confirmation timeout')
+        }
+        console.log('[TEE Claim] V4: Escrow funded from pool')
+      }
 
       // Build CLAIM_ESCROW_V4 instruction (0x27)
       // Accounts: claimer, escrow, destination, master_authority, xwing_ct, magic_context, magic_program
