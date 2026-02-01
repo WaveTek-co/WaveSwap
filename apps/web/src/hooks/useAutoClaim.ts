@@ -809,8 +809,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       // Build CLAIM_ESCROW_V4 instruction (0x27)
       // Accounts: claimer, escrow, destination, master_authority, xwing_ct, magic_context, magic_program
-      const escrowPda = new PublicKey(escrow.escrowAddress)
-      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+      const [claimXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
       const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
       const [magicContext] = PublicKey.findProgramAddressSync(
         [Buffer.from('magic_context')],
@@ -832,7 +831,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           { pubkey: escrowPda, isSigner: false, isWritable: true },     // escrow (delegated)
           { pubkey: destination, isSigner: false, isWritable: false },  // destination (read-only)
           { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // master_authority (read-only)
-          { pubkey: xwingCtPda, isSigner: false, isWritable: true },    // xwing_ciphertext (delegated)
+          { pubkey: claimXwingCtPda, isSigner: false, isWritable: true },    // xwing_ciphertext (delegated)
           { pubkey: magicContext, isSigner: false, isWritable: true },  // magic_context
           { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false }, // magic_program
         ],
@@ -888,10 +887,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
             ]
 
             // Check if XWingCiphertext account exists and add it for cleanup
-            const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
+            const xwingCtInfo = await connection.getAccountInfo(claimXwingCtPda)
             if (xwingCtInfo && xwingCtInfo.data.length > 0) {
               console.log('[TEE Claim] V4: Including XWingCiphertext for cleanup')
-              withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
+              withdrawAccounts.push({ pubkey: claimXwingCtPda, isSigner: false, isWritable: true })
             }
 
             const withdrawTx = new Transaction()
