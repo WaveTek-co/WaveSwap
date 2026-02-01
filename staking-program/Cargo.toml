@@ -1,0 +1,17 @@
+[package]
+name = "staking-program"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+bytemuck = { version = "1.14", features = ["derive"] }
+solana-program = "2.1"
+# Pin older versions to avoid edition2024 requirement
+constant_time_eq = "=0.3.0"
+blake3 = "=1.5.4"
+
+[features]
+no-entrypoint = []
