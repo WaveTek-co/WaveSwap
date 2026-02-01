@@ -216,22 +216,31 @@ async function fetchXWingCiphertext(
  * PRIVACY: No on-chain queries reveal which escrows belong to us.
  * We scan everything and use cryptography to identify ours.
  */
+// Delegation program ID (accounts delegated to MagicBlock PER)
+const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
+
 export async function scanForEscrowsV4(
   connection: Connection,
   keys: StealthKeyPair
 ): Promise<DetectedEscrowV4[]> {
-  console.log("[V4 Scanner] ═══════════════════════════════════════════════════");
-  console.log("[V4 Scanner] Scanning for V4 ClaimEscrow accounts...");
+  console.log("[V4 Scanner] Scanning for ClaimEscrow accounts (L1 + delegated)...");
 
   const escrows: DetectedEscrowV4[] = [];
 
   try {
-    // Fetch all ClaimEscrow accounts (171 bytes)
-    const accounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+    // Fetch L1 ClaimEscrow accounts (owned by stealth program)
+    const l1Accounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
       filters: [{ dataSize: CLAIM_ESCROW_SIZE }],
     });
 
-    console.log(`[V4 Scanner] Found ${accounts.length} ClaimEscrow accounts`);
+    // Fetch DELEGATED ClaimEscrow accounts (owned by delegation program)
+    const delegatedAccounts = await connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
+      filters: [{ dataSize: CLAIM_ESCROW_SIZE }],
+    });
+
+    // Combine both - delegated accounts are the new V4 flow
+    const accounts = [...l1Accounts, ...delegatedAccounts];
+    console.log(`[V4 Scanner] Found ${l1Accounts.length} L1 + ${delegatedAccounts.length} delegated = ${accounts.length} total`);
 
     let oursCount = 0;
     for (const { pubkey, account } of accounts) {
