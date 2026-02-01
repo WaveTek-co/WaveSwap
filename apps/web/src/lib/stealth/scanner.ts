@@ -15,6 +15,8 @@
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha256";
+import { sha3_256 } from "js-sha3";
+import { ed25519 } from "@noble/curves/ed25519";
 import { PROGRAM_IDS, deriveClaimEscrowPda, deriveXWingCiphertextPda } from "./config";
 import {
   StealthKeyPair,
@@ -312,17 +314,94 @@ export async function scanForEscrowsV4(
 export const scanForEscrowsV3 = scanForEscrowsV4;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LEGACY FUNCTIONS (for backwards compatibility)
+// LEGACY FUNCTIONS (for backwards compatibility with older deposit types)
+// These use Ed25519 view key derivation (NOT X-Wing)
+// V4 TRUE PRIVACY uses X-Wing decapsulation instead
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Legacy view tag check (not used in V4)
-export function checkViewTag(): boolean {
-  return false;
+/**
+ * LEGACY: Check if view tag matches (Ed25519 derivation)
+ * Used for old PER deposits that use ephemeral pubkey + view tag
+ * V4 uses X-Wing decapsulation instead
+ */
+export function checkViewTag(
+  viewPrivkey: Uint8Array,
+  ephemeralPubkey: Uint8Array,
+  expectedViewTag: number
+): boolean {
+  try {
+    const viewPubkey = ed25519.getPublicKey(viewPrivkey);
+    const sharedSecretInput = new Uint8Array(ephemeralPubkey.length + viewPubkey.length);
+    sharedSecretInput.set(ephemeralPubkey, 0);
+    sharedSecretInput.set(viewPubkey, ephemeralPubkey.length);
+    const sharedSecret = sha3_256(sharedSecretInput);
+    const computedViewTag = parseInt(sharedSecret.slice(0, 2), 16);
+    return computedViewTag === expectedViewTag;
+  } catch {
+    return false;
+  }
 }
 
-// Legacy stealth verification (not used in V4)
-export function isPaymentForUs(): boolean {
-  return false;
+/**
+ * LEGACY: Derive stealth address from ephemeral pubkey
+ * Used for old deposits - V4 uses X-Wing instead
+ */
+export function deriveStealthFromEphemeral(
+  viewPrivkey: Uint8Array,
+  spendPubkey: Uint8Array,
+  ephemeralPubkey: Uint8Array
+): Uint8Array {
+  try {
+    const viewPubkey = ed25519.getPublicKey(viewPrivkey);
+    const sharedSecretInput = new Uint8Array(ephemeralPubkey.length + viewPubkey.length);
+    sharedSecretInput.set(ephemeralPubkey, 0);
+    sharedSecretInput.set(viewPubkey, ephemeralPubkey.length);
+    const sharedSecret = sha3_256(sharedSecretInput);
+
+    const stealthInput = new Uint8Array(32 + spendPubkey.length);
+    const sharedSecretBytes = new Uint8Array(Buffer.from(sharedSecret, "hex"));
+    stealthInput.set(sharedSecretBytes, 0);
+    stealthInput.set(spendPubkey, 32);
+    const stealthHash = sha3_256(stealthInput);
+    return new Uint8Array(Buffer.from(stealthHash, "hex"));
+  } catch {
+    return new Uint8Array(32);
+  }
+}
+
+/**
+ * LEGACY: Full check if payment belongs to us (Ed25519 derivation)
+ * Used for old PER deposits - V4 uses X-Wing instead
+ */
+export function isPaymentForUs(
+  keys: StealthKeyPair,
+  ephemeralPubkey: Uint8Array,
+  expectedViewTag: number,
+  announcementStealthPubkey: Uint8Array
+): boolean {
+  // Step 1: Fast view tag check
+  if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, expectedViewTag)) {
+    return false;
+  }
+
+  // Step 2: Derive full stealth pubkey
+  const derivedStealth = deriveStealthFromEphemeral(
+    keys.viewPrivkey,
+    keys.spendPubkey,
+    ephemeralPubkey
+  );
+
+  // Step 3: Compare
+  if (derivedStealth.length !== announcementStealthPubkey.length) {
+    return false;
+  }
+  for (let i = 0; i < derivedStealth.length; i++) {
+    if (derivedStealth[i] !== announcementStealthPubkey[i]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function isPaymentForUsXWing(): boolean {
@@ -331,10 +410,6 @@ export function isPaymentForUsXWing(): boolean {
 
 export function isPaymentForUsUniversal(): boolean {
   return false;
-}
-
-export function deriveStealthFromEphemeral(): Uint8Array {
-  return new Uint8Array(32);
 }
 
 // V3 legacy aliases

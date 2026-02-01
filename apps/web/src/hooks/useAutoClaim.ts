@@ -22,7 +22,7 @@ import {
   decryptDestinationWallet,
   deriveStealthPubkeyFromSharedSecret,
 } from '@/lib/stealth'
-import { scanForEscrowsV4, DetectedEscrowV4 } from '@/lib/stealth/scanner'
+import { scanForEscrowsV4, DetectedEscrowV4, checkViewTag, isPaymentForUs } from '@/lib/stealth/scanner'
 import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
 // PER deposit record constants (Magic Actions - delegated to MagicBlock)
@@ -696,15 +696,15 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [publicKey, signTransaction, connection, rollupConnection])
 
-  // PRIVATE CLAIM VIA TEE - Receiver wallet NEVER signs on-chain
+  // PRIVATE CLAIM VIA TEE - V4 TRUE PRIVACY
   //
-  // V3 PRIVACY ARCHITECTURE:
-  // 1. Receiver scans and finds V3 escrow (off-chain using view tag = sharedSecret[0])
-  // 2. Receiver provides shared_secret for on-chain SHA256 verification
-  // 3. TEE verifies: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
-  // 4. TEE sets verified_destination and undelegates escrow
-  // 5. Anyone can call WITHDRAW_FROM_ESCROW (permissionless)
-  // 6. Receiver wallet NEVER appears as signer - FULL PRIVACY
+  // V4 PRIVACY ARCHITECTURE:
+  // 1. Receiver scans ClaimEscrows, X-Wing decapsulates to get sharedSecret
+  // 2. Verifies locally: SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
+  // 3. Calls CLAIM_ESCROW_V4 on PER with sharedSecret
+  // 4. TEE verifies: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+  // 5. TEE sets verified_destination and undelegates escrow to L1
+  // 6. Call WITHDRAW_FROM_ESCROW on L1 to receive funds
   //
   const claimViaTEE = useCallback(async (
     escrow: PendingEscrow,
@@ -717,296 +717,160 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
 
     const destination = destinationWallet || publicKey
-    const isV3 = escrow.isV3 ?? false
 
     try {
       console.log('[TEE Claim] ═══════════════════════════════════════════')
-      console.log('[TEE Claim] PRIVATE CLAIM VIA MAGICBLOCK TEE')
+      console.log('[TEE Claim] V4 TRUE PRIVACY CLAIM VIA MAGICBLOCK TEE')
       console.log('[TEE Claim] Escrow:', escrow.escrowAddress)
       console.log('[TEE Claim] Destination:', destination.toBase58())
       console.log('[TEE Claim] Amount:', Number(escrow.amount) / LAMPORTS_PER_SOL, 'SOL')
-      console.log('[TEE Claim] Version:', isV3 ? 'V3 (encrypted destination)' : 'V1 (legacy)')
       console.log('[TEE Claim] ═══════════════════════════════════════════')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
       ))
 
-      // V3 Flow: Use shared_secret for on-chain SHA256 verification
-      // The TEE will verify: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
-      if (isV3) {
-        // For V3, we need the shared_secret that was used to derive stealth_pubkey
-        // This should be passed in or recovered from X-Wing decapsulation
-        const sharedSecret = sharedSecretInput || escrow.sharedSecret
-        if (!sharedSecret) {
-          console.error('[TEE Claim] V3 requires shared_secret for verification')
-          throw new Error('V3 claim requires shared_secret')
-        }
+      // Get shared_secret from X-Wing decapsulation (recovered during scanning)
+      const sharedSecret = sharedSecretInput || escrow.sharedSecret
+      if (!sharedSecret) {
+        console.error('[TEE Claim] V4 requires sharedSecret from X-Wing decapsulation')
+        throw new Error('V4 claim requires sharedSecret')
+      }
 
-        // Verify locally that our shared_secret produces the correct stealth_pubkey
-        const derivedStealth = deriveStealthPubkeyFromSharedSecret(sharedSecret)
-        const stealthMatches = derivedStealth.every((b, i) => b === escrow.stealthPubkey[i])
-        if (!stealthMatches) {
-          console.error('[TEE Claim] Shared secret does not match stealth pubkey')
-          throw new Error('Invalid shared_secret for this escrow')
-        }
+      // Verify locally that sharedSecret derives correct stealth_pubkey
+      const derivedStealth = deriveStealthPubkeyFromSharedSecret(sharedSecret)
+      const stealthMatches = derivedStealth.every((b, i) => b === escrow.stealthPubkey[i])
+      if (!stealthMatches) {
+        console.error('[TEE Claim] Shared secret does not match stealth pubkey')
+        throw new Error('Invalid sharedSecret for this escrow')
+      }
 
-        console.log('[TEE Claim] V3: Shared secret verified locally')
+      console.log('[TEE Claim] V4: Shared secret verified locally')
 
-        // Build EXECUTE_PER_CLAIM_V3 instruction
-        const [escrowPda, escrowBump] = deriveClaimEscrowPda(escrow.nonce)
-        const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
-        const [magicContext] = PublicKey.findProgramAddressSync(
-          [Buffer.from('magic_context')],
-          MAGICBLOCK_ER_PROGRAM
-        )
+      // Build CLAIM_ESCROW_V4 instruction (0x27)
+      // Accounts: claimer, escrow, destination, master_authority, xwing_ct, magic_context, magic_program
+      const escrowPda = new PublicKey(escrow.escrowAddress)
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+      const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
+      const [magicContext] = PublicKey.findProgramAddressSync(
+        [Buffer.from('magic_context')],
+        MAGICBLOCK_ER_PROGRAM
+      )
 
-        // Data: discriminator(1) + nonce(32) + escrow_bump(1) + shared_secret(32) + destination(32) = 98 bytes
-        const data = Buffer.alloc(98)
-        let offset = 0
-        data[offset++] = StealthDiscriminators.EXECUTE_PER_CLAIM_V3
-        Buffer.from(escrow.nonce).copy(data, offset); offset += 32
-        data[offset++] = escrowBump
-        Buffer.from(sharedSecret).copy(data, offset); offset += 32
-        destination.toBuffer().copy(data, offset)
+      // Data: discriminator(1) + nonce(32) + shared_secret(32) = 65 bytes
+      const data = Buffer.alloc(65)
+      let offset = 0
+      data[offset++] = StealthDiscriminators.CLAIM_ESCROW_V4
+      Buffer.from(escrow.nonce).copy(data, offset); offset += 32
+      Buffer.from(sharedSecret).copy(data, offset)
 
-        const tx = new Transaction()
-        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
-        tx.add(new TransactionInstruction({
-          keys: [
-            { pubkey: publicKey, isSigner: true, isWritable: true },
-            { pubkey: escrowPda, isSigner: false, isWritable: true },
-            { pubkey: magicContext, isSigner: false, isWritable: true },
-            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
-          ],
-          programId: PROGRAM_IDS.STEALTH,
-          data,
-        }))
+      const tx = new Transaction()
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+      tx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: publicKey, isSigner: true, isWritable: true },      // claimer
+          { pubkey: escrowPda, isSigner: false, isWritable: true },     // escrow (delegated)
+          { pubkey: destination, isSigner: false, isWritable: false },  // destination (read-only)
+          { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // master_authority (read-only)
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true },    // xwing_ciphertext (delegated)
+          { pubkey: magicContext, isSigner: false, isWritable: true },  // magic_context
+          { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false }, // magic_program
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      }))
 
-        tx.feePayer = publicKey
-        const { blockhash } = await rollupConnection.getLatestBlockhash()
-        tx.recentBlockhash = blockhash
+      tx.feePayer = publicKey
+      const { blockhash } = await rollupConnection.getLatestBlockhash()
+      tx.recentBlockhash = blockhash
 
-        console.log('[TEE Claim] V3: Signing EXECUTE_PER_CLAIM_V3...')
-        const signedTx = await signTransaction!(tx)
+      console.log('[TEE Claim] V4: Signing CLAIM_ESCROW_V4...')
+      const signedTx = await signTransaction!(tx)
 
-        console.log('[TEE Claim] V3: Sending to MagicBlock PER...')
-        const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
-        console.log('[TEE Claim] V3: Sent:', signature)
+      console.log('[TEE Claim] V4: Sending to MagicBlock PER...')
+      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
+      console.log('[TEE Claim] V4: Sent:', signature)
 
-        // Wait for PER confirmation
-        const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
-        if (!confirmed) {
-          console.warn('[TEE Claim] V3: PER confirmation timeout')
-          throw new Error('PER confirmation timeout')
-        }
+      // Wait for PER confirmation
+      const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
+      if (!confirmed) {
+        console.warn('[TEE Claim] V4: PER confirmation timeout')
+        throw new Error('PER confirmation timeout')
+      }
 
-        console.log('[TEE Claim] V3: Waiting for escrow undelegation to L1...')
+      console.log('[TEE Claim] V4: Waiting for escrow undelegation to L1...')
 
-        // Wait for escrow to be undelegated and verified
-        for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 2000))
-          const escrowInfo = await connection.getAccountInfo(escrowPda)
-          if (escrowInfo && escrowInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
-            // Check if verified
-            const escrowData = escrowInfo.data
-            if (escrowData.length >= 162 && escrowData[ESCROW_V3_OFFSET_IS_VERIFIED] === 1) {
-              console.log('[TEE Claim] V3: Escrow verified on L1!')
+      // Wait for escrow to be undelegated and verified
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000))
+        const escrowInfo = await connection.getAccountInfo(escrowPda)
+        if (escrowInfo && escrowInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
+          // Check if verified
+          const escrowData = escrowInfo.data
+          if (escrowData.length >= 162 && escrowData[ESCROW_V3_OFFSET_IS_VERIFIED] === 1) {
+            console.log('[TEE Claim] V4: Escrow verified on L1!')
 
-              // Now call WITHDRAW_FROM_ESCROW (permissionless)
-              // V3: Also close XWingCiphertextAccount if it exists
-              // Rent goes to MASTER_AUTHORITY as service fee
-              const withdrawData = Buffer.alloc(65)
-              withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
-              Buffer.from(escrow.nonce).copy(withdrawData, 1)
-              Buffer.from(escrow.stealthPubkey).copy(withdrawData, 33)
+            // Now call WITHDRAW_FROM_ESCROW on L1
+            // Rent goes to MASTER_AUTHORITY as service fee
+            const withdrawData = Buffer.alloc(65)
+            withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
+            Buffer.from(escrow.nonce).copy(withdrawData, 1)
+            Buffer.from(escrow.stealthPubkey).copy(withdrawData, 33)
 
-              // Derive XWingCiphertext PDA (for V3 cleanup)
-              const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+            // Build accounts list
+            // Order: claimer, escrow, destination, master_authority, system, [optional: xwing_ct]
+            const withdrawAccounts = [
+              { pubkey: publicKey, isSigner: true, isWritable: false },
+              { pubkey: escrowPda, isSigner: false, isWritable: true },
+              { pubkey: destination, isSigner: false, isWritable: true },
+              { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
+              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            ]
 
-              // Build accounts list
-              // Order: claimer, escrow, destination, master_authority, system, [optional: xwing_ct]
-              const withdrawAccounts = [
-                { pubkey: publicKey, isSigner: true, isWritable: false },
-                { pubkey: escrowPda, isSigner: false, isWritable: true },
-                { pubkey: destination, isSigner: false, isWritable: true },
-                { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true }, // Receives rent as fee
-                { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-              ]
-
-              // Check if XWingCiphertext account exists and add it for cleanup
-              const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
-              if (xwingCtInfo && xwingCtInfo.data.length > 0) {
-                console.log('[TEE Claim] V3: Including XWingCiphertext for cleanup:', xwingCtPda.toBase58().slice(0, 8), '...')
-                withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
-              }
-
-              const withdrawTx = new Transaction()
-              withdrawTx.add(new TransactionInstruction({
-                keys: withdrawAccounts,
-                programId: PROGRAM_IDS.STEALTH,
-                data: withdrawData,
-              }))
-
-              withdrawTx.feePayer = publicKey
-              const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
-              withdrawTx.recentBlockhash = l1Blockhash
-
-              const signedWithdrawTx = await signTransaction!(withdrawTx)
-              const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
-              await confirmTransactionPolling(connection, withdrawSig)
-
-              console.log('[TEE Claim] V3: Withdraw complete:', withdrawSig)
-
-              setPendingEscrows(prev => prev.map(e =>
-                e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
-              ))
-              setClaimHistory(prev => [...prev, {
-                signature: withdrawSig,
-                amount: escrow.amount,
-                timestamp: Date.now(),
-                sender: 'V3_TEE_CLAIM'
-              }])
-              showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
-
-              console.log('[TEE Claim] ═══════════════════════════════════════════')
-              console.log('[TEE Claim] ✓ V3 PRIVATE CLAIM COMPLETE')
-              console.log('[TEE Claim] ═══════════════════════════════════════════')
-              return true
+            // Check if XWingCiphertext account exists and add it for cleanup
+            const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
+            if (xwingCtInfo && xwingCtInfo.data.length > 0) {
+              console.log('[TEE Claim] V4: Including XWingCiphertext for cleanup')
+              withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
             }
+
+            const withdrawTx = new Transaction()
+            withdrawTx.add(new TransactionInstruction({
+              keys: withdrawAccounts,
+              programId: PROGRAM_IDS.STEALTH,
+              data: withdrawData,
+            }))
+
+            withdrawTx.feePayer = publicKey
+            const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
+            withdrawTx.recentBlockhash = l1Blockhash
+
+            const signedWithdrawTx = await signTransaction!(withdrawTx)
+            const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
+            await confirmTransactionPolling(connection, withdrawSig)
+
+            console.log('[TEE Claim] V4: Withdraw complete:', withdrawSig)
+
+            setPendingEscrows(prev => prev.map(e =>
+              e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
+            ))
+            setClaimHistory(prev => [...prev, {
+              signature: withdrawSig,
+              amount: escrow.amount,
+              timestamp: Date.now(),
+              sender: 'V4_TEE_CLAIM'
+            }])
+            showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
+
+            console.log('[TEE Claim] ═══════════════════════════════════════════')
+            console.log('[TEE Claim] ✓ V4 PRIVATE CLAIM COMPLETE')
+            console.log('[TEE Claim] ═══════════════════════════════════════════')
+            return true
           }
         }
-
-        console.warn('[TEE Claim] V3: Escrow not verified on L1 within timeout')
-        return false
       }
 
-      // V1 Legacy Flow
-      // Step 1: Create ownership proof (off-chain derivation)
-      // This proves we can derive the stealth private key without revealing it
-      // Proof = SHA3(stealth_pubkey || view_pubkey || nonce || destination || "claim")
-      const proofInput = Buffer.concat([
-        Buffer.from(escrow.stealthPubkey),
-        Buffer.from(stealthKeys.viewPubkey),
-        Buffer.from(escrow.nonce),
-        destination.toBuffer(),
-        Buffer.from('OceanVault:TEE:ClaimProof:v1'),
-      ])
-      const ownershipProof = Buffer.from(sha3_256(proofInput), 'hex')
-
-      // Step 2: Create claim request for TEE (HTTP, NOT on-chain tx)
-      const claimRequest = {
-        escrow_address: escrow.escrowAddress,
-        destination_wallet: destination.toBase58(),
-        nonce: Buffer.from(escrow.nonce).toString('hex'),
-        stealth_pubkey: Buffer.from(escrow.stealthPubkey).toString('hex'),
-        view_pubkey: Buffer.from(stealthKeys.viewPubkey).toString('hex'),
-        ownership_proof: ownershipProof.toString('hex'),
-        timestamp: Date.now(),
-      }
-
-      console.log('[TEE Claim] Sending claim request to MagicBlock TEE...')
-      console.log('[TEE Claim] NO WALLET SIGNATURE REQUIRED')
-
-      // Step 3: Send to MagicBlock TEE HTTP endpoint
-      // TEE verifies proof and executes transfer (TEE signs, not receiver)
-      const teeEndpoint = `${MAGICBLOCK_RPC}/api/v1/claim`
-
-      const response = await fetch(teeEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(claimRequest),
-      }).catch(async () => {
-        // Fallback: If TEE HTTP endpoint not available, use rollup RPC
-        console.log('[TEE Claim] TEE HTTP not available, using rollup RPC...')
-
-        // Build claim instruction for TEE to execute
-        const data = Buffer.alloc(129)
-        let offset = 0
-        data[offset++] = 0x20 // CLAIM_VIA_TEE discriminator
-        Buffer.from(escrow.nonce).copy(data, offset); offset += 32
-        destination.toBuffer().copy(data, offset); offset += 32
-        Buffer.from(escrow.stealthPubkey).copy(data, offset); offset += 32
-        ownershipProof.copy(data, offset)
-
-        const escrowPda = new PublicKey(escrow.escrowAddress)
-        const [perMixerPoolPda] = derivePerMixerPoolPda()
-
-        const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
-        const [magicContext] = PublicKey.findProgramAddressSync(
-          [Buffer.from('magic_context')],
-          MAGICBLOCK_ER_PROGRAM
-        )
-
-        const tx = new Transaction()
-        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
-        tx.add(new TransactionInstruction({
-          keys: [
-            { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
-            { pubkey: escrowPda, isSigner: false, isWritable: true },
-            { pubkey: destination, isSigner: false, isWritable: true },
-            { pubkey: magicContext, isSigner: false, isWritable: true },
-            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          ],
-          programId: PROGRAM_IDS.STEALTH,
-          data,
-        }))
-
-        // TEE/Pool is fee payer - receiver wallet NOT involved
-        tx.feePayer = perMixerPoolPda
-        const { blockhash } = await rollupConnection.getLatestBlockhash()
-        tx.recentBlockhash = blockhash
-
-        // Send to rollup - TEE will validate and sign
-        const sig = await rollupConnection.sendRawTransaction(
-          tx.serialize({ requireAllSignatures: false }),
-          { skipPreflight: true }
-        )
-        return { ok: true, json: async () => ({ signature: sig }) }
-      })
-
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(`TEE claim failed: ${error}`)
-      }
-
-      const result = await response.json()
-      const signature = result.signature
-
-      console.log('[TEE Claim] TEE processing claim:', signature)
-
-      // Step 4: Wait for confirmation
-      const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
-
-      if (confirmed) {
-        // Wait for L1 commit
-        console.log('[TEE Claim] Waiting for L1 confirmation...')
-        await new Promise(r => setTimeout(r, 5000))
-
-        // Verify destination received funds
-        const destInfo = await connection.getAccountInfo(destination)
-        console.log('[TEE Claim] ✓ Destination balance:', destInfo?.lamports || 0, 'lamports')
-
-        setPendingEscrows(prev => prev.map(e =>
-          e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
-        ))
-        setClaimHistory(prev => [...prev, {
-          signature,
-          amount: escrow.amount,
-          timestamp: Date.now(),
-          sender: 'TEE_PRIVATE_CLAIM'
-        }])
-        showClaimSuccess({ signature, amount: escrow.amount, symbol: 'SOL' })
-
-        console.log('[TEE Claim] ═══════════════════════════════════════════')
-        console.log('[TEE Claim] ✓ PRIVATE CLAIM COMPLETE')
-        console.log('[TEE Claim] ✓ Receiver wallet NEVER signed on-chain')
-        console.log('[TEE Claim] ═══════════════════════════════════════════')
-        return true
-      }
-
-      console.warn('[TEE Claim] TEE processing timeout')
+      console.warn('[TEE Claim] V4: Escrow not verified on L1 within timeout')
       return false
 
     } catch (err: any) {
