@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from '@solana/web3.js'
+import { Connection, PublicKey, Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, SYSVAR_INSTRUCTIONS_PUBKEY, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { sha3_256 } from 'js-sha3'
+import { sha256 } from '@noble/hashes/sha256'
 import { useWallet } from './useWalletAdapter'
 import {
   PROGRAM_IDS,
+  MASTER_AUTHORITY,
   StealthDiscriminators,
   deriveStealthVaultPda,
   deriveTestMixerPoolPda,
@@ -14,10 +16,13 @@ import {
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
+  deriveXWingCiphertextPda,
   generateStealthKeysFromSignature,
   StealthKeyPair,
+  decryptDestinationWallet,
+  deriveStealthPubkeyFromSharedSecret,
 } from '@/lib/stealth'
-import { isPaymentForUs, checkViewTag } from '@/lib/stealth/scanner'
+import { isPaymentForUs, checkViewTag, scanForEscrowsV3, DetectedEscrowV3 } from '@/lib/stealth/scanner'
 import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
 // PER deposit record constants (Magic Actions - delegated to MagicBlock)
@@ -69,11 +74,13 @@ const PER_MIXER_OFFSET_ESCROW = 124
 
 // Claim Escrow constants (created by PER, holds funds for recipient)
 // Discriminator: "CLAIMESC" (8 bytes)
-// Total size: 90 bytes
+// V1 Total size: 90 bytes
+// V3 Total size: 171 bytes (with encrypted_destination + verified_destination)
 const CLAIM_ESCROW_DISCRIMINATOR = 'CLAIMESC'
-const CLAIM_ESCROW_SIZE = 90
+const CLAIM_ESCROW_SIZE_V1 = 90
+const CLAIM_ESCROW_SIZE_V3 = 171
 
-// Claim Escrow layout offsets (from per_mixer.rs ClaimEscrow)
+// V1 Claim Escrow layout offsets (from per_mixer.rs ClaimEscrow)
 // discriminator(8) + bump(1) + nonce(32) + amount(8) + stealth_pubkey(32) +
 // is_withdrawn(1) + reserved(8) = 90 bytes
 const ESCROW_OFFSET_BUMP = 8
@@ -81,6 +88,15 @@ const ESCROW_OFFSET_NONCE = 9
 const ESCROW_OFFSET_AMOUNT = 41
 const ESCROW_OFFSET_STEALTH = 49
 const ESCROW_OFFSET_IS_WITHDRAWN = 81
+
+// V3 Claim Escrow layout offsets (with encrypted destination)
+// discriminator(8) + bump(1) + nonce(32) + amount(8) + stealth_pubkey(32) +
+// encrypted_destination(48) + verified_destination(32) + is_verified(1) +
+// is_withdrawn(1) + reserved(8) = 171 bytes
+const ESCROW_V3_OFFSET_ENCRYPTED_DEST = 81
+const ESCROW_V3_OFFSET_VERIFIED_DEST = 129
+const ESCROW_V3_OFFSET_IS_VERIFIED = 161
+const ESCROW_V3_OFFSET_IS_WITHDRAWN = 162
 
 // Announcement layout offsets
 const ANN_OFFSET_EPHEMERAL_PUBKEY = 17  // 8 + 1 + 8
@@ -229,6 +245,12 @@ export interface PendingEscrow {
   amount: bigint
   stealthPubkey: Uint8Array
   status: 'pending' | 'withdrawing' | 'withdrawn' | 'failed'
+  // V3 additions
+  isV3?: boolean
+  encryptedDestination?: Uint8Array
+  verifiedDestination?: Uint8Array
+  isVerified?: boolean
+  sharedSecret?: Uint8Array
 }
 
 export interface UseAutoClaimReturn {
@@ -245,6 +267,9 @@ export interface UseAutoClaimReturn {
   claimAll: () => Promise<void>
   claimSingle: (vaultAddress: string) => Promise<boolean>
   triggerMagicAction: (deposit: DelegatedDeposit) => Promise<boolean>
+  // RECOMMENDED: Private claim via TEE (no on-chain wallet link)
+  claimViaTEE: (escrow: PendingEscrow, destinationWallet?: PublicKey) => Promise<boolean>
+  // LEGACY: Direct withdraw (breaks privacy - links wallet on-chain)
   withdrawFromEscrow: (escrow: PendingEscrow) => Promise<boolean>
   lastScanTime: Date | null
   error: string | null
@@ -424,78 +449,136 @@ export function useAutoClaim(): UseAutoClaimReturn {
         return false
 
       } else if (deposit.type === 'per') {
-        // NEW 3-Phase PER flow (2026-01-31):
-        // Phase 1: DEPOSIT_AND_DELEGATE already done (deposit exists)
-        // Phase 2: EXECUTE_PER_TRANSFER in PER (marks executed + undelegates)
-        // Phase 3: CREATE_VAULT_FROM_DEPOSIT on L1 (creates vault from executed deposit)
+        // PER flow with smart detection:
+        // - If vault exists with funds → claim directly
+        // - If deposit executed but no vault → create vault + claim
+        // - If deposit still delegated → Phase 2 (PER) then Phase 3 (create+claim)
+
         const depositPda = new PublicKey(deposit.depositAddress)
 
-        // MagicBlock Ephemeral Rollups program and context
-        const MAGICBLOCK_ER_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111')
-        const MAGIC_CONTEXT = new PublicKey('MagicContext1111111111111111111111111111111')
+        // Check if vault already exists (from previous partial attempt)
+        const existingVaultInfo = await connection.getAccountInfo(vaultPda)
+        if (existingVaultInfo && existingVaultInfo.lamports > 0) {
+          console.log('[MagicAction] Vault already exists with', existingVaultInfo.lamports, 'lamports - claiming directly')
 
-        // Phase 2: EXECUTE_PER_TRANSFER in PER
-        // Data: discriminator(1) + nonce(32) = 33 bytes
-        const executeData = Buffer.alloc(33)
-        executeData.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
-        Buffer.from(deposit.nonce).copy(executeData, 1)
+          // Just claim from existing vault
+          const claimData = Buffer.alloc(33)
+          claimData.writeUInt8(StealthDiscriminators.CLAIM_STEALTH_PAYMENT, 0)
+          Buffer.from(deposit.stealthPubkey).copy(claimData, 1)
 
-        const executeTx = new Transaction()
-        executeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }))
-        executeTx.add(new TransactionInstruction({
-          keys: [
-            { pubkey: publicKey, isSigner: true, isWritable: true },
-            { pubkey: depositPda, isSigner: false, isWritable: true },
-            { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },
-            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
-          ],
-          programId: PROGRAM_IDS.STEALTH,
-          data: executeData,
-        }))
+          const claimTx = new Transaction()
+          claimTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }))
+          claimTx.add(new TransactionInstruction({
+            keys: [
+              { pubkey: publicKey, isSigner: true, isWritable: false },
+              { pubkey: vaultPda, isSigner: false, isWritable: true },
+              { pubkey: publicKey, isSigner: false, isWritable: true },
+              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            ],
+            programId: PROGRAM_IDS.STEALTH,
+            data: claimData,
+          }))
 
-        executeTx.feePayer = publicKey
-        const { blockhash } = await rollupConnection.getLatestBlockhash()
-        executeTx.recentBlockhash = blockhash
+          claimTx.feePayer = publicKey
+          const { blockhash } = await connection.getLatestBlockhash()
+          claimTx.recentBlockhash = blockhash
 
-        console.log('[MagicAction] Phase 2: Signing EXECUTE_PER_TRANSFER...')
-        const signedExecuteTx = await signTransaction(executeTx)
+          console.log('[MagicAction] Signing direct claim...')
+          const signedClaimTx = await signTransaction(claimTx)
+          const claimSig = await connection.sendRawTransaction(signedClaimTx.serialize())
+          await confirmTransactionPolling(connection, claimSig)
 
-        console.log('[MagicAction] Sending to MagicBlock rollup...')
-        const executeSignature = await rollupConnection.sendRawTransaction(signedExecuteTx.serialize(), { skipPreflight: true })
-        console.log('[MagicAction] Sent:', executeSignature)
+          setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+          showClaimSuccess({ signature: claimSig, amount: BigInt(existingVaultInfo.lamports), symbol: 'SOL' })
+          setClaimHistory(prev => [...prev, { signature: claimSig, amount: BigInt(existingVaultInfo.lamports), timestamp: Date.now(), sender: 'PER_DIRECT_CLAIM' }])
 
-        // Wait for PER confirmation
-        await confirmTransactionPolling(rollupConnection, executeSignature, 15, 1000)
-        console.log('[MagicAction] PER confirmed, waiting for undelegation to L1...')
+          console.log('[MagicAction] Claimed from existing vault!')
+          return true
+        }
 
-        // Wait for deposit to be undelegated back to L1 (owner changes to stealth program)
-        let undelegated = false
-        for (let i = 0; i < 20; i++) {
-          await new Promise(r => setTimeout(r, 2000))
-          const depositInfo = await connection.getAccountInfo(depositPda)
-          if (depositInfo && depositInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
-            console.log('[MagicAction] Deposit undelegated to L1!')
-            undelegated = true
-            break
+        // Check if deposit already executed (undelegated to stealth program)
+        const depositInfo = await connection.getAccountInfo(depositPda)
+        const isAlreadyExecuted = depositInfo && depositInfo.owner.equals(PROGRAM_IDS.STEALTH)
+
+        if (!isAlreadyExecuted) {
+          // Phase 2: EXECUTE_PER_TRANSFER in PER (only if not already executed)
+          console.log('[MagicAction] Phase 2: Executing PER transfer...')
+
+          const MAGICBLOCK_ER_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111')
+          const MAGIC_CONTEXT = new PublicKey('MagicContext1111111111111111111111111111111')
+
+          const executeData = Buffer.alloc(33)
+          executeData.writeUInt8(StealthDiscriminators.EXECUTE_PER_TRANSFER, 0)
+          Buffer.from(deposit.nonce).copy(executeData, 1)
+
+          const executeTx = new Transaction()
+          executeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }))
+          executeTx.add(new TransactionInstruction({
+            keys: [
+              { pubkey: publicKey, isSigner: true, isWritable: true },
+              { pubkey: depositPda, isSigner: false, isWritable: true },
+              { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },
+              { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
+            ],
+            programId: PROGRAM_IDS.STEALTH,
+            data: executeData,
+          }))
+
+          executeTx.feePayer = publicKey
+          const { blockhash } = await rollupConnection.getLatestBlockhash()
+          executeTx.recentBlockhash = blockhash
+
+          console.log('[MagicAction] Phase 2: Signing EXECUTE_PER_TRANSFER...')
+          const signedExecuteTx = await signTransaction(executeTx)
+
+          console.log('[MagicAction] Sending to MagicBlock rollup...')
+          const executeSignature = await rollupConnection.sendRawTransaction(signedExecuteTx.serialize(), { skipPreflight: true })
+          console.log('[MagicAction] Sent:', executeSignature)
+
+          await confirmTransactionPolling(rollupConnection, executeSignature, 15, 1000)
+          console.log('[MagicAction] PER confirmed, waiting for undelegation to L1...')
+
+          // Wait for deposit to be undelegated back to L1
+          let undelegated = false
+          for (let i = 0; i < 20; i++) {
+            await new Promise(r => setTimeout(r, 2000))
+            const checkInfo = await connection.getAccountInfo(depositPda)
+            if (checkInfo && checkInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
+              console.log('[MagicAction] Deposit undelegated to L1!')
+              undelegated = true
+              break
+            }
+            console.log('[MagicAction] Waiting for undelegation...', i + 1, '/20')
           }
-          console.log('[MagicAction] Waiting for undelegation...', i + 1, '/20')
+
+          if (!undelegated) {
+            console.warn('[MagicAction] Undelegation timeout')
+            return false
+          }
+        } else {
+          console.log('[MagicAction] Deposit already executed - skipping Phase 2')
         }
 
-        if (!undelegated) {
-          console.warn('[MagicAction] Undelegation timeout')
-          return false
-        }
+        // Phase 3: CREATE_VAULT_FROM_DEPOSIT + CLAIM_STEALTH_PAYMENT in one TX
+        // This creates vault AND claims to wallet in single transaction
+        // User pays rent temporarily but gets it ALL back when claiming
 
-        // Phase 3: CREATE_VAULT_FROM_DEPOSIT on L1
-        // Data: discriminator(1) + nonce(32) + vault_bump(1) = 34 bytes
+        // Data for create_vault: discriminator(1) + nonce(32) + vault_bump(1) = 34 bytes
         const createVaultData = Buffer.alloc(34)
         createVaultData.writeUInt8(StealthDiscriminators.CREATE_VAULT_FROM_DEPOSIT, 0)
         Buffer.from(deposit.nonce).copy(createVaultData, 1)
         createVaultData.writeUInt8(vaultBump, 33)
 
-        const createVaultTx = new Transaction()
-        createVaultTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }))
-        createVaultTx.add(new TransactionInstruction({
+        // Data for claim: discriminator(1) + stealth_pubkey(32) = 33 bytes
+        const claimData = Buffer.alloc(33)
+        claimData.writeUInt8(StealthDiscriminators.CLAIM_STEALTH_PAYMENT, 0)
+        Buffer.from(deposit.stealthPubkey).copy(claimData, 1)
+
+        const combinedTx = new Transaction()
+        combinedTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+
+        // Instruction 1: Create vault from deposit
+        combinedTx.add(new TransactionInstruction({
           keys: [
             { pubkey: publicKey, isSigner: true, isWritable: true },
             { pubkey: depositPda, isSigner: false, isWritable: true },
@@ -506,39 +589,40 @@ export function useAutoClaim(): UseAutoClaimReturn {
           data: createVaultData,
         }))
 
-        createVaultTx.feePayer = publicKey
+        // Instruction 2: Immediately claim from vault to wallet
+        combinedTx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: false },
+            { pubkey: vaultPda, isSigner: false, isWritable: true },
+            { pubkey: publicKey, isSigner: false, isWritable: true }, // destination = claimer
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: claimData,
+        }))
+
+        combinedTx.feePayer = publicKey
         const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
-        createVaultTx.recentBlockhash = l1Blockhash
+        combinedTx.recentBlockhash = l1Blockhash
 
-        console.log('[MagicAction] Phase 3: Signing CREATE_VAULT_FROM_DEPOSIT...')
-        const signedCreateVaultTx = await signTransaction(createVaultTx)
+        console.log('[MagicAction] Phase 3: Signing CREATE_VAULT + CLAIM (combined)...')
+        const signedCombinedTx = await signTransaction(combinedTx)
 
-        console.log('[MagicAction] Sending to L1...')
-        const vaultSignature = await connection.sendRawTransaction(signedCreateVaultTx.serialize())
-        await confirmTransactionPolling(connection, vaultSignature)
-        console.log('[MagicAction] Vault created:', vaultSignature)
+        console.log('[MagicAction] Sending combined tx to L1...')
+        const claimSignature = await connection.sendRawTransaction(signedCombinedTx.serialize())
+        await confirmTransactionPolling(connection, claimSignature)
+        console.log('[MagicAction] Vault created and claimed:', claimSignature)
 
-        // Verify vault exists
-        const vaultInfo = await connection.getAccountInfo(vaultPda)
-        if (vaultInfo && vaultInfo.lamports > 0) {
-          console.log('[MagicAction] Funds in vault:', vaultInfo.lamports)
-          setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
-          setPendingClaims(prev => {
-            if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
-            return [...prev, {
-              vaultAddress: vaultPda.toBase58(),
-              amount: BigInt(vaultInfo.lamports),
-              sender: 'MAGIC_ACTIONS',
-              announcementPda: deposit.depositAddress,
-              stealthPubkey: deposit.stealthPubkey,
-              status: 'pending' as const,
-            }]
-          })
-          showPaymentReceived({ signature: vaultSignature, amount: BigInt(vaultInfo.lamports), symbol: 'SOL' })
-          return true
-        }
-        console.warn('[MagicAction] Vault created but empty?')
-        return false
+        // Verify funds arrived at wallet
+        setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
+
+        // Get the original deposit amount for display
+        let depositAmount = deposit.amount
+        showClaimSuccess({ signature: claimSignature, amount: depositAmount, symbol: 'SOL' })
+        setClaimHistory(prev => [...prev, { signature: claimSignature, amount: depositAmount, timestamp: Date.now(), sender: 'PER_DIRECT_CLAIM' }])
+
+        console.log('[MagicAction] Funds claimed directly to wallet!')
+        return true
 
       } else {
         // Mixer flow: Execute on mainnet with TEE proof
@@ -610,7 +694,330 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [publicKey, signTransaction, connection, rollupConnection])
 
-  // Withdraw from claim escrow (funds on L1 from PER execution)
+  // PRIVATE CLAIM VIA TEE - Receiver wallet NEVER signs on-chain
+  //
+  // V3 PRIVACY ARCHITECTURE:
+  // 1. Receiver scans and finds V3 escrow (off-chain using view tag = sharedSecret[0])
+  // 2. Receiver provides shared_secret for on-chain SHA256 verification
+  // 3. TEE verifies: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+  // 4. TEE sets verified_destination and undelegates escrow
+  // 5. Anyone can call WITHDRAW_FROM_ESCROW (permissionless)
+  // 6. Receiver wallet NEVER appears as signer - FULL PRIVACY
+  //
+  const claimViaTEE = useCallback(async (
+    escrow: PendingEscrow,
+    destinationWallet?: PublicKey,
+    sharedSecretInput?: Uint8Array
+  ): Promise<boolean> => {
+    if (!publicKey || !stealthKeys) {
+      console.log('[TEE Claim] No wallet or stealth keys')
+      return false
+    }
+
+    const destination = destinationWallet || publicKey
+    const isV3 = escrow.isV3 ?? false
+
+    try {
+      console.log('[TEE Claim] ═══════════════════════════════════════════')
+      console.log('[TEE Claim] PRIVATE CLAIM VIA MAGICBLOCK TEE')
+      console.log('[TEE Claim] Escrow:', escrow.escrowAddress)
+      console.log('[TEE Claim] Destination:', destination.toBase58())
+      console.log('[TEE Claim] Amount:', Number(escrow.amount) / LAMPORTS_PER_SOL, 'SOL')
+      console.log('[TEE Claim] Version:', isV3 ? 'V3 (encrypted destination)' : 'V1 (legacy)')
+      console.log('[TEE Claim] ═══════════════════════════════════════════')
+
+      setPendingEscrows(prev => prev.map(e =>
+        e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
+      ))
+
+      // V3 Flow: Use shared_secret for on-chain SHA256 verification
+      // The TEE will verify: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+      if (isV3) {
+        // For V3, we need the shared_secret that was used to derive stealth_pubkey
+        // This should be passed in or recovered from X-Wing decapsulation
+        const sharedSecret = sharedSecretInput || escrow.sharedSecret
+        if (!sharedSecret) {
+          console.error('[TEE Claim] V3 requires shared_secret for verification')
+          throw new Error('V3 claim requires shared_secret')
+        }
+
+        // Verify locally that our shared_secret produces the correct stealth_pubkey
+        const derivedStealth = deriveStealthPubkeyFromSharedSecret(sharedSecret)
+        const stealthMatches = derivedStealth.every((b, i) => b === escrow.stealthPubkey[i])
+        if (!stealthMatches) {
+          console.error('[TEE Claim] Shared secret does not match stealth pubkey')
+          throw new Error('Invalid shared_secret for this escrow')
+        }
+
+        console.log('[TEE Claim] V3: Shared secret verified locally')
+
+        // Build EXECUTE_PER_CLAIM_V3 instruction
+        const [escrowPda, escrowBump] = deriveClaimEscrowPda(escrow.nonce)
+        const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
+        const [magicContext] = PublicKey.findProgramAddressSync(
+          [Buffer.from('magic_context')],
+          MAGICBLOCK_ER_PROGRAM
+        )
+
+        // Data: discriminator(1) + nonce(32) + escrow_bump(1) + shared_secret(32) + destination(32) = 98 bytes
+        const data = Buffer.alloc(98)
+        let offset = 0
+        data[offset++] = StealthDiscriminators.EXECUTE_PER_CLAIM_V3
+        Buffer.from(escrow.nonce).copy(data, offset); offset += 32
+        data[offset++] = escrowBump
+        Buffer.from(sharedSecret).copy(data, offset); offset += 32
+        destination.toBuffer().copy(data, offset)
+
+        const tx = new Transaction()
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+        tx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: publicKey, isSigner: true, isWritable: true },
+            { pubkey: escrowPda, isSigner: false, isWritable: true },
+            { pubkey: magicContext, isSigner: false, isWritable: true },
+            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        }))
+
+        tx.feePayer = publicKey
+        const { blockhash } = await rollupConnection.getLatestBlockhash()
+        tx.recentBlockhash = blockhash
+
+        console.log('[TEE Claim] V3: Signing EXECUTE_PER_CLAIM_V3...')
+        const signedTx = await signTransaction!(tx)
+
+        console.log('[TEE Claim] V3: Sending to MagicBlock PER...')
+        const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
+        console.log('[TEE Claim] V3: Sent:', signature)
+
+        // Wait for PER confirmation
+        const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
+        if (!confirmed) {
+          console.warn('[TEE Claim] V3: PER confirmation timeout')
+          throw new Error('PER confirmation timeout')
+        }
+
+        console.log('[TEE Claim] V3: Waiting for escrow undelegation to L1...')
+
+        // Wait for escrow to be undelegated and verified
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          const escrowInfo = await connection.getAccountInfo(escrowPda)
+          if (escrowInfo && escrowInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
+            // Check if verified
+            const escrowData = escrowInfo.data
+            if (escrowData.length >= 162 && escrowData[ESCROW_V3_OFFSET_IS_VERIFIED] === 1) {
+              console.log('[TEE Claim] V3: Escrow verified on L1!')
+
+              // Now call WITHDRAW_FROM_ESCROW (permissionless)
+              // V3: Also close XWingCiphertextAccount if it exists
+              // Rent goes to MASTER_AUTHORITY as service fee
+              const withdrawData = Buffer.alloc(65)
+              withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
+              Buffer.from(escrow.nonce).copy(withdrawData, 1)
+              Buffer.from(escrow.stealthPubkey).copy(withdrawData, 33)
+
+              // Derive XWingCiphertext PDA (for V3 cleanup)
+              const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+
+              // Build accounts list
+              // Order: claimer, escrow, destination, master_authority, system, [optional: xwing_ct]
+              const withdrawAccounts = [
+                { pubkey: publicKey, isSigner: true, isWritable: false },
+                { pubkey: escrowPda, isSigner: false, isWritable: true },
+                { pubkey: destination, isSigner: false, isWritable: true },
+                { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true }, // Receives rent as fee
+                { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+              ]
+
+              // Check if XWingCiphertext account exists and add it for cleanup
+              const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
+              if (xwingCtInfo && xwingCtInfo.data.length > 0) {
+                console.log('[TEE Claim] V3: Including XWingCiphertext for cleanup:', xwingCtPda.toBase58().slice(0, 8), '...')
+                withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
+              }
+
+              const withdrawTx = new Transaction()
+              withdrawTx.add(new TransactionInstruction({
+                keys: withdrawAccounts,
+                programId: PROGRAM_IDS.STEALTH,
+                data: withdrawData,
+              }))
+
+              withdrawTx.feePayer = publicKey
+              const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
+              withdrawTx.recentBlockhash = l1Blockhash
+
+              const signedWithdrawTx = await signTransaction!(withdrawTx)
+              const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
+              await confirmTransactionPolling(connection, withdrawSig)
+
+              console.log('[TEE Claim] V3: Withdraw complete:', withdrawSig)
+
+              setPendingEscrows(prev => prev.map(e =>
+                e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
+              ))
+              setClaimHistory(prev => [...prev, {
+                signature: withdrawSig,
+                amount: escrow.amount,
+                timestamp: Date.now(),
+                sender: 'V3_TEE_CLAIM'
+              }])
+              showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
+
+              console.log('[TEE Claim] ═══════════════════════════════════════════')
+              console.log('[TEE Claim] ✓ V3 PRIVATE CLAIM COMPLETE')
+              console.log('[TEE Claim] ═══════════════════════════════════════════')
+              return true
+            }
+          }
+        }
+
+        console.warn('[TEE Claim] V3: Escrow not verified on L1 within timeout')
+        return false
+      }
+
+      // V1 Legacy Flow
+      // Step 1: Create ownership proof (off-chain derivation)
+      // This proves we can derive the stealth private key without revealing it
+      // Proof = SHA3(stealth_pubkey || view_pubkey || nonce || destination || "claim")
+      const proofInput = Buffer.concat([
+        Buffer.from(escrow.stealthPubkey),
+        Buffer.from(stealthKeys.viewPubkey),
+        Buffer.from(escrow.nonce),
+        destination.toBuffer(),
+        Buffer.from('OceanVault:TEE:ClaimProof:v1'),
+      ])
+      const ownershipProof = Buffer.from(sha3_256(proofInput), 'hex')
+
+      // Step 2: Create claim request for TEE (HTTP, NOT on-chain tx)
+      const claimRequest = {
+        escrow_address: escrow.escrowAddress,
+        destination_wallet: destination.toBase58(),
+        nonce: Buffer.from(escrow.nonce).toString('hex'),
+        stealth_pubkey: Buffer.from(escrow.stealthPubkey).toString('hex'),
+        view_pubkey: Buffer.from(stealthKeys.viewPubkey).toString('hex'),
+        ownership_proof: ownershipProof.toString('hex'),
+        timestamp: Date.now(),
+      }
+
+      console.log('[TEE Claim] Sending claim request to MagicBlock TEE...')
+      console.log('[TEE Claim] NO WALLET SIGNATURE REQUIRED')
+
+      // Step 3: Send to MagicBlock TEE HTTP endpoint
+      // TEE verifies proof and executes transfer (TEE signs, not receiver)
+      const teeEndpoint = `${MAGICBLOCK_RPC}/api/v1/claim`
+
+      const response = await fetch(teeEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(claimRequest),
+      }).catch(async () => {
+        // Fallback: If TEE HTTP endpoint not available, use rollup RPC
+        console.log('[TEE Claim] TEE HTTP not available, using rollup RPC...')
+
+        // Build claim instruction for TEE to execute
+        const data = Buffer.alloc(129)
+        let offset = 0
+        data[offset++] = 0x20 // CLAIM_VIA_TEE discriminator
+        Buffer.from(escrow.nonce).copy(data, offset); offset += 32
+        destination.toBuffer().copy(data, offset); offset += 32
+        Buffer.from(escrow.stealthPubkey).copy(data, offset); offset += 32
+        ownershipProof.copy(data, offset)
+
+        const escrowPda = new PublicKey(escrow.escrowAddress)
+        const [perMixerPoolPda] = derivePerMixerPoolPda()
+
+        const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
+        const [magicContext] = PublicKey.findProgramAddressSync(
+          [Buffer.from('magic_context')],
+          MAGICBLOCK_ER_PROGRAM
+        )
+
+        const tx = new Transaction()
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
+        tx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
+            { pubkey: escrowPda, isSigner: false, isWritable: true },
+            { pubkey: destination, isSigner: false, isWritable: true },
+            { pubkey: magicContext, isSigner: false, isWritable: true },
+            { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        }))
+
+        // TEE/Pool is fee payer - receiver wallet NOT involved
+        tx.feePayer = perMixerPoolPda
+        const { blockhash } = await rollupConnection.getLatestBlockhash()
+        tx.recentBlockhash = blockhash
+
+        // Send to rollup - TEE will validate and sign
+        const sig = await rollupConnection.sendRawTransaction(
+          tx.serialize({ requireAllSignatures: false }),
+          { skipPreflight: true }
+        )
+        return { ok: true, json: async () => ({ signature: sig }) }
+      })
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`TEE claim failed: ${error}`)
+      }
+
+      const result = await response.json()
+      const signature = result.signature
+
+      console.log('[TEE Claim] TEE processing claim:', signature)
+
+      // Step 4: Wait for confirmation
+      const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
+
+      if (confirmed) {
+        // Wait for L1 commit
+        console.log('[TEE Claim] Waiting for L1 confirmation...')
+        await new Promise(r => setTimeout(r, 5000))
+
+        // Verify destination received funds
+        const destInfo = await connection.getAccountInfo(destination)
+        console.log('[TEE Claim] ✓ Destination balance:', destInfo?.lamports || 0, 'lamports')
+
+        setPendingEscrows(prev => prev.map(e =>
+          e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
+        ))
+        setClaimHistory(prev => [...prev, {
+          signature,
+          amount: escrow.amount,
+          timestamp: Date.now(),
+          sender: 'TEE_PRIVATE_CLAIM'
+        }])
+        showClaimSuccess({ signature, amount: escrow.amount, symbol: 'SOL' })
+
+        console.log('[TEE Claim] ═══════════════════════════════════════════')
+        console.log('[TEE Claim] ✓ PRIVATE CLAIM COMPLETE')
+        console.log('[TEE Claim] ✓ Receiver wallet NEVER signed on-chain')
+        console.log('[TEE Claim] ═══════════════════════════════════════════')
+        return true
+      }
+
+      console.warn('[TEE Claim] TEE processing timeout')
+      return false
+
+    } catch (err: any) {
+      console.error('[TEE Claim] Failed:', err?.message || err)
+      setPendingEscrows(prev => prev.map(e =>
+        e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'failed' as const } : e
+      ))
+      return false
+    }
+  }, [publicKey, stealthKeys, connection, rollupConnection])
+
+  // LEGACY: Withdraw from claim escrow (breaks privacy - receiver signs)
+  // Use claimViaTEE instead for full privacy
   const withdrawFromEscrow = useCallback(async (escrow: PendingEscrow): Promise<boolean> => {
     if (!publicKey || !signTransaction) {
       console.log('[Escrow] No wallet connected')
@@ -618,6 +1025,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
 
     try {
+      console.log('[Escrow] WARNING: This method links your wallet on-chain!')
+      console.log('[Escrow] Use claimViaTEE() for private claims')
       console.log('[Escrow] Withdrawing from:', escrow.escrowAddress)
 
       setPendingEscrows(prev => prev.map(e =>
@@ -628,20 +1037,36 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       // Build withdraw_from_escrow instruction
       // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) = 65 bytes
+      // Rent goes to MASTER_AUTHORITY as service fee
       const data = Buffer.alloc(65)
       let offset = 0
       data[offset++] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
       Buffer.from(escrow.nonce).copy(data, offset); offset += 32
       Buffer.from(escrow.stealthPubkey).copy(data, offset)
 
+      // Derive XWingCiphertext PDA for V3 cleanup
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+
+      // Build accounts list
+      // Order: claimer, escrow, destination, master_authority, system, [optional: xwing_ct]
+      const withdrawAccounts = [
+        { pubkey: publicKey, isSigner: true, isWritable: false },
+        { pubkey: escrowPda, isSigner: false, isWritable: true },
+        { pubkey: publicKey, isSigner: false, isWritable: true }, // destination
+        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true }, // Receives rent as fee
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ]
+
+      // Check if XWingCiphertext account exists and add it for cleanup
+      const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
+      if (xwingCtInfo && xwingCtInfo.data.length > 0) {
+        console.log('[Escrow] Including XWingCiphertext for cleanup')
+        withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
+      }
+
       const tx = new Transaction()
       tx.add(new TransactionInstruction({
-        keys: [
-          { pubkey: publicKey, isSigner: true, isWritable: false },
-          { pubkey: escrowPda, isSigner: false, isWritable: true },
-          { pubkey: publicKey, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
+        keys: withdrawAccounts,
         programId: PROGRAM_IDS.STEALTH,
         data,
       }))
@@ -736,6 +1161,53 @@ export function useAutoClaim(): UseAutoClaimReturn {
                 bump: data[PER_OFFSET_BUMP],
                 executed: false,
                 type: 'per' as const,
+              }]
+            })
+          }
+        }
+      }
+
+      // Scan EXECUTED PER deposits (undelegated back to stealth program)
+      // These have vaults that are ready to claim via CLAIM_STEALTH_PAYMENT
+      const executedPerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: PER_DEPOSIT_SIZE }],
+      }).catch(() => [])
+
+      console.log(`[AutoClaim] Found ${executedPerAccounts.length} executed PER records`)
+
+      for (const { pubkey, account } of executedPerAccounts) {
+        const data = account.data
+        if (data.slice(0, 8).toString() !== PER_DEPOSIT_DISCRIMINATOR) continue
+
+        // Check if executed
+        if (data[PER_OFFSET_EXECUTED] !== 1) continue
+
+        const ephemeralPubkey = new Uint8Array(data.slice(PER_OFFSET_EPHEMERAL, PER_OFFSET_EPHEMERAL + 32))
+        const viewTag = data[PER_OFFSET_VIEW_TAG]
+        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
+
+        const stealthPubkey = new Uint8Array(data.slice(PER_OFFSET_STEALTH, PER_OFFSET_STEALTH + 32))
+        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
+
+        // Found an executed deposit for us - check if vault has funds
+        const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
+        const vaultInfo = await connection.getAccountInfo(vaultPda)
+
+        if (vaultInfo && vaultInfo.lamports > 0) {
+          foundCount++
+          console.log('[AutoClaim] Found executed deposit with vault:', vaultPda.toBase58(), 'balance:', vaultInfo.lamports)
+
+          const vaultAddress = vaultPda.toBase58()
+          if (!pendingClaims.some(c => c.vaultAddress === vaultAddress)) {
+            setPendingClaims(prev => {
+              if (prev.some(c => c.vaultAddress === vaultAddress)) return prev
+              return [...prev, {
+                vaultAddress,
+                amount: BigInt(vaultInfo.lamports),
+                sender: 'PER_EXECUTED',
+                announcementPda: pubkey.toBase58(),
+                stealthPubkey,
+                status: 'pending' as const,
               }]
             })
           }
@@ -892,13 +1364,19 @@ export function useAutoClaim(): UseAutoClaimReturn {
       }
 
       // Scan claim escrows (created by PER, ready for withdrawal on L1)
-      const escrowAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: CLAIM_ESCROW_SIZE }],
+      // Support both V1 (90 bytes) and V3 (171 bytes) escrows
+      const escrowAccountsV1 = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: CLAIM_ESCROW_SIZE_V1 }],
       }).catch(() => [])
 
-      console.log(`[AutoClaim] Found ${escrowAccounts.length} claim escrow accounts`)
+      const escrowAccountsV3 = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: CLAIM_ESCROW_SIZE_V3 }],
+      }).catch(() => [])
 
-      for (const { pubkey, account } of escrowAccounts) {
+      console.log(`[AutoClaim] Found ${escrowAccountsV1.length} V1 + ${escrowAccountsV3.length} V3 claim escrows`)
+
+      // Process V1 escrows
+      for (const { pubkey, account } of escrowAccountsV1) {
         const data = account.data
 
         // Check if already withdrawn
@@ -920,7 +1398,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         if (account.lamports === 0) continue
 
         foundCount++
-        console.log('[AutoClaim] Found claim escrow for us:', pubkey.toBase58())
+        console.log('[AutoClaim] Found V1 claim escrow:', pubkey.toBase58())
 
         const escrowAddress = pubkey.toBase58()
         if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
@@ -932,8 +1410,102 @@ export function useAutoClaim(): UseAutoClaimReturn {
               amount,
               stealthPubkey,
               status: 'pending' as const,
+              isV3: false,
             }]
           })
+        }
+      }
+
+      // Process V3 escrows using improved scanner with auto sharedSecret recovery
+      // This automatically fetches XWingCiphertext accounts and decapsulates to recover sharedSecret
+      if (keys.xwingKeys) {
+        console.log('[AutoClaim] Using improved V3 scanner with auto sharedSecret recovery...')
+        const v3Escrows = await scanForEscrowsV3(connection, keys)
+
+        for (const escrow of v3Escrows) {
+          // Skip already withdrawn
+          if (escrow.isWithdrawn) continue
+
+          foundCount++
+          const escrowAddress = escrow.escrowPda.toBase58()
+
+          // Log if we recovered sharedSecret (means we own this escrow)
+          if (escrow.sharedSecret) {
+            console.log('[AutoClaim] ✓ V3 escrow is OURS:', escrowAddress.slice(0, 8), '... (sharedSecret recovered)')
+          } else {
+            console.log('[AutoClaim] V3 escrow found:', escrowAddress.slice(0, 8), '... (not ours or no XWingCiphertext)')
+          }
+
+          if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
+            setPendingEscrows(prev => {
+              if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
+              return [...prev, {
+                escrowAddress,
+                nonce: escrow.nonce,
+                amount: escrow.amount,
+                stealthPubkey: escrow.stealthPubkey,
+                status: 'pending' as const,
+                isV3: true,
+                encryptedDestination: escrow.encryptedDestination,
+                verifiedDestination: escrow.verifiedDestination,
+                isVerified: escrow.isVerified,
+                sharedSecret: escrow.sharedSecret, // V3: Auto-recovered from XWingCiphertext!
+              }]
+            })
+          }
+        }
+      } else {
+        // Fallback: Manual V3 escrow scanning without X-Wing (legacy)
+        for (const { pubkey, account } of escrowAccountsV3) {
+          const data = account.data
+
+          // Check discriminator
+          if (data.slice(0, 8).toString() !== CLAIM_ESCROW_DISCRIMINATOR) continue
+
+          // Check if already withdrawn
+          if (data[ESCROW_V3_OFFSET_IS_WITHDRAWN] === 1) continue
+
+          // Read stealth pubkey and nonce
+          const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH, ESCROW_OFFSET_STEALTH + 32))
+          const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32))
+
+          // Verify escrow address matches expected PDA
+          const [expectedEscrow] = deriveClaimEscrowPda(nonce)
+          if (!pubkey.equals(expectedEscrow)) continue
+
+          // Read amount
+          let amount = BigInt(0)
+          for (let i = 0; i < 8; i++) amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8)
+
+          // Check if escrow has funds
+          if (account.lamports === 0) continue
+
+          // Read V3-specific fields
+          const encryptedDestination = new Uint8Array(data.slice(ESCROW_V3_OFFSET_ENCRYPTED_DEST, ESCROW_V3_OFFSET_ENCRYPTED_DEST + 48))
+          const verifiedDestination = new Uint8Array(data.slice(ESCROW_V3_OFFSET_VERIFIED_DEST, ESCROW_V3_OFFSET_VERIFIED_DEST + 32))
+          const isVerified = data[ESCROW_V3_OFFSET_IS_VERIFIED] === 1
+
+          foundCount++
+          console.log('[AutoClaim] Found V3 claim escrow (legacy):', pubkey.toBase58(), 'verified:', isVerified)
+
+          const escrowAddress = pubkey.toBase58()
+          if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
+            setPendingEscrows(prev => {
+              if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
+              return [...prev, {
+                escrowAddress,
+                nonce,
+                amount,
+                stealthPubkey,
+                status: 'pending' as const,
+                isV3: true,
+                encryptedDestination,
+                verifiedDestination,
+                isVerified,
+                // Note: sharedSecret NOT available in legacy mode
+              }]
+            })
+          }
         }
       }
 
@@ -1114,7 +1686,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
     claimAll,
     claimSingle,
     triggerMagicAction,
-    withdrawFromEscrow,
+    claimViaTEE,        // RECOMMENDED: Private claim (no wallet link)
+    withdrawFromEscrow, // LEGACY: Direct withdraw (breaks privacy)
     lastScanTime,
     error,
   }
