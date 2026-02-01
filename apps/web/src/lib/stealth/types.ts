@@ -90,6 +90,11 @@ export interface SendResult extends TransactionResult {
   perDepositPda?: PublicKey;
   escrowPda?: PublicKey;
   delegated?: boolean; // true if delegated to MagicBlock TEE
+  // V3 additions (encrypted destination)
+  sharedSecret?: Uint8Array; // For receiver to claim (share securely off-chain)
+  isV3?: boolean; // true if using V3 flow
+  // V4 TRUE PRIVACY additions
+  isV4?: boolean; // true if using V4 TRUE PRIVACY flow (maximum privacy)
 }
 
 // Token info
