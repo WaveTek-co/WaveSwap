@@ -747,15 +747,24 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.log('[TEE Claim] V4: Shared secret verified locally')
 
       // =====================================================
-      // STEP 0: POOL_TO_ESCROW_V4 - Fund escrow from pool (if needed)
+      // STEP 0: POOL_TO_ESCROW_V4 - Fund escrow from pool (ALWAYS for V4!)
       // =====================================================
       // V4 architecture: complete_v4_deposit sends funds to POOL, not escrow
-      // We need to call POOL_TO_ESCROW_V4 to move funds POOL→ESCROW
+      // The escrow only has RENT, the actual amount is in the pool
+      // We MUST call POOL_TO_ESCROW_V4 on MagicBlock PER to move funds POOL→ESCROW
       // This breaks the sender→escrow on-chain link (sender NOT in this TX)
       const escrowPda = new PublicKey(escrow.escrowAddress)
-      const escrowInfo = await connection.getAccountInfo(escrowPda)
+
+      // Check escrow state on PER (not L1!) - escrow is delegated
+      const escrowInfoPER = await rollupConnection.getAccountInfo(escrowPda).catch(() => null)
       const escrowRent = 2039280 // Rent for 171-byte ClaimEscrow
-      const needsFunding = escrowInfo && escrowInfo.lamports < Number(escrow.amount) + escrowRent
+      // V4 escrows have only rent initially - funds are in pool
+      // Need funding if: no info on PER, or lamports < amount + rent
+      const needsFunding = !escrowInfoPER || escrowInfoPER.lamports < Number(escrow.amount) + escrowRent
+
+      console.log('[TEE Claim] V4: Escrow state on PER:', escrowInfoPER ? escrowInfoPER.lamports : 'null', 'lamports')
+      console.log('[TEE Claim] V4: Expected:', Number(escrow.amount) + escrowRent, 'lamports')
+      console.log('[TEE Claim] V4: Needs funding:', needsFunding)
 
       if (needsFunding) {
         console.log('[TEE Claim] V4: Escrow needs funding from pool')
