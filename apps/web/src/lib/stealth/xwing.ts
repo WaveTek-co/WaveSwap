@@ -8,7 +8,7 @@
 //
 // This binds X-Wing identity directly to the user's wallet key
 
-import { ml_kem768 } from "@noble/post-quantum/ml-kem";
+import { ml_kem768 } from "@noble/post-quantum";
 import { x25519, ed25519 } from "@noble/curves/ed25519";
 import { sha3_256 } from "js-sha3";
 import { sha512 } from "@noble/hashes/sha512";
