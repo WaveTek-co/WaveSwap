@@ -90,8 +90,10 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
     startScanning,
     lastScanTime,
     error: autoClaimError,
-    withdrawFromEscrow,
+    claimViaTEE,        // PRIVATE: TEE transfers to wallet (no on-chain link)
+    withdrawFromEscrow, // LEGACY: Direct withdraw (breaks privacy)
     triggerMagicAction,
+    claimSingle,        // Claim from vault using stealthPubkey
   } = useAutoClaim()
 
   const [selectedToken, setSelectedToken] = useState<string>('sol')
@@ -632,24 +634,46 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                       {(Number(claim.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
                   </div>
-                  <div
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium"
-                    style={{
-                      background: claim.status === 'claimed' ? `${theme.colors.success}20` :
-                                  claim.status === 'claiming' ? `${theme.colors.info}20` :
-                                  claim.status === 'failed' ? `${theme.colors.error}20` :
-                                  `${theme.colors.warning}20`,
-                      color: claim.status === 'claimed' ? theme.colors.success :
-                             claim.status === 'claiming' ? theme.colors.info :
-                             claim.status === 'failed' ? theme.colors.error :
-                             theme.colors.warning
-                    }}
-                  >
-                    {claim.status === 'claimed' ? 'Claimed' :
-                     claim.status === 'claiming' ? 'Claiming...' :
-                     claim.status === 'failed' ? 'Failed' :
-                     'Claiming...'}
-                  </div>
+                  {claim.status === 'pending' ? (
+                    <button
+                      onClick={async () => {
+                        try {
+                          toast.info('Claiming payment...')
+                          const success = await claimSingle(claim.vaultAddress)
+                          if (success) {
+                            toast.success('Claim successful!')
+                          } else {
+                            toast.error('Claim failed')
+                          }
+                        } catch (err) {
+                          toast.error('Error claiming payment')
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+                      style={{
+                        background: theme.colors.success,
+                        color: '#000'
+                      }}
+                    >
+                      Claim
+                    </button>
+                  ) : (
+                    <div
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium"
+                      style={{
+                        background: claim.status === 'claimed' ? `${theme.colors.success}20` :
+                                    claim.status === 'claiming' ? `${theme.colors.info}20` :
+                                    `${theme.colors.error}20`,
+                        color: claim.status === 'claimed' ? theme.colors.success :
+                               claim.status === 'claiming' ? theme.colors.info :
+                               theme.colors.error
+                      }}
+                    >
+                      {claim.status === 'claimed' ? 'Claimed' :
+                       claim.status === 'claiming' ? 'Claiming...' :
+                       'Failed'}
+                    </div>
+                  )}
                 </div>
               ))}
               {pendingClaims.length > 3 && (

@@ -98,7 +98,7 @@ export interface UseWaveSendReturn {
     tokenMint?: string
   }) => Promise<SendResult>
   checkRecipientRegistered: (address: string) => Promise<boolean>
-  claimByVault: (vaultAddress: string) => Promise<{ success: boolean; signature?: string; error?: string }>
+  claimByVault: (vaultAddress: string, stealthPubkey: Uint8Array) => Promise<{ success: boolean; signature?: string; error?: string }>
 
   // Utilities
   clearError: () => void
@@ -392,17 +392,22 @@ export function useWaveSend(): UseWaveSendReturn {
   }, [])
 
   // Claim by vault address (manual claim)
+  // IMPORTANT: stealthPubkey is required for on-chain vault PDA verification
   const claimByVault = useCallback(
-    async (vaultAddress: string): Promise<{ success: boolean; signature?: string; error?: string }> => {
+    async (vaultAddress: string, stealthPubkey: Uint8Array): Promise<{ success: boolean; signature?: string; error?: string }> => {
       if (!walletAdapter) {
         return { success: false, error: 'Wallet not connected' }
+      }
+
+      if (!stealthPubkey || stealthPubkey.length !== 32) {
+        return { success: false, error: 'Invalid stealth pubkey - must be 32 bytes' }
       }
 
       setIsLoading(true)
       setError(null)
 
       try {
-        const result = await client.claimByVaultAddress(walletAdapter, vaultAddress)
+        const result = await client.claimByVaultAddress(walletAdapter, vaultAddress, stealthPubkey)
         console.log('[WaveSend] claim result:', result)
 
         if (!result.success) {
