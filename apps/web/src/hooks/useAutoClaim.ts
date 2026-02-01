@@ -22,7 +22,7 @@ import {
   decryptDestinationWallet,
   deriveStealthPubkeyFromSharedSecret,
 } from '@/lib/stealth'
-import { isPaymentForUs, checkViewTag, scanForEscrowsV3, DetectedEscrowV3 } from '@/lib/stealth/scanner'
+import { scanForEscrowsV4, DetectedEscrowV4 } from '@/lib/stealth/scanner'
 import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
 // PER deposit record constants (Magic Actions - delegated to MagicBlock)
@@ -1418,25 +1418,25 @@ export function useAutoClaim(): UseAutoClaimReturn {
         }
       }
 
-      // Process V3 escrows using improved scanner with auto sharedSecret recovery
-      // This automatically fetches XWingCiphertext accounts and decapsulates to recover sharedSecret
+      // V4 TRUE PRIVACY SCANNER
+      // Uses X-Wing decapsulation to identify our escrows
+      // ONLY includes escrows that belong to us (isOurs === true)
       if (keys.xwingKeys) {
-        console.log('[AutoClaim] Using improved V3 scanner with auto sharedSecret recovery...')
-        const v3Escrows = await scanForEscrowsV3(connection, keys)
+        console.log('[AutoClaim] ═══════════════════════════════════════════════════')
+        console.log('[AutoClaim] V4 TRUE PRIVACY SCANNER')
+        console.log('[AutoClaim] ═══════════════════════════════════════════════════')
 
-        for (const escrow of v3Escrows) {
-          // Skip already withdrawn
-          if (escrow.isWithdrawn) continue
+        const v4Escrows = await scanForEscrowsV4(connection, keys)
 
+        // Only process escrows that belong to us
+        const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
+        console.log(`[AutoClaim] Found ${ourEscrows.length} escrows belonging to us`)
+
+        for (const escrow of ourEscrows) {
           foundCount++
           const escrowAddress = escrow.escrowPda.toBase58()
 
-          // Log if we recovered sharedSecret (means we own this escrow)
-          if (escrow.sharedSecret) {
-            console.log('[AutoClaim] ✓ V3 escrow is OURS:', escrowAddress.slice(0, 8), '... (sharedSecret recovered)')
-          } else {
-            console.log('[AutoClaim] V3 escrow found:', escrowAddress.slice(0, 8), '... (not ours or no XWingCiphertext)')
-          }
+          console.log(`[AutoClaim] ✓ OUR ESCROW: ${escrowAddress.slice(0, 8)}... (${Number(escrow.amount) / 1e9} SOL)`)
 
           if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
             setPendingEscrows(prev => {
@@ -1447,15 +1447,17 @@ export function useAutoClaim(): UseAutoClaimReturn {
                 amount: escrow.amount,
                 stealthPubkey: escrow.stealthPubkey,
                 status: 'pending' as const,
-                isV3: true,
+                isV3: true, // V4 uses same escrow structure as V3
                 encryptedDestination: escrow.encryptedDestination,
                 verifiedDestination: escrow.verifiedDestination,
                 isVerified: escrow.isVerified,
-                sharedSecret: escrow.sharedSecret, // V3: Auto-recovered from XWingCiphertext!
+                sharedSecret: escrow.sharedSecret, // V4: Auto-recovered from XWingCiphertext!
               }]
             })
           }
         }
+
+        console.log('[AutoClaim] ═══════════════════════════════════════════════════')
       } else {
         // Fallback: Manual V3 escrow scanning without X-Wing (legacy)
         for (const { pubkey, account } of escrowAccountsV3) {

@@ -105,17 +105,21 @@ export type {
 
 export {
   StealthScanner,
+  // V4 TRUE PRIVACY Scanner (primary)
+  scanForEscrowsV4,
+  isEscrowForUs,
+  verifyStealthPubkey,
+  // Legacy aliases for backwards compatibility
+  scanForEscrowsV3,
+  isEscrowForUsV3,
+  verifyStealthPubkeyV3,
+  checkViewTagV3,
   isPaymentForUs,
   isPaymentForUsXWing,
   isPaymentForUsUniversal,
   deriveStealthFromEphemeral,
-  // V3 escrow scanning
-  checkViewTagV3,
-  verifyStealthPubkeyV3,
-  isEscrowForUsV3,
-  scanForEscrowsV3,
 } from "./scanner";
-export type { DetectedPayment, ScannerConfig, DetectedEscrowV3 } from "./scanner";
+export type { DetectedPayment, ScannerConfig, DetectedEscrowV4, DetectedEscrowV3 } from "./scanner";
 
 // PER Privacy Integration - Full privacy flow with MagicBlock
 export { PERPrivacyClient, MAGICBLOCK_RPC_DEVNET, MAGICBLOCK_TEE_PUBKEY } from "./per-privacy";

@@ -205,16 +205,32 @@ export function xwingEncapsulate(recipientPk: XWingPublicKey): XWingEncapsulatio
 }
 
 // X-Wing decapsulation (recipient side)
+// Returns shared secret if decapsulation succeeds
+// Throws on invalid input (wrong key sizes, corrupted ciphertext)
 export function xwingDecapsulate(
   secretKey: XWingSecretKey,
   ciphertext: Uint8Array
 ): Uint8Array {
+  // Validate ciphertext size
   if (ciphertext.length < XWING_CIPHERTEXT_SIZE) {
-    throw new Error(`Invalid ciphertext size: ${ciphertext.length}`);
+    throw new Error(`Invalid ciphertext size: ${ciphertext.length}, expected ${XWING_CIPHERTEXT_SIZE}`);
+  }
+
+  // Validate secret key sizes
+  if (!secretKey.mlkem || secretKey.mlkem.length !== MLKEM768_SECRET_KEY_SIZE) {
+    throw new Error(`Invalid ML-KEM secret key size: ${secretKey.mlkem?.length}, expected ${MLKEM768_SECRET_KEY_SIZE}`);
+  }
+  if (!secretKey.x25519 || secretKey.x25519.length !== X25519_KEY_SIZE) {
+    throw new Error(`Invalid X25519 secret key size: ${secretKey.x25519?.length}, expected ${X25519_KEY_SIZE}`);
   }
 
   const mlkemCt = ciphertext.slice(0, MLKEM768_CIPHERTEXT_SIZE);
   const ephPk = ciphertext.slice(MLKEM768_CIPHERTEXT_SIZE, XWING_CIPHERTEXT_SIZE);
+
+  // Validate ephemeral public key size
+  if (ephPk.length !== X25519_KEY_SIZE) {
+    throw new Error(`Invalid ephemeral public key size: ${ephPk.length}, expected ${X25519_KEY_SIZE}`);
+  }
 
   // ML-KEM decapsulation
   const mlkemSs = ml_kem768.decapsulate(mlkemCt, secretKey.mlkem);
