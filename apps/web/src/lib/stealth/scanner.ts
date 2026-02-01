@@ -17,12 +17,15 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha256";
 import { sha3_256 } from "js-sha3";
 import { ed25519 } from "@noble/curves/ed25519";
-import { PROGRAM_IDS, deriveClaimEscrowPda, deriveXWingCiphertextPda } from "./config";
+import { PROGRAM_IDS, deriveClaimEscrowPda, deriveXWingCiphertextPda, MAGICBLOCK_PER } from "./config";
 import {
   StealthKeyPair,
   xwingDecapsulate,
   deriveStealthPubkeyFromSharedSecret as cryptoDeriveStealthPubkey,
 } from "./crypto";
+
+// MagicBlock PER RPC endpoint - delegated accounts live here, not L1
+const MAGICBLOCK_RPC = MAGICBLOCK_PER.ER_ENDPOINT;
 
 // Re-export from crypto for backwards compatibility
 export { cryptoDeriveStealthPubkey as deriveStealthPubkeyFromSharedSecret };
@@ -163,43 +166,6 @@ export function isEscrowForUs(
 // V4 SCANNER
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Fetch XWingCiphertext account for a given escrow PDA
- * Returns the 1120-byte ciphertext if account exists, undefined otherwise
- */
-async function fetchXWingCiphertext(
-  connection: Connection,
-  escrowPda: PublicKey
-): Promise<Uint8Array | undefined> {
-  try {
-    const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
-    const accountInfo = await connection.getAccountInfo(xwingCtPda);
-
-    if (!accountInfo || accountInfo.data.length < XWING_CT_SIZE) {
-      return undefined;
-    }
-
-    // Verify discriminator
-    const discriminator = Buffer.from(accountInfo.data.slice(0, 8)).toString();
-    if (discriminator !== XWING_CT_DISCRIMINATOR) {
-      return undefined;
-    }
-
-    // Verify escrow_pda backlink matches
-    const storedEscrowPda = new PublicKey(accountInfo.data.slice(XWING_CT_OFFSET_ESCROW_PDA, XWING_CT_OFFSET_ESCROW_PDA + 32));
-    if (!storedEscrowPda.equals(escrowPda)) {
-      console.warn(`[V4 Scanner] XWingCiphertext escrow_pda mismatch`);
-      return undefined;
-    }
-
-    // Extract ciphertext (1120 bytes starting at offset 40)
-    const ciphertext = new Uint8Array(accountInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH));
-    return ciphertext;
-  } catch (err) {
-    console.warn("[V4 Scanner] Failed to fetch XWingCiphertext:", err);
-    return undefined;
-  }
-}
 
 /**
  * V4 TRUE PRIVACY SCANNER
@@ -219,6 +185,50 @@ async function fetchXWingCiphertext(
 // Delegation program ID (accounts delegated to MagicBlock PER)
 const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 
+/**
+ * Fetch XWingCiphertext from MagicBlock PER (delegated accounts)
+ * Falls back to L1 if not found on PER
+ */
+async function fetchXWingCiphertextFromPER(
+  l1Connection: Connection,
+  perConnection: Connection,
+  escrowPda: PublicKey
+): Promise<Uint8Array | undefined> {
+  try {
+    const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+
+    // Try MagicBlock PER first (delegated accounts live there)
+    let accountInfo = await perConnection.getAccountInfo(xwingCtPda);
+
+    // Fall back to L1 if not on PER
+    if (!accountInfo) {
+      accountInfo = await l1Connection.getAccountInfo(xwingCtPda);
+    }
+
+    if (!accountInfo || accountInfo.data.length < XWING_CT_SIZE) {
+      return undefined;
+    }
+
+    // Verify discriminator
+    const discriminator = Buffer.from(accountInfo.data.slice(0, 8)).toString();
+    if (discriminator !== XWING_CT_DISCRIMINATOR) {
+      return undefined;
+    }
+
+    // Verify escrow_pda backlink matches
+    const storedEscrowPda = new PublicKey(accountInfo.data.slice(XWING_CT_OFFSET_ESCROW_PDA, XWING_CT_OFFSET_ESCROW_PDA + 32));
+    if (!storedEscrowPda.equals(escrowPda)) {
+      return undefined;
+    }
+
+    // Extract ciphertext (1120 bytes starting at offset 40)
+    const ciphertext = new Uint8Array(accountInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH));
+    return ciphertext;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function scanForEscrowsV4(
   connection: Connection,
   keys: StealthKeyPair
@@ -226,15 +236,42 @@ export async function scanForEscrowsV4(
   const escrows: DetectedEscrowV4[] = [];
 
   try {
-    // Fetch L1 + delegated ClaimEscrow accounts
-    const [l1Accounts, delegatedAccounts] = await Promise.all([
+    // Create MagicBlock PER connection for delegated accounts
+    const perConnection = new Connection(MAGICBLOCK_RPC, "confirmed");
+
+    // Fetch from L1 (stealth + delegation program) AND MagicBlock PER
+    const [l1StealthAccounts, l1DelegatedAccounts, perAccounts] = await Promise.all([
       connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
       connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
+      // Query MagicBlock PER for delegated escrows (stealth program owns them on PER)
+      perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }).catch(() => []),
     ]);
-    const accounts = [...l1Accounts, ...delegatedAccounts];
+
+    // Deduplicate by pubkey (same escrow might appear in multiple sources)
+    const seenPubkeys = new Set<string>();
+    const allAccounts: { pubkey: PublicKey; account: { data: Buffer; lamports: number }; source: string }[] = [];
+
+    for (const { pubkey, account } of l1StealthAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'l1-stealth' });
+      }
+    }
+    for (const { pubkey, account } of l1DelegatedAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'l1-delegation' });
+      }
+    }
+    for (const { pubkey, account } of perAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'magicblock-per' });
+      }
+    }
 
     let oursCount = 0;
-    for (const { pubkey, account } of accounts) {
+    for (const { pubkey, account, source } of allAccounts) {
       const data = account.data;
 
       // Verify discriminator
@@ -244,9 +281,6 @@ export async function scanForEscrowsV4(
       // Check if already withdrawn
       const isWithdrawn = data[ESCROW_OFFSET_IS_WITHDRAWN] === 1;
       if (isWithdrawn) continue;
-
-      // Check if escrow has funds
-      if (account.lamports === 0) continue;
 
       // Read escrow fields
       const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32));
@@ -258,7 +292,6 @@ export async function scanForEscrowsV4(
       // Verify PDA derivation
       const [expectedPda] = deriveClaimEscrowPda(nonce);
       if (!pubkey.equals(expectedPda)) {
-        console.warn(`[V4 Scanner] PDA mismatch for ${pubkey.toBase58().slice(0, 8)}...`);
         continue;
       }
 
@@ -268,12 +301,12 @@ export async function scanForEscrowsV4(
         amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8);
       }
 
-      // Fetch XWingCiphertext account
+      // Fetch XWingCiphertext account (check PER first, then L1)
       let sharedSecret: Uint8Array | undefined;
       let isOurs = false;
 
       if (keys.xwingKeys) {
-        const xwingCiphertext = await fetchXWingCiphertext(connection, pubkey);
+        const xwingCiphertext = await fetchXWingCiphertextFromPER(connection, perConnection, pubkey);
         if (xwingCiphertext) {
           const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
           if (result.isOurs) {
@@ -297,7 +330,6 @@ export async function scanForEscrowsV4(
         isOurs,
       });
     }
-
 
     return escrows;
   } catch (err) {
