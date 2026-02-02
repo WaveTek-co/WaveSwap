@@ -50,6 +50,9 @@ import {
   deriveXWingCtBufferPda,
   deriveXWingCtDelegationRecordPda,
   deriveXWingCtDelegationMetadataPda,
+  deriveDepositRecordBufferPda,
+  deriveDepositRecordDelegationRecordPda,
+  deriveDepositRecordDelegationMetadataPda,
   TEE_VALIDATOR,
   NATIVE_SOL_MINT,
   RELAYER_CONFIG,
@@ -2301,6 +2304,10 @@ export class WaveStealthClient {
     const [xwingCtBuffer] = deriveXWingCtBufferPda(xwingCtPda);
     const [xwingCtDelegationRecord] = deriveXWingCtDelegationRecordPda(xwingCtPda);
     const [xwingCtDelegationMetadata] = deriveXWingCtDelegationMetadataPda(xwingCtPda);
+    // Deposit record delegation PDAs (for pool_to_escrow_v4 on PER)
+    const [depositRecordBuffer] = deriveDepositRecordBufferPda(depositRecordPda);
+    const [depositRecordDelegationRecord] = deriveDepositRecordDelegationRecordPda(depositRecordPda);
+    const [depositRecordDelegationMetadata] = deriveDepositRecordDelegationMetadataPda(depositRecordPda);
 
     try {
       // ══════════════════════════════════════════════════════════════════════
@@ -2401,7 +2408,8 @@ export class WaveStealthClient {
       // ══════════════════════════════════════════════════════════════════════
       reportProgress('Completing deposit and delegating to TEE', 3, 4);
 
-      const completeData = Buffer.alloc(39);
+      // data: disc(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) + commit_freq_ms(4) + record_bump(1) = 40 bytes
+      const completeData = Buffer.alloc(40);
       let cOffset = 0;
       completeData[cOffset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT;
       Buffer.from(nonce).copy(completeData, cOffset); cOffset += 32;
@@ -2409,7 +2417,8 @@ export class WaveStealthClient {
       completeData[cOffset++] = xwingCtBump;
       // Commit frequency: 10000ms = 10 seconds
       const commitFreq = 10000;
-      completeData.writeUInt32LE(commitFreq, cOffset);
+      completeData.writeUInt32LE(commitFreq, cOffset); cOffset += 4;
+      completeData[cOffset++] = recordBump;
 
       const completeTx = new Transaction();
       completeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }));
@@ -2417,8 +2426,8 @@ export class WaveStealthClient {
         keys: [
           // 0. [signer, writable] payer
           { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-          // 1. [] deposit_record
-          { pubkey: depositRecordPda, isSigner: false, isWritable: false },
+          // 1. [writable] deposit_record (now delegated to PER!)
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
           // 2. [writable] input_escrow
           { pubkey: escrowPda, isSigner: false, isWritable: true },
           // 3. [writable] escrow_buffer
@@ -2455,6 +2464,12 @@ export class WaveStealthClient {
           { pubkey: xwingCtDelegationMetadata, isSigner: false, isWritable: true },
           // 19. [writable] per_mixer_pool (receives user's deposit!)
           { pubkey: derivePerMixerPoolPda()[0], isSigner: false, isWritable: true },
+          // 20. [writable] deposit_record_buffer (for delegation)
+          { pubkey: depositRecordBuffer, isSigner: false, isWritable: true },
+          // 21. [writable] deposit_record_delegation_record
+          { pubkey: depositRecordDelegationRecord, isSigner: false, isWritable: true },
+          // 22. [writable] deposit_record_delegation_metadata
+          { pubkey: depositRecordDelegationMetadata, isSigner: false, isWritable: true },
         ],
         programId: PROGRAM_IDS.STEALTH,
         data: completeData,

@@ -77,6 +77,9 @@ export {
   deriveXWingCtBufferPda,
   deriveXWingCtDelegationRecordPda,
   deriveXWingCtDelegationMetadataPda,
+  deriveDepositRecordBufferPda,
+  deriveDepositRecordDelegationRecordPda,
+  deriveDepositRecordDelegationMetadataPda,
   // MagicBlock constants
   TEE_VALIDATOR,
   MAGIC_CONTEXT,

@@ -369,6 +369,30 @@ export function deriveXWingCtDelegationMetadataPda(xwingCtPda: PublicKey): [Publ
   );
 }
 
+// Deposit record delegation buffer PDA
+export function deriveDepositRecordBufferPda(depositRecordPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("buffer"), depositRecordPda.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Deposit record delegation record PDA
+export function deriveDepositRecordDelegationRecordPda(depositRecordPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation"), depositRecordPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
+// Deposit record delegation metadata PDA
+export function deriveDepositRecordDelegationMetadataPda(depositRecordPda: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("delegation-metadata"), depositRecordPda.toBuffer()],
+    PROGRAM_IDS.DELEGATION
+  );
+}
+
 // MagicBlock TEE Validator
 export const TEE_VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57");
 
