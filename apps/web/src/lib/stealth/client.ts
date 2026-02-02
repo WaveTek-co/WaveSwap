@@ -2491,6 +2491,22 @@ export class WaveStealthClient {
       const MAGICBLOCK_PER_RPC = 'https://devnet.magicblock.app';
       const perConnection = new Connection(MAGICBLOCK_PER_RPC, 'confirmed');
 
+      // DEBUG: Check pool state on BOTH L1 and PER
+      const [poolInfoL1, poolInfoPER, escrowInfoPER, depositRecordInfoL1] = await Promise.all([
+        this.connection.getAccountInfo(perMixerPoolPda).catch(() => null),
+        perConnection.getAccountInfo(perMixerPoolPda).catch(() => null),
+        perConnection.getAccountInfo(escrowPda).catch(() => null),
+        this.connection.getAccountInfo(depositRecordPda).catch(() => null),
+      ]);
+      console.log('[WaveStealthClient] DEBUG: Pool state check:', {
+        poolPda: perMixerPoolPda.toBase58(),
+        poolOnL1: poolInfoL1 ? { lamports: poolInfoL1.lamports, owner: poolInfoL1.owner.toBase58() } : 'NOT FOUND',
+        poolOnPER: poolInfoPER ? { lamports: poolInfoPER.lamports, owner: poolInfoPER.owner.toBase58() } : 'NOT FOUND',
+        escrowOnPER: escrowInfoPER ? { lamports: escrowInfoPER.lamports, owner: escrowInfoPER.owner.toBase58() } : 'NOT FOUND',
+        depositRecordOnL1: depositRecordInfoL1 ? { lamports: depositRecordInfoL1.lamports, owner: depositRecordInfoL1.owner.toBase58() } : 'NOT FOUND',
+        expectedAmount: amountBigInt.toString(),
+      });
+
       // Build POOL_TO_ESCROW_V4 instruction
       // Using poolBump, escrowBump, xwingCtBump from lines 2298-2301 above
       // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
@@ -2524,8 +2540,20 @@ export class WaveStealthClient {
         skipPreflight: true,
       });
 
-      // Wait for PER confirmation
-      await confirmTransactionPolling(perConnection, poolToEscrowSig, 30, 2000);
+      // Wait for PER confirmation - MUST check return value!
+      console.log('[WaveStealthClient] POOL_TO_ESCROW_V4 sent to PER:', poolToEscrowSig);
+      const poolToEscrowConfirmed = await confirmTransactionPolling(perConnection, poolToEscrowSig, 30, 2000);
+      if (!poolToEscrowConfirmed) {
+        // Try to get more details about the failure
+        const txStatus = await perConnection.getSignatureStatus(poolToEscrowSig).catch(() => null);
+        console.error('[WaveStealthClient] POOL_TO_ESCROW_V4 failed on PER!', {
+          signature: poolToEscrowSig,
+          status: txStatus?.value,
+          error: txStatus?.value?.err,
+        });
+        throw new Error(`POOL_TO_ESCROW_V4 failed on PER: ${JSON.stringify(txStatus?.value?.err || 'unknown')}`);
+      }
+      console.log('[WaveStealthClient] POOL_TO_ESCROW_V4 confirmed on PER!');
 
       reportProgress('Send complete! Receiver can now claim.', 5, 5);
 
