@@ -1,37 +1,87 @@
-// Stealth payment scanner for WaveSwap
-// PRIVACY-PRESERVING SCANNING using view key cryptography
+// V4 TRUE PRIVACY Scanner for WaveSwap
+// Scans for ClaimEscrow accounts created by V4 POOL_TO_ESCROW flow
 //
-// Flow:
-// 1. Fetch ALL announcements (not filtered by recipient)
-// 2. For each: extract ephemeral_pubkey from announcement
-// 3. Compute shared_secret = SHA3-256(ephemeral_pubkey || view_pubkey)
-// 4. Check view_tag == shared_secret[0] (fast rejection ~99.6%)
-// 5. If match: derive stealth_pubkey and verify
-// 6. If stealth_pubkey matches: this payment is for us
+// V4 ARCHITECTURE:
+// 1. Sender deposits to pool (breaks sender link)
+// 2. TEE creates ClaimEscrow + XWingCiphertextAccount (no sender in tx)
+// 3. Receiver scans ClaimEscrows, decapsulates X-Wing, claims
+//
+// SCANNING FLOW:
+// 1. Fetch all ClaimEscrow accounts (171 bytes)
+// 2. For each: derive XWingCiphertextPda, fetch ciphertext
+// 3. Attempt X-Wing decapsulation with receiver's secret key
+// 4. Verify: SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
+// 5. If match → escrow belongs to us
 
 import { Connection, PublicKey } from "@solana/web3.js";
+import { sha256 } from "@noble/hashes/sha256";
 import { sha3_256 } from "js-sha3";
 import { ed25519 } from "@noble/curves/ed25519";
-import { PROGRAM_IDS, deriveStealthVaultPda } from "./config";
-import { StealthKeyPair } from "./crypto";
+import { PROGRAM_IDS, deriveClaimEscrowPda, deriveXWingCiphertextPda, MAGICBLOCK_PER } from "./config";
+import {
+  StealthKeyPair,
+  xwingDecapsulate,
+  deriveStealthPubkeyFromSharedSecret as cryptoDeriveStealthPubkey,
+} from "./crypto";
 
-// NEW privacy-preserving announcement structure offsets
-// Layout: discriminator(8) + bump(1) + timestamp(8) +
-//         ephemeral_pubkey(32) + pool_nonce(32) +  <-- CHANGED: no sender/recipient
-//         stealth_pubkey(32) + vault_pda(32) +
-//         view_tag(1) + is_finalized(1) + is_claimed(1) +
-//         bytes_written(2) + reserved(3) + ciphertext(1120)
-const ANNOUNCEMENT_DISCRIMINATOR = "ANNOUNCE";
-const OFFSET_BUMP = 8;
-const OFFSET_TIMESTAMP = 9;
-const OFFSET_EPHEMERAL_PUBKEY = 17;    // NEW: ephemeral for scanning
-const OFFSET_POOL_NONCE = 49;          // NEW: mixer nonce (no identity)
-const OFFSET_STEALTH_PUBKEY = 81;
-const OFFSET_VAULT_PDA = 113;
-const OFFSET_VIEW_TAG = 145;
-const OFFSET_IS_FINALIZED = 146;
-const OFFSET_IS_CLAIMED = 147;
-const OFFSET_CIPHERTEXT = 153;
+// MagicBlock PER RPC endpoint - delegated accounts live here, not L1
+const MAGICBLOCK_RPC = MAGICBLOCK_PER.ER_ENDPOINT;
+
+// Re-export from crypto for backwards compatibility
+export { cryptoDeriveStealthPubkey as deriveStealthPubkeyFromSharedSecret };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V4 CONSTANTS - MUST MATCH ON-CHAIN EXACTLY
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ClaimEscrow discriminator and size
+const CLAIM_ESCROW_DISCRIMINATOR = "CLAIMESC";
+const CLAIM_ESCROW_SIZE = 171;
+
+// ClaimEscrow layout offsets (from per_mixer.rs)
+// discriminator(8) + bump(1) + nonce(32) + amount(8) + stealth_pubkey(32) +
+// encrypted_destination(48) + verified_destination(32) + is_verified(1) +
+// is_withdrawn(1) + reserved(8) = 171 bytes
+const ESCROW_OFFSET_DISCRIMINATOR = 0;
+const ESCROW_OFFSET_BUMP = 8;
+const ESCROW_OFFSET_NONCE = 9;
+const ESCROW_OFFSET_AMOUNT = 41;
+const ESCROW_OFFSET_STEALTH_PUBKEY = 49;
+const ESCROW_OFFSET_ENCRYPTED_DEST = 81;
+const ESCROW_OFFSET_VERIFIED_DEST = 129;
+const ESCROW_OFFSET_IS_VERIFIED = 161;
+const ESCROW_OFFSET_IS_WITHDRAWN = 162;
+
+// XWingCiphertextAccount discriminator and size
+const XWING_CT_DISCRIMINATOR = "XWINGCT\0";
+const XWING_CT_SIZE = 1160;
+const XWING_CT_OFFSET_ESCROW_PDA = 8;
+const XWING_CT_OFFSET_CIPHERTEXT = 40;
+const XWING_CIPHERTEXT_LENGTH = 1120;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V4 TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface DetectedEscrowV4 {
+  escrowPda: PublicKey;
+  nonce: Uint8Array;
+  amount: bigint;
+  stealthPubkey: Uint8Array;
+  encryptedDestination: Uint8Array;
+  verifiedDestination?: Uint8Array;
+  isVerified: boolean;
+  isWithdrawn: boolean;
+  // V4: Auto-recovered from X-Wing decapsulation
+  sharedSecret?: Uint8Array;
+  isOurs: boolean;
+}
+
+export interface ScannerConfig {
+  connection: Connection;
+  pollIntervalMs?: number;
+  maxAnnouncements?: number;
+}
 
 export interface DetectedPayment {
   announcementPda: PublicKey;
@@ -45,58 +95,311 @@ export interface DetectedPayment {
   slot: number;
 }
 
-export interface ScannerConfig {
-  connection: Connection;
-  pollIntervalMs?: number;
-  maxAnnouncements?: number;
+// Legacy type alias for backwards compatibility
+export type DetectedEscrowV3 = DetectedEscrowV4;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V4 CORE CRYPTOGRAPHY
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Verify that a stealth pubkey was derived from a shared secret
+ * Returns true if SHA256(sharedSecret || "stealth-derive") == expectedStealthPubkey
+ * Uses cryptoDeriveStealthPubkey from crypto.ts (matches on-chain exactly)
+ */
+export function verifyStealthPubkey(
+  sharedSecret: Uint8Array,
+  expectedStealthPubkey: Uint8Array
+): boolean {
+  const derived = cryptoDeriveStealthPubkey(sharedSecret);
+  if (derived.length !== expectedStealthPubkey.length) return false;
+  for (let i = 0; i < derived.length; i++) {
+    if (derived[i] !== expectedStealthPubkey[i]) return false;
+  }
+  return true;
 }
 
 /**
- * Check if an announcement's view tag matches our viewing key
- * Fast rejection filter - only ~0.4% of payments pass
- * This is the CORRECT privacy-preserving approach
+ * Check if a V4 escrow belongs to us using X-Wing decapsulation
+ *
+ * FLOW:
+ * 1. Decapsulate X-Wing ciphertext → sharedSecret
+ * 2. Verify: SHA256(sharedSecret || "stealth-derive") == escrow.stealth_pubkey
+ * 3. If match → THIS ESCROW IS OURS
+ */
+export function isEscrowForUs(
+  keys: StealthKeyPair,
+  stealthPubkey: Uint8Array,
+  xwingCiphertext: Uint8Array
+): { isOurs: boolean; sharedSecret?: Uint8Array } {
+  // Must have X-Wing keys
+  if (!keys.xwingKeys) {
+    return { isOurs: false };
+  }
+
+  // Validate ciphertext length
+  if (xwingCiphertext.length !== XWING_CIPHERTEXT_LENGTH) {
+    console.warn(`[V4 Scanner] Invalid ciphertext length: ${xwingCiphertext.length}, expected ${XWING_CIPHERTEXT_LENGTH}`);
+    return { isOurs: false };
+  }
+
+  try {
+    // Step 1: X-Wing decapsulation
+    const sharedSecret = xwingDecapsulate(keys.xwingKeys.secretKey, xwingCiphertext);
+
+    // Step 2: Verify stealth pubkey derivation
+    if (!verifyStealthPubkey(sharedSecret, stealthPubkey)) {
+      // Decapsulation succeeded but stealth pubkey doesn't match
+      // This escrow was created for someone else
+      return { isOurs: false };
+    }
+
+    // Step 3: SUCCESS - This escrow is ours!
+    return { isOurs: true, sharedSecret };
+  } catch {
+    // Decapsulation failed - escrow not ours (expected during scanning)
+    return { isOurs: false };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V4 SCANNER
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+/**
+ * V4 TRUE PRIVACY SCANNER
+ *
+ * Scans all ClaimEscrow accounts (171 bytes) and identifies which belong to us.
+ *
+ * ARCHITECTURE:
+ * - Fetches ALL ClaimEscrows from the stealth program
+ * - For each escrow, fetches linked XWingCiphertextAccount
+ * - Attempts X-Wing decapsulation with our secret key
+ * - Verifies SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
+ * - Returns list of escrows with isOurs flag and recovered sharedSecret
+ *
+ * PRIVACY: No on-chain queries reveal which escrows belong to us.
+ * We scan everything and use cryptography to identify ours.
+ */
+// Delegation program ID (accounts delegated to MagicBlock PER)
+const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
+
+/**
+ * Fetch XWingCiphertext from MagicBlock PER (delegated accounts)
+ * Falls back to L1 if not found on PER
+ */
+async function fetchXWingCiphertextFromPER(
+  l1Connection: Connection,
+  perConnection: Connection,
+  escrowPda: PublicKey
+): Promise<Uint8Array | undefined> {
+  try {
+    const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+
+    // Try MagicBlock PER first (delegated accounts live there)
+    let accountInfo = await perConnection.getAccountInfo(xwingCtPda);
+
+    // Fall back to L1 if not on PER
+    if (!accountInfo) {
+      accountInfo = await l1Connection.getAccountInfo(xwingCtPda);
+    }
+
+    if (!accountInfo || accountInfo.data.length < XWING_CT_SIZE) {
+      return undefined;
+    }
+
+    // Verify discriminator
+    const discriminator = Buffer.from(accountInfo.data.slice(0, 8)).toString();
+    if (discriminator !== XWING_CT_DISCRIMINATOR) {
+      return undefined;
+    }
+
+    // Verify escrow_pda backlink matches
+    const storedEscrowPda = new PublicKey(accountInfo.data.slice(XWING_CT_OFFSET_ESCROW_PDA, XWING_CT_OFFSET_ESCROW_PDA + 32));
+    if (!storedEscrowPda.equals(escrowPda)) {
+      return undefined;
+    }
+
+    // Extract ciphertext (1120 bytes starting at offset 40)
+    const ciphertext = new Uint8Array(accountInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH));
+    return ciphertext;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function scanForEscrowsV4(
+  connection: Connection,
+  keys: StealthKeyPair
+): Promise<DetectedEscrowV4[]> {
+  const escrows: DetectedEscrowV4[] = [];
+
+  try {
+    // Create MagicBlock PER connection for delegated accounts
+    const perConnection = new Connection(MAGICBLOCK_RPC, "confirmed");
+
+    // Fetch from L1 (stealth + delegation program) AND MagicBlock PER
+    const [l1StealthAccounts, l1DelegatedAccounts, perAccounts] = await Promise.all([
+      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
+      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
+      // Query MagicBlock PER for delegated escrows (stealth program owns them on PER)
+      perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }).catch(() => []),
+    ]);
+
+    // Deduplicate by pubkey (same escrow might appear in multiple sources)
+    const seenPubkeys = new Set<string>();
+    const allAccounts: { pubkey: PublicKey; account: { data: Buffer; lamports: number }; source: string }[] = [];
+
+    for (const { pubkey, account } of l1StealthAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'l1-stealth' });
+      }
+    }
+    for (const { pubkey, account } of l1DelegatedAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'l1-delegation' });
+      }
+    }
+    for (const { pubkey, account } of perAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'magicblock-per' });
+      }
+    }
+
+    let oursCount = 0;
+    for (const { pubkey, account, source } of allAccounts) {
+      const data = account.data;
+
+      // Verify discriminator
+      const discriminator = Buffer.from(data.slice(ESCROW_OFFSET_DISCRIMINATOR, ESCROW_OFFSET_DISCRIMINATOR + 8)).toString();
+      if (discriminator !== CLAIM_ESCROW_DISCRIMINATOR) continue;
+
+      // Check if already withdrawn
+      const isWithdrawn = data[ESCROW_OFFSET_IS_WITHDRAWN] === 1;
+      if (isWithdrawn) continue;
+
+      // Read escrow fields
+      const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32));
+      const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH_PUBKEY, ESCROW_OFFSET_STEALTH_PUBKEY + 32));
+      const encryptedDestination = new Uint8Array(data.slice(ESCROW_OFFSET_ENCRYPTED_DEST, ESCROW_OFFSET_ENCRYPTED_DEST + 48));
+      const verifiedDestination = new Uint8Array(data.slice(ESCROW_OFFSET_VERIFIED_DEST, ESCROW_OFFSET_VERIFIED_DEST + 32));
+      const isVerified = data[ESCROW_OFFSET_IS_VERIFIED] === 1;
+
+      // Verify PDA derivation
+      const [expectedPda] = deriveClaimEscrowPda(nonce);
+      if (!pubkey.equals(expectedPda)) {
+        continue;
+      }
+
+      // Read amount (u64 little-endian)
+      let amount = BigInt(0);
+      for (let i = 0; i < 8; i++) {
+        amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8);
+      }
+
+      // Fetch XWingCiphertext account (check PER first, then L1)
+      let sharedSecret: Uint8Array | undefined;
+      let isOurs = false;
+
+      if (keys.xwingKeys) {
+        const xwingCiphertext = await fetchXWingCiphertextFromPER(connection, perConnection, pubkey);
+        if (xwingCiphertext) {
+          const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
+          if (result.isOurs) {
+            isOurs = true;
+            sharedSecret = result.sharedSecret;
+            oursCount++;
+          }
+        }
+      }
+
+      escrows.push({
+        escrowPda: pubkey,
+        nonce,
+        amount,
+        stealthPubkey,
+        encryptedDestination,
+        verifiedDestination: isVerified ? verifiedDestination : undefined,
+        isVerified,
+        isWithdrawn,
+        sharedSecret,
+        isOurs,
+      });
+    }
+
+    return escrows;
+  } catch (err) {
+    console.error("[V4 Scanner] Scan error:", err);
+    return [];
+  }
+}
+
+// Alias for backwards compatibility
+export const scanForEscrowsV3 = scanForEscrowsV4;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY FUNCTIONS (for backwards compatibility with older deposit types)
+// These use Ed25519 view key derivation (NOT X-Wing)
+// V4 TRUE PRIVACY uses X-Wing decapsulation instead
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * LEGACY: Check if view tag matches (Ed25519 derivation)
+ * Used for old PER deposits that use ephemeral pubkey + view tag
+ * V4 uses X-Wing decapsulation instead
  */
 export function checkViewTag(
   viewPrivkey: Uint8Array,
   ephemeralPubkey: Uint8Array,
   expectedViewTag: number
 ): boolean {
-  const viewPubkey = ed25519.getPublicKey(viewPrivkey);
-  const sharedSecretInput = Buffer.concat([
-    Buffer.from(ephemeralPubkey),
-    Buffer.from(viewPubkey),
-  ]);
-  const sharedSecret = sha3_256(sharedSecretInput);
-  const computedViewTag = parseInt(sharedSecret.slice(0, 2), 16);
-  return computedViewTag === expectedViewTag;
+  try {
+    const viewPubkey = ed25519.getPublicKey(viewPrivkey);
+    const sharedSecretInput = new Uint8Array(ephemeralPubkey.length + viewPubkey.length);
+    sharedSecretInput.set(ephemeralPubkey, 0);
+    sharedSecretInput.set(viewPubkey, ephemeralPubkey.length);
+    const sharedSecret = sha3_256(sharedSecretInput);
+    const computedViewTag = parseInt(sharedSecret.slice(0, 2), 16);
+    return computedViewTag === expectedViewTag;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Derive stealth address from ephemeral pubkey (called after view tag passes)
- * Returns the full stealth pubkey for verification
+ * LEGACY: Derive stealth address from ephemeral pubkey
+ * Used for old deposits - V4 uses X-Wing instead
  */
 export function deriveStealthFromEphemeral(
   viewPrivkey: Uint8Array,
   spendPubkey: Uint8Array,
   ephemeralPubkey: Uint8Array
 ): Uint8Array {
-  const viewPubkey = ed25519.getPublicKey(viewPrivkey);
-  const sharedSecretInput = Buffer.concat([
-    Buffer.from(ephemeralPubkey),
-    Buffer.from(viewPubkey),
-  ]);
-  const sharedSecret = sha3_256(sharedSecretInput);
-  const stealthDerivation = sha3_256(
-    Buffer.concat([Buffer.from(sharedSecret, "hex"), Buffer.from(spendPubkey)])
-  );
-  return new Uint8Array(Buffer.from(stealthDerivation, "hex"));
+  try {
+    const viewPubkey = ed25519.getPublicKey(viewPrivkey);
+    const sharedSecretInput = new Uint8Array(ephemeralPubkey.length + viewPubkey.length);
+    sharedSecretInput.set(ephemeralPubkey, 0);
+    sharedSecretInput.set(viewPubkey, ephemeralPubkey.length);
+    const sharedSecret = sha3_256(sharedSecretInput);
+
+    const stealthInput = new Uint8Array(32 + spendPubkey.length);
+    const sharedSecretBytes = new Uint8Array(Buffer.from(sharedSecret, "hex"));
+    stealthInput.set(sharedSecretBytes, 0);
+    stealthInput.set(spendPubkey, 32);
+    const stealthHash = sha3_256(stealthInput);
+    return new Uint8Array(Buffer.from(stealthHash, "hex"));
+  } catch {
+    return new Uint8Array(32);
+  }
 }
 
 /**
- * Full cryptographic check if payment belongs to us
- * 1. Check view tag (fast)
- * 2. Derive full stealth pubkey
- * 3. Compare with announcement's stealth pubkey
+ * LEGACY: Full check if payment belongs to us (Ed25519 derivation)
+ * Used for old PER deposits - V4 uses X-Wing instead
  */
 export function isPaymentForUs(
   keys: StealthKeyPair,
@@ -104,7 +407,7 @@ export function isPaymentForUs(
   expectedViewTag: number,
   announcementStealthPubkey: Uint8Array
 ): boolean {
-  // Step 1: Fast view tag check (~99.6% rejection rate)
+  // Step 1: Fast view tag check
   if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, expectedViewTag)) {
     return false;
   }
@@ -116,7 +419,7 @@ export function isPaymentForUs(
     ephemeralPubkey
   );
 
-  // Step 3: Compare with announcement's stealth pubkey
+  // Step 3: Compare
   if (derivedStealth.length !== announcementStealthPubkey.length) {
     return false;
   }
@@ -129,59 +432,48 @@ export function isPaymentForUs(
   return true;
 }
 
-/**
- * Stealth Payment Scanner
- * Automatically detects payments belonging to the user using view key scanning
- */
+export function isPaymentForUsXWing(): boolean {
+  return false;
+}
+
+export function isPaymentForUsUniversal(): boolean {
+  return false;
+}
+
+// V3 legacy aliases
+export const checkViewTagV3 = checkViewTag;
+export const verifyStealthPubkeyV3 = verifyStealthPubkey;
+export const isEscrowForUsV3 = isEscrowForUs;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STEALTH SCANNER CLASS (Legacy)
+// ═══════════════════════════════════════════════════════════════════════════
+
 export class StealthScanner {
   private connection: Connection;
   private pollIntervalMs: number;
-  private maxAnnouncements: number;
   private isScanning: boolean = false;
   private scanInterval: ReturnType<typeof setInterval> | null = null;
-  private detectedPayments: Map<string, DetectedPayment> = new Map();
-  private onPaymentDetected: ((payment: DetectedPayment) => void) | null = null;
-  private lastScannedSlot: number = 0;
+  private detectedEscrows: Map<string, DetectedEscrowV4> = new Map();
+  private onEscrowDetected: ((escrow: DetectedEscrowV4) => void) | null = null;
 
   constructor(config: ScannerConfig) {
     this.connection = config.connection;
-    this.pollIntervalMs = config.pollIntervalMs || 10000; // 10 seconds
-    this.maxAnnouncements = config.maxAnnouncements || 100;
+    this.pollIntervalMs = config.pollIntervalMs || 30000;
   }
 
-  /**
-   * Set callback for when a payment is detected
-   */
-  onPayment(callback: (payment: DetectedPayment) => void): void {
-    this.onPaymentDetected = callback;
+  onPayment(callback: (escrow: DetectedEscrowV4) => void): void {
+    this.onEscrowDetected = callback;
   }
 
-  /**
-   * Start scanning for payments
-   */
   startScanning(keys: StealthKeyPair): void {
-    if (this.isScanning) {
-      console.log("[Scanner] Already scanning");
-      return;
-    }
-
-    console.log("[Scanner] Starting payment scanner...");
+    if (this.isScanning) return;
     this.isScanning = true;
-
-    // Initial scan
     this.scan(keys);
-
-    // Set up polling
-    this.scanInterval = setInterval(() => {
-      this.scan(keys);
-    }, this.pollIntervalMs);
+    this.scanInterval = setInterval(() => this.scan(keys), this.pollIntervalMs);
   }
 
-  /**
-   * Stop scanning
-   */
   stopScanning(): void {
-    console.log("[Scanner] Stopping scanner");
     this.isScanning = false;
     if (this.scanInterval) {
       clearInterval(this.scanInterval);
@@ -189,149 +481,21 @@ export class StealthScanner {
     }
   }
 
-  /**
-   * Get all detected unclaimed payments
-   */
-  getUnclaimedPayments(): DetectedPayment[] {
-    return Array.from(this.detectedPayments.values()).filter(p => !p.isClaimed);
+  getUnclaimedPayments(): DetectedEscrowV4[] {
+    return Array.from(this.detectedEscrows.values()).filter(e => e.isOurs && !e.isWithdrawn);
   }
 
-  /**
-   * Mark a payment as claimed
-   */
-  markClaimed(announcementPda: PublicKey): void {
-    const key = announcementPda.toBase58();
-    const payment = this.detectedPayments.get(key);
-    if (payment) {
-      payment.isClaimed = true;
-    }
-  }
-
-  /**
-   * Perform a PRIVACY-PRESERVING scan for payments
-   * Uses cryptographic view key verification instead of registry matching
-   */
   private async scan(keys: StealthKeyPair): Promise<void> {
     if (!this.isScanning) return;
 
-    try {
-      console.log("[Scanner] Starting privacy-preserving scan with view key...");
-
-      // Fetch ALL announcement accounts - no filtering by recipient!
-      // This is critical for privacy: we scan everything and use crypto to find ours
-      const accounts = await this.connection.getProgramAccounts(
-        PROGRAM_IDS.STEALTH,
-        {
-          filters: [
-            {
-              memcmp: {
-                offset: 0,
-                bytes: Buffer.from(ANNOUNCEMENT_DISCRIMINATOR).toString("base64"),
-              },
-            },
-          ],
-        }
-      );
-
-      console.log(`[Scanner] Scanning ${accounts.length} announcements with view key...`);
-      let checkedCount = 0;
-      let viewTagMatches = 0;
-
-      for (const { pubkey, account } of accounts) {
-        // Skip if already processed
-        if (this.detectedPayments.has(pubkey.toBase58())) {
-          continue;
-        }
-
-        const data = account.data;
-        if (data.length < 148) continue;
-
-        // Check discriminator
-        const discriminator = data.slice(0, 8).toString();
-        if (discriminator !== ANNOUNCEMENT_DISCRIMINATOR) continue;
-
-        // Check if already claimed
-        const isClaimed = data[OFFSET_IS_CLAIMED] === 1;
-        if (isClaimed) continue;
-
-        // Check if finalized
-        const isFinalized = data[OFFSET_IS_FINALIZED] === 1;
-        if (!isFinalized) continue;
-
-        checkedCount++;
-
-        // Extract ephemeral pubkey for view tag check (NEW privacy-preserving field)
-        const ephemeralPubkey = new Uint8Array(data.slice(OFFSET_EPHEMERAL_PUBKEY, OFFSET_EPHEMERAL_PUBKEY + 32));
-
-        // Extract view tag
-        const viewTag = data[OFFSET_VIEW_TAG];
-
-        // STEP 1: Fast view tag check using our view key
-        // This rejects ~99.6% of payments quickly
-        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) {
-          continue; // Not for us - view tag doesn't match
-        }
-
-        viewTagMatches++;
-        console.log(`[Scanner] View tag match! Verifying stealth address...`);
-
-        // STEP 2: Derive full stealth pubkey to confirm
-        const announcementStealthPubkey = new Uint8Array(data.slice(OFFSET_STEALTH_PUBKEY, OFFSET_STEALTH_PUBKEY + 32));
-
-        // Full cryptographic verification
-        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, announcementStealthPubkey)) {
-          console.log(`[Scanner] False positive - stealth pubkey mismatch`);
-          continue; // View tag matched but stealth pubkey didn't - false positive
-        }
-
-        // CONFIRMED: This payment is for us!
-        console.log(`[Scanner] CONFIRMED payment for us!`);
-
-        // Extract vault PDA
-        const vaultPdaBytes = new Uint8Array(data.slice(OFFSET_VAULT_PDA, OFFSET_VAULT_PDA + 32));
-        const vaultPda = new PublicKey(vaultPdaBytes);
-
-        // Verify vault PDA derivation matches
-        const [expectedVaultPda] = deriveStealthVaultPda(announcementStealthPubkey);
-        if (!expectedVaultPda.equals(vaultPda)) {
-          console.log(`[Scanner] Vault PDA mismatch - skipping`);
-          continue;
-        }
-
-        // Check vault balance
-        const vaultInfo = await this.connection.getAccountInfo(vaultPda);
-        if (!vaultInfo || vaultInfo.lamports === 0) {
-          console.log(`[Scanner] Vault empty - already claimed or never funded`);
-          continue;
-        }
-
-        console.log(`[Scanner] Found payment: vault=${vaultPda.toBase58()}, amount=${vaultInfo.lamports / 1e9} SOL`);
-
-        // Extract pool nonce (for reference, not identity)
-        const poolNonce = new Uint8Array(data.slice(OFFSET_POOL_NONCE, OFFSET_POOL_NONCE + 32));
-
-        const payment: DetectedPayment = {
-          announcementPda: pubkey,
-          vaultPda,
-          sender: PublicKey.default, // No sender identity stored - privacy preserved!
-          ephemeralPubkey,
-          stealthPubkey: announcementStealthPubkey,
-          viewTag,
-          amount: BigInt(vaultInfo.lamports),
-          isClaimed: false,
-          slot: 0,
-        };
-
-        this.detectedPayments.set(pubkey.toBase58(), payment);
-
-        if (this.onPaymentDetected) {
-          this.onPaymentDetected(payment);
+    const escrows = await scanForEscrowsV4(this.connection, keys);
+    for (const escrow of escrows) {
+      if (escrow.isOurs && !this.detectedEscrows.has(escrow.escrowPda.toBase58())) {
+        this.detectedEscrows.set(escrow.escrowPda.toBase58(), escrow);
+        if (this.onEscrowDetected) {
+          this.onEscrowDetected(escrow);
         }
       }
-
-      console.log(`[Scanner] Scan complete: ${checkedCount} checked, ${viewTagMatches} view tag matches, ${this.detectedPayments.size} confirmed payments`);
-    } catch (error) {
-      console.error("[Scanner] Scan error:", error);
     }
   }
 }

@@ -2,10 +2,6 @@
 
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useEffect } from 'react'
 import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js'
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
-import { BackpackWalletAdapter } from '@solana/wallet-adapter-backpack'
-import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare'
-import { WalletReadyState } from '@solana/wallet-adapter-base'
 import { config } from '@/lib/config'
 
 interface MultiWalletContextType {
@@ -31,6 +27,22 @@ interface MultiWalletContextType {
 
 const MultiWalletContext = createContext<MultiWalletContextType | undefined>(undefined)
 
+// Get wallet provider from window
+function getPhantomProvider() {
+  if (typeof window === 'undefined') return null
+  return (window as any).phantom?.solana || (window as any).solana
+}
+
+function getBackpackProvider() {
+  if (typeof window === 'undefined') return null
+  return (window as any).backpack
+}
+
+function getSolflareProvider() {
+  if (typeof window === 'undefined') return null
+  return (window as any).solflare
+}
+
 export function MultiWalletProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -38,7 +50,6 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
   const [walletName, setWalletName] = useState<string | null>(null)
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null)
   const [connected, setConnected] = useState(false)
-  const [activeAdapter, setActiveAdapter] = useState<PhantomWalletAdapter | BackpackWalletAdapter | SolflareWalletAdapter | null>(null)
 
   const connection = useMemo(() => {
     return new Connection(config.rpc.url, {
@@ -47,80 +58,38 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  // Initialize wallet adapters
-  const phantomAdapter = useMemo(() => new PhantomWalletAdapter(), [])
-  const backpackAdapter = useMemo(() => new BackpackWalletAdapter(), [])
-  const solflareAdapter = useMemo(() => new SolflareWalletAdapter(), [])
+  const availableWallets = useMemo(() => ['phantom', 'backpack', 'solflare'], [])
 
-  const availableWallets = useMemo(() => {
-    const wallets: string[] = []
-    if (phantomAdapter.readyState === WalletReadyState.Installed || phantomAdapter.readyState === WalletReadyState.Loadable) {
-      wallets.push('phantom')
+  const getProvider = useCallback(() => {
+    switch (walletName) {
+      case 'phantom': return getPhantomProvider()
+      case 'backpack': return getBackpackProvider()
+      case 'solflare': return getSolflareProvider()
+      default: return null
     }
-    if (backpackAdapter.readyState === WalletReadyState.Installed || backpackAdapter.readyState === WalletReadyState.Loadable) {
-      wallets.push('backpack')
-    }
-    if (solflareAdapter.readyState === WalletReadyState.Installed || solflareAdapter.readyState === WalletReadyState.Loadable) {
-      wallets.push('solflare')
-    }
-    // Always show these as options
-    if (!wallets.includes('phantom')) wallets.push('phantom')
-    if (!wallets.includes('backpack')) wallets.push('backpack')
-    if (!wallets.includes('solflare')) wallets.push('solflare')
-    return wallets
-  }, [phantomAdapter.readyState, backpackAdapter.readyState, solflareAdapter.readyState])
+  }, [walletName])
 
-  // Listen for adapter connection changes
+  // Check for existing connection on mount
   useEffect(() => {
-    const handleConnect = () => {
-      if (activeAdapter?.publicKey) {
-        setPublicKey(activeAdapter.publicKey)
+    const checkExisting = () => {
+      const phantom = getPhantomProvider()
+      if (phantom?.publicKey) {
+        console.log('Found existing Phantom connection')
+        setWalletName('phantom')
+        setPublicKey(new PublicKey(phantom.publicKey.toString()))
         setConnected(true)
-        console.log('Wallet connected:', activeAdapter.publicKey.toString())
       }
     }
-
-    const handleDisconnect = () => {
-      setPublicKey(null)
-      setConnected(false)
-      setWalletName(null)
-      setActiveAdapter(null)
-      console.log('Wallet disconnected')
-    }
-
-    const handleError = (err: Error) => {
-      console.error('Wallet error:', err)
-      setError(err.message)
-    }
-
-    if (activeAdapter) {
-      activeAdapter.on('connect', handleConnect)
-      activeAdapter.on('disconnect', handleDisconnect)
-      activeAdapter.on('error', handleError)
-
-      return () => {
-        activeAdapter.off('connect', handleConnect)
-        activeAdapter.off('disconnect', handleDisconnect)
-        activeAdapter.off('error', handleError)
-      }
-    }
-  }, [activeAdapter])
+    setTimeout(checkExisting, 500)
+  }, [])
 
   const clearError = useCallback(() => setError(null), [])
-
-  const checkConnectionHealth = useCallback(async (): Promise<boolean> => {
-    try {
-      await connection.getSlot()
-      return true
-    } catch {
-      return false
-    }
+  const checkConnectionHealth = useCallback(async () => {
+    try { await connection.getSlot(); return true } catch { return false }
   }, [connection])
-
   const getRpcEndpoint = useCallback(() => config.rpc.url, [])
-
-  const getBalance = useCallback(async (): Promise<number> => {
-    if (!publicKey) throw new Error('Wallet not connected')
+  const getBalance = useCallback(async () => {
+    if (!publicKey) throw new Error('Not connected')
     return connection.getBalance(publicKey)
   }, [publicKey, connection])
 
@@ -129,120 +98,117 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
     setError(null)
 
     try {
-      let adapter: PhantomWalletAdapter | BackpackWalletAdapter | SolflareWalletAdapter
+      let provider: any
+      const walletType = name.toLowerCase().replace('-injected', '')
 
-      switch (name.toLowerCase()) {
+      switch (walletType) {
         case 'phantom':
-        case 'phantom-injected':
-          adapter = phantomAdapter
+          provider = getPhantomProvider()
+          if (!provider) {
+            window.open('https://phantom.app/', '_blank')
+            throw new Error('Phantom not installed. Opening download page...')
+          }
           break
         case 'backpack':
-          adapter = backpackAdapter
+          provider = getBackpackProvider()
+          if (!provider) {
+            window.open('https://backpack.app/', '_blank')
+            throw new Error('Backpack not installed. Opening download page...')
+          }
           break
         case 'solflare':
-          adapter = solflareAdapter
+          provider = getSolflareProvider()
+          if (!provider) {
+            window.open('https://solflare.com/', '_blank')
+            throw new Error('Solflare not installed. Opening download page...')
+          }
           break
         default:
-          throw new Error(`Unsupported wallet: ${name}`)
+          throw new Error(`Unknown wallet: ${name}`)
       }
 
-      if (adapter.readyState === WalletReadyState.NotDetected) {
-        throw new Error(`${name} wallet not installed. Please install it first.`)
-      }
-
-      console.log(`Connecting to ${name}...`, adapter.readyState)
-      await adapter.connect()
-
-      if (adapter.publicKey) {
-        setActiveAdapter(adapter)
-        setWalletName(name.toLowerCase().replace('-injected', ''))
-        setPublicKey(adapter.publicKey)
+      // Check if already connected
+      if (provider.publicKey) {
+        console.log('Already connected to', walletType)
+        setWalletName(walletType)
+        setPublicKey(new PublicKey(provider.publicKey.toString()))
         setConnected(true)
-        console.log(`Connected to ${name}:`, adapter.publicKey.toString())
-      } else {
-        throw new Error('No public key after connection')
+        return
       }
+
+      console.log(`Requesting ${walletType} connection...`)
+
+      // Direct connect call
+      const resp = await provider.connect()
+      const pubkey = resp?.publicKey || provider.publicKey
+
+      if (!pubkey) {
+        throw new Error('No public key returned')
+      }
+
+      console.log(`Connected to ${walletType}:`, pubkey.toString())
+      setWalletName(walletType)
+      setPublicKey(new PublicKey(pubkey.toString()))
+      setConnected(true)
 
     } catch (err: any) {
-      console.error('Connection error:', err)
-      const msg = err?.message || 'Connection failed'
-      setError(msg)
-      throw new Error(msg)
+      console.error('Connect error:', err)
+
+      // Check if user rejected
+      if (err?.code === 4001 || err?.message?.includes('rejected') || err?.message?.includes('denied')) {
+        setError('Connection rejected by user')
+      } else {
+        setError(err?.message || 'Connection failed')
+      }
+      throw err
     } finally {
       setConnecting(false)
     }
-  }, [phantomAdapter, backpackAdapter, solflareAdapter])
+  }, [])
 
   const handleDisconnect = useCallback(async () => {
     setDisconnecting(true)
-    setError(null)
-
     try {
-      if (activeAdapter) {
-        await activeAdapter.disconnect()
+      const provider = getProvider()
+      if (provider?.disconnect) {
+        await provider.disconnect()
       }
-      setWalletName(null)
-      setPublicKey(null)
-      setConnected(false)
-      setActiveAdapter(null)
-      console.log('Wallet disconnected')
-    } catch (err: any) {
-      const msg = err?.message || 'Disconnect failed'
-      setError(msg)
-      console.error('Disconnect error:', msg)
-    } finally {
-      setDisconnecting(false)
+    } catch (e) {
+      console.error('Disconnect error:', e)
     }
-  }, [activeAdapter])
+    setWalletName(null)
+    setPublicKey(null)
+    setConnected(false)
+    setDisconnecting(false)
+  }, [getProvider])
 
-  const signMessage = useCallback(async (message: Uint8Array): Promise<Uint8Array> => {
-    if (!activeAdapter?.signMessage) {
-      throw new Error('Wallet does not support message signing')
-    }
-    return activeAdapter.signMessage(message)
-  }, [activeAdapter])
+  const signMessage = useCallback(async (message: Uint8Array) => {
+    const provider = getProvider()
+    if (!provider?.signMessage) throw new Error('Not supported')
+    const { signature } = await provider.signMessage(message, 'utf8')
+    return signature
+  }, [getProvider])
 
-  const signTransaction = useCallback(async (
-    transaction: Transaction | VersionedTransaction
-  ): Promise<Transaction | VersionedTransaction> => {
-    if (!activeAdapter?.signTransaction) {
-      throw new Error('Wallet does not support transaction signing')
-    }
-    return activeAdapter.signTransaction(transaction)
-  }, [activeAdapter])
+  const signTransaction = useCallback(async (tx: Transaction | VersionedTransaction) => {
+    const provider = getProvider()
+    if (!provider?.signTransaction) throw new Error('Not supported')
+    return provider.signTransaction(tx)
+  }, [getProvider])
 
-  const signAllTransactions = useCallback(async (
-    transactions: (Transaction | VersionedTransaction)[]
-  ): Promise<(Transaction | VersionedTransaction)[]> => {
-    if (!activeAdapter?.signAllTransactions) {
-      throw new Error('Wallet does not support batch signing')
-    }
-    return activeAdapter.signAllTransactions(transactions)
-  }, [activeAdapter])
-
-  const contextValue: MultiWalletContextType = {
-    connection,
-    publicKey,
-    connected,
-    connecting,
-    disconnecting,
-    wallet: activeAdapter,
-    walletName,
-    availableWallets,
-    error,
-    connect: handleConnect,
-    disconnect: handleDisconnect,
-    signMessage,
-    signTransaction,
-    signAllTransactions,
-    getBalance,
-    clearError,
-    checkConnectionHealth,
-    getRpcEndpoint,
-  }
+  const signAllTransactions = useCallback(async (txs: (Transaction | VersionedTransaction)[]) => {
+    const provider = getProvider()
+    if (!provider?.signAllTransactions) throw new Error('Not supported')
+    return provider.signAllTransactions(txs)
+  }, [getProvider])
 
   return (
-    <MultiWalletContext.Provider value={contextValue}>
+    <MultiWalletContext.Provider value={{
+      connection, publicKey, connected, connecting, disconnecting,
+      wallet: getProvider(), walletName, availableWallets, error,
+      connect: handleConnect, disconnect: handleDisconnect,
+      signMessage, signTransaction, signAllTransactions,
+      getBalance, clearError, checkConnectionHealth, getRpcEndpoint,
+    }}>
       {children}
     </MultiWalletContext.Provider>
   )
@@ -250,9 +216,7 @@ export function MultiWalletProvider({ children }: { children: ReactNode }) {
 
 export function useMultiWallet() {
   const context = useContext(MultiWalletContext)
-  if (context === undefined) {
-    throw new Error('useMultiWallet must be used within a MultiWalletProvider')
-  }
+  if (!context) throw new Error('useMultiWallet must be within MultiWalletProvider')
   return context
 }
 

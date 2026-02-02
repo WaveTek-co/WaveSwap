@@ -3,8 +3,14 @@
 
 import { PublicKey } from "@solana/web3.js";
 
-// Re-export crypto types
-export type { StealthKeyPair, StealthVaultConfig } from "./crypto";
+// Re-export crypto types (includes X-Wing post-quantum types)
+export type {
+  StealthKeyPair,
+  StealthVaultConfig,
+  XWingKeyPair,
+  XWingPublicKey,
+  XWingSecretKey,
+} from "./crypto";
 
 // Registry account stored on-chain
 export interface RegistryAccount {
@@ -80,8 +86,15 @@ export interface SendResult extends TransactionResult {
   // Mixer pool flow fields
   depositRecordPda?: PublicKey;
   nonce?: string; // hex-encoded nonce for tracking
-  // PER flow fields
+  // PER flow fields (Magic Actions + MagicBlock TEE)
   perDepositPda?: PublicKey;
+  escrowPda?: PublicKey;
+  delegated?: boolean; // true if delegated to MagicBlock TEE
+  // V3 additions (encrypted destination)
+  sharedSecret?: Uint8Array; // For receiver to claim (share securely off-chain)
+  isV3?: boolean; // true if using V3 flow
+  // V4 TRUE PRIVACY additions
+  isV4?: boolean; // true if using V4 TRUE PRIVACY flow (maximum privacy)
 }
 
 // Token info

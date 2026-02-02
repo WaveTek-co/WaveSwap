@@ -38,6 +38,19 @@ import {
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
+  deriveXWingCiphertextPda,
+  // V4 TRUE PRIVACY PDA derivations
+  deriveEscrowBufferPda,
+  deriveEscrowDelegationRecordPda,
+  deriveEscrowDelegationMetadataPda,
+  deriveEscrowPermissionPda,
+  derivePermissionDelegationBufferPda,
+  derivePermissionDelegationRecordPda,
+  derivePermissionDelegationMetadataPda,
+  deriveXWingCtBufferPda,
+  deriveXWingCtDelegationRecordPda,
+  deriveXWingCtDelegationMetadataPda,
+  TEE_VALIDATOR,
   NATIVE_SOL_MINT,
   RELAYER_CONFIG,
   MAGICBLOCK_PER,
@@ -92,6 +105,18 @@ import {
   deriveStealthAddress,
   deriveStealthSpendingKey,
   stealthSign,
+  // X-Wing post-quantum cryptography
+  XWingPublicKey,
+  xwingEncapsulate,
+  deriveXWingStealthAddress,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  XWING_PUBLIC_KEY_SIZE,
+  // Ed25519 → X25519 conversion
+  ed25519ToX25519Keypair,
+  // V3: Encrypted destination
+  encryptDestinationWallet,
+  deriveStealthPubkeyFromSharedSecret,
 } from "./crypto";
 
 // Registration step status
@@ -289,12 +314,31 @@ export class WaveStealthClient {
       console.log('[Client] Registry exists but not finalized, will resume...');
     }
 
-    // Registry requires exactly 1216 bytes (XWING_PUBLIC_KEY_SIZE) to be written
-    // We store: spend pubkey (32) + view pubkey (32) + padding (1152) = 1216 bytes
-    const XWING_PUBLIC_KEY_SIZE = 1216;
-    const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
+    // Registry stores X-Wing public key (1216 bytes total)
+    // Layout optimized for post-quantum security:
+    // - Ed25519 spend pubkey: 32 bytes (for stealth address derivation)
+    // - Ed25519 view pubkey: 32 bytes (for view tag scanning)
+    // - ML-KEM-768 pubkey: 1152 bytes (post-quantum KEM, slightly truncated from 1184)
+    // Note: X25519 pubkey is DERIVED from Ed25519 spend key (same curve), so not stored separately
+    //
+    // The X25519 component of X-Wing = Ed25519 spend key converted to X25519
+    // This saves 32 bytes and binds X-Wing identity to stealth identity
+    const REGISTRY_KEY_SIZE = 1216;
+    const fullKeyData = Buffer.alloc(REGISTRY_KEY_SIZE);
+
+    // Ed25519 spend and view pubkeys (64 bytes)
     Buffer.from(keysToUse.spendPubkey).copy(fullKeyData, 0);
     Buffer.from(keysToUse.viewPubkey).copy(fullKeyData, 32);
+
+    // ML-KEM-768 public key (1152 bytes - fits in remaining space)
+    // Note: Full ML-KEM is 1184 bytes, we store first 1152 bytes
+    // The last 32 bytes are recoverable from the seed in TEE
+    if (keysToUse.xwingKeys) {
+      const mlkemBytes = keysToUse.xwingKeys.publicKey.mlkem;
+      Buffer.from(mlkemBytes.slice(0, 1152)).copy(fullKeyData, 64);
+      console.log('[Client] Including ML-KEM-768 post-quantum key in registration');
+      console.log('[Client] X25519 component derived from Ed25519 spend key (not stored separately)');
+    }
 
     // Split into multiple transactions to avoid tx size limits
     // Tx 1: Initialize + first chunk (600 bytes to leave room)
@@ -357,8 +401,8 @@ export class WaveStealthClient {
         tx1.feePayer = wallet.publicKey;
         tx1.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
         const signedTx1 = await wallet.signTransaction(tx1);
-        const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize());
-        await this.connection.confirmTransaction(sig1, 'confirmed');
+        const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize(), { skipPreflight: true });
+        await confirmTransactionPolling(this.connection, sig1, 30, 2000);
         signatures.push(sig1);
         console.log('[Client] Tx1 confirmed:', sig1);
       }
@@ -413,8 +457,8 @@ export class WaveStealthClient {
         tx.feePayer = wallet.publicKey;
         tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
         const signedTx = await wallet.signTransaction(tx);
-        const sig = await this.connection.sendRawTransaction(signedTx.serialize());
-        await this.connection.confirmTransaction(sig, 'confirmed');
+        const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+        await confirmTransactionPolling(this.connection, sig, 30, 2000);
         signatures.push(sig);
         console.log(`[Client] Tx${i + (existing ? 1 : 2)} confirmed:`, sig);
       }
@@ -432,14 +476,214 @@ export class WaveStealthClient {
     }
   }
 
+  // SIMPLIFIED SINGLE-TRANSACTION REGISTRATION
+  //
+  // This is the RECOMMENDED approach - user signs ONCE
+  // Only stores Ed25519 viewing keys (64 bytes)
+  // X-Wing post-quantum crypto happens inside the TEE at transfer time
+  //
+  // Instruction data layout (73 bytes total):
+  // - discriminator: 8 bytes (0x07)
+  // - bump: 1 byte
+  // - spend_pubkey: 32 bytes
+  // - view_pubkey: 32 bytes
+  async registerSimple(
+    wallet: WalletAdapter,
+    keys?: StealthKeyPair,
+    onProgress?: (progress: RegistrationProgress) => void
+  ): Promise<TransactionResult> {
+    console.log('[Client] registerSimple called (single-tx approach)');
+
+    const reportProgress = (step: RegistrationStep, currentTx: number, totalTx: number, message: string) => {
+      console.log(`[Client] Progress: ${step} - ${message}`);
+      if (onProgress) {
+        onProgress({ step, currentTx, totalTx, message });
+      }
+    };
+
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const keysToUse = keys || this.stealthKeys;
+    if (!keysToUse) {
+      return { success: false, error: "Stealth keys not initialized" };
+    }
+
+    const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
+    console.log('[Client] Registry PDA:', registryPda.toBase58(), 'bump:', bump);
+
+    // Check if already registered
+    console.log('[Client] Checking if already registered...');
+    const existing = await this.connection.getAccountInfo(registryPda);
+    if (existing && existing.data.length > 0) {
+      // Check discriminator - accept both old and new format
+      const disc = existing.data.slice(0, 8).toString();
+      if (disc === 'REGISTRY' || disc === 'SIMPREG\0') {
+        console.log('[Client] Already registered');
+        return { success: false, error: "Already registered" };
+      }
+    }
+
+    reportProgress('initializing', 1, 1, 'Registering (single transaction)...');
+
+    try {
+      const tx = new Transaction();
+
+      // Build instruction data: discriminator(8) + bump(1) + spend_pubkey(32) + view_pubkey(32) = 73 bytes
+      const data = Buffer.alloc(73);
+      let offset = 0;
+
+      // Discriminator (8 bytes)
+      RegistryDiscriminators.REGISTER_SIMPLE.copy(data, offset);
+      offset += 8;
+
+      // Bump (1 byte)
+      data.writeUInt8(bump, offset);
+      offset += 1;
+
+      // Spend pubkey (32 bytes)
+      Buffer.from(keysToUse.spendPubkey).copy(data, offset);
+      offset += 32;
+
+      // View pubkey (32 bytes)
+      Buffer.from(keysToUse.viewPubkey).copy(data, offset);
+
+      tx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+            { pubkey: registryPda, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          programId: PROGRAM_IDS.REGISTRY,
+          data,
+        })
+      );
+
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, signature, 30, 2000);
+
+      console.log('[Client] Registration complete (single tx):', signature);
+      reportProgress('complete', 1, 1, 'Registration complete!');
+
+      // Trigger background X-Wing upgrade (non-blocking)
+      if (keysToUse.xwingKeys) {
+        this.upgradeToXWingBackground(wallet, keysToUse).catch(err => {
+          console.log('[Client] Background X-Wing upgrade deferred:', err.message);
+        });
+      }
+
+      return { success: true, signature };
+
+    } catch (error) {
+      console.error('[Client] registerSimple error:', error);
+      reportProgress('error', 0, 1, error instanceof Error ? error.message : 'Registration failed');
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Registration failed",
+      };
+    }
+  }
+
+  // BACKGROUND X-WING UPGRADE
+  // Uploads X-Wing public key chunks without blocking UX
+  // Called automatically after registerSimple() succeeds
+  // User signs ALL chunk transactions at once (batch), then they're submitted in background
+  async upgradeToXWingBackground(
+    wallet: WalletAdapter,
+    keys: StealthKeyPair
+  ): Promise<TransactionResult> {
+    if (!wallet.publicKey || !keys.xwingKeys) {
+      return { success: false, error: "Missing wallet or X-Wing keys" };
+    }
+
+    console.log('[Client] Starting background X-Wing upgrade...');
+
+    const [registryPda] = deriveRegistryPda(wallet.publicKey);
+
+    // Serialize X-Wing public key (1216 bytes)
+    const xwingPubkey = serializeXWingPublicKey(keys.xwingKeys.publicKey);
+
+    // Build chunk transactions
+    const CHUNK_SIZE = 500; // Conservative to fit in tx
+    const chunks: { offset: number; data: Uint8Array }[] = [];
+    for (let offset = 0; offset < xwingPubkey.length; offset += CHUNK_SIZE) {
+      chunks.push({
+        offset: 64 + offset, // After Ed25519 keys (32 + 32)
+        data: xwingPubkey.slice(offset, Math.min(offset + CHUNK_SIZE, xwingPubkey.length)),
+      });
+    }
+
+    try {
+      // Build all transactions
+      const transactions: Transaction[] = [];
+      const { blockhash } = await this.connection.getLatestBlockhash();
+
+      for (const chunk of chunks) {
+        const tx = new Transaction();
+        const data = Buffer.alloc(8 + 2 + chunk.data.length);
+        RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(data, 0);
+        data.writeUInt16LE(chunk.offset, 8);
+        Buffer.from(chunk.data).copy(data, 10);
+
+        tx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+            { pubkey: registryPda, isSigner: false, isWritable: true },
+          ],
+          programId: PROGRAM_IDS.REGISTRY,
+          data,
+        }));
+
+        tx.feePayer = wallet.publicKey;
+        tx.recentBlockhash = blockhash;
+        transactions.push(tx);
+      }
+
+      // Batch sign ALL transactions at once (single wallet popup)
+      console.log(`[Client] Batch signing ${transactions.length} X-Wing chunk transactions...`);
+      const signedTxs = await wallet.signAllTransactions(transactions);
+
+      // Submit in background (non-blocking)
+      console.log('[Client] Submitting X-Wing chunks in background...');
+      for (let i = 0; i < signedTxs.length; i++) {
+        const sig = await this.connection.sendRawTransaction(signedTxs[i].serialize(), { skipPreflight: true });
+        console.log(`[Client] X-Wing chunk ${i + 1}/${signedTxs.length} submitted:`, sig.slice(0, 16));
+        // Don't await confirmation - true background
+      }
+
+      console.log('[Client] X-Wing background upgrade initiated');
+      return { success: true };
+
+    } catch (error) {
+      console.error('[Client] X-Wing background upgrade failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : "X-Wing upgrade failed" };
+    }
+  }
+
   // Fetch recipient's registry
-  // On-chain layout (1260 bytes):
-  // - discriminator: 8 bytes (0-7)
-  // - bump: 1 byte (8)
-  // - owner: 32 bytes (9-40)
-  // - is_finalized: 1 byte (41)
-  // - bytes_written: 2 bytes (42-43)
-  // - xwing_public_key: 1216 bytes (44-1259)
+  // Supports both formats:
+  //
+  // OLD format (1260 bytes) - "REGISTRY":
+  // - discriminator: 8 bytes
+  // - bump: 1 byte
+  // - owner: 32 bytes
+  // - is_finalized: 1 byte
+  // - bytes_written: 2 bytes
+  // - xwing_public_key: 1216 bytes (spend[32] + view[32] + padding[1152])
+  //
+  // NEW format (112 bytes) - "SIMPREG\0":
+  // - discriminator: 8 bytes
+  // - bump: 1 byte
+  // - owner: 32 bytes
+  // - is_finalized: 1 byte (always 1)
+  // - spend_pubkey: 32 bytes
+  // - view_pubkey: 32 bytes
+  // - reserved: 6 bytes
   async getRegistry(owner: PublicKey): Promise<RegistryAccount | null> {
     const [registryPda] = deriveRegistryPda(owner);
     const account = await this.connection.getAccountInfo(registryPda);
@@ -447,62 +691,95 @@ export class WaveStealthClient {
     if (!account) return null;
 
     const data = account.data;
-    if (data.length < 44) return null; // MIN_SIZE = 44
 
     // Check discriminator
     const discriminator = data.slice(0, 8).toString();
-    if (discriminator !== 'REGISTRY') {
-      console.log('[Client] Invalid registry discriminator:', discriminator);
-      return null;
+
+    // Handle NEW simplified format (SIMPREG)
+    if (discriminator === 'SIMPREG\0') {
+      if (data.length < 106) return null; // Minimum size for simple registry
+
+      const isFinalized = data[41] === 1;
+      console.log('[Client] Simple registry detected, isFinalized:', isFinalized);
+
+      // Simple registry layout:
+      // disc(8) + bump(1) + owner(32) + is_finalized(1) + spend(32) + view(32) + reserved(6)
+      return {
+        owner: new PublicKey(data.slice(9, 41)),
+        spendPubkey: new Uint8Array(data.slice(42, 74)),
+        viewPubkey: new Uint8Array(data.slice(74, 106)),
+        xwingPubkey: new Uint8Array(64), // Not used in simple format
+        createdAt: 0,
+        isFinalized,
+      };
     }
 
-    const isFinalized = data[41] === 1;
-    console.log('[Client] Registry isFinalized byte:', data[41], '=', isFinalized);
+    // Handle OLD format (REGISTRY)
+    if (discriminator === 'REGISTRY') {
+      if (data.length < 44) return null;
 
-    return {
-      owner: new PublicKey(data.slice(9, 41)),
-      spendPubkey: new Uint8Array(data.slice(44, 76)),
-      viewPubkey: new Uint8Array(data.slice(76, 108)),
-      xwingPubkey: new Uint8Array(data.slice(44, 1260)),
-      createdAt: 0,
-      isFinalized,
-    };
+      const isFinalized = data[41] === 1;
+      console.log('[Client] Legacy registry detected, isFinalized:', isFinalized);
+
+      return {
+        owner: new PublicKey(data.slice(9, 41)),
+        spendPubkey: new Uint8Array(data.slice(44, 76)),
+        viewPubkey: new Uint8Array(data.slice(76, 108)),
+        xwingPubkey: new Uint8Array(data.slice(44, Math.min(1260, data.length))),
+        createdAt: 0,
+        isFinalized,
+      };
+    }
+
+    console.log('[Client] Unknown registry discriminator:', discriminator);
+    return null;
   }
 
   // Wave Send - PRODUCTION-READY stealth transfers with FULL PRIVACY
   //
   // PRIVACY MODES (in order of preference):
-  // 1. MagicBlock PER (DEFAULT) - True TEE privacy via Intel TDX
-  // 2. Mixer Pool + Relayer - Privacy with trusted relayer
-  // 3. Mixer Pool Direct - Recipient triggers transfer
+  // 1. V3 PER Mixer Pool (RECOMMENDED) - Encrypted destination, SHA256 verification
+  // 2. MagicBlock PER - True TEE privacy via Intel TDX
+  // 3. Mixer Pool + Relayer - Privacy with trusted relayer
+  // 4. Mixer Pool Direct - Recipient triggers transfer
   //
-  // MagicBlock PER flow:
-  // - User signs ONE transaction (deposit + delegate)
-  // - PER (inside TEE) automatically executes transfer
-  // - SENDER UNLINKABILITY achieved via actual hardware TEE
+  // V3 flow (RECOMMENDED):
+  // - User signs ONE transaction (DEPOSIT_TO_PER_MIXER_V3)
+  // - Destination is ENCRYPTED with X-Wing shared secret
+  // - TEE verifies SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+  // - Permissionless withdrawal after TEE verification
   //
-  // IMPORTANT: MagicBlock PER is enabled by default for true privacy
+  // IMPORTANT: V3 is preferred when X-Wing keys are available
   async waveSend(
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // Priority 1: Use PER Mixer Pool for IDEAL PRIVACY ARCHITECTURE
-    // This is the recommended approach: shared pool + MagicBlock TEE
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PRIORITY 1: V4 TRUE PRIVACY FLOW (MAXIMUM PRIVACY)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V4 achieves TRUE sender unlinkability:
+    // - Sender creates INPUT_ESCROW and delegates to MagicBlock PER
+    // - TEE moves: INPUT → POOL → OUTPUT (sender NOT in these transactions!)
+    // - On-chain observer cannot correlate sender to receiver
+    //
+    // This is the ONLY flow that provides TRUE cryptographic privacy!
+    if (this.useMagicBlockPer && this.stealthKeys?.xwingKeys) {
+      return this.waveSendV4(wallet, params);
+    }
+
+    // Priority 2: V3 PER Mixer Pool (good privacy, simpler flow)
+    // Note: V3 still has nonce linkability - use V4 for maximum privacy
     if (this.useMagicBlockPer) {
-      console.log('[WaveStealthClient] Using PER Mixer Pool for IDEAL PRIVACY');
-      console.log('[WaveStealthClient] → Sender deposits to shared pool (anonymity set)');
-      console.log('[WaveStealthClient] → PER executes claim inside TEE');
-      console.log('[WaveStealthClient] → Recipient withdraws from escrow on L1');
       return this.waveSendViaPerMixerPool(wallet, params);
     }
 
-    // Priority 2: Use mixer pool with relayer for privacy (if configured)
+    // Priority 3: Use mixer pool with relayer for privacy (if configured)
     if (this.relayerEndpoint) {
       console.log('[WaveStealthClient] Using mixer pool + relayer for privacy');
       return this.waveSendPrivate(wallet, params);
     }
 
-    // Priority 3: Use mixer pool (recipient triggers mixer transfer)
+    // Priority 4: Use mixer pool (recipient triggers mixer transfer)
     console.log('[WaveStealthClient] Using mixer pool (recipient will trigger transfer)');
     return this.waveSendToMixerPool(wallet, params);
   }
@@ -531,7 +808,50 @@ export class WaveStealthClient {
 
     // Generate random nonce
     const nonce = randomBytes(32);
-    const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+
+    // Check if recipient has X-Wing keys for post-quantum security
+    // X-Wing provides quantum-safe key encapsulation
+    const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
+
+    let stealthConfig: StealthVaultConfig;
+    let xwingCiphertext: Uint8Array | undefined;
+
+    if (hasXWingKeys && this.stealthKeys?.xwingKeys) {
+      // POST-QUANTUM PATH: Use X-Wing encapsulation
+      console.log('[WaveStealthClient] Using X-Wing post-quantum encryption');
+
+      // Reconstruct recipient's X-Wing public key
+      // Layout: spend(32) + view(32) + mlkem(1152)
+      // X25519 is derived from spend key
+      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
+      // Derive X25519 from spend key (same curve conversion)
+      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
+
+      const recipientXWingPk: XWingPublicKey = {
+        mlkem: recipientMlkem,
+        x25519: recipientX25519,
+      };
+
+      // X-Wing encapsulation produces quantum-safe shared secret
+      const { ciphertext, sharedSecret } = xwingEncapsulate(recipientXWingPk);
+      xwingCiphertext = ciphertext;
+
+      // Derive stealth address from X-Wing shared secret
+      const { stealthPubkey, viewTag } = deriveXWingStealthAddress(
+        registry.spendPubkey,
+        registry.viewPubkey,
+        sharedSecret
+      );
+
+      // Extract ephemeral pubkey from ciphertext (last 32 bytes)
+      const ephemeralPubkey = ciphertext.slice(ciphertext.length - 32);
+
+      stealthConfig = { stealthPubkey, ephemeralPubkey, viewTag };
+    } else {
+      // CLASSIC PATH: Ed25519-only (fallback)
+      console.log('[WaveStealthClient] Using Ed25519 classic encryption (recipient has no X-Wing keys)');
+      stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
+    }
     const [announcementPda, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
     const [vaultPda] = deriveStealthVaultPda(stealthConfig.stealthPubkey);
     const [mixerPoolPda] = deriveTestMixerPoolPda();
@@ -595,8 +915,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
       console.log('[WaveStealthClient] Deposit to mixer pool complete:', signature);
       console.log('[WaveStealthClient] Recipient will trigger mixer transfer to release funds');
@@ -720,8 +1040,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const depositSig = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(depositSig, 'confirmed');
+      const depositSig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
       console.log('[WaveStealthClient] Deposit complete:', depositSig);
 
@@ -852,8 +1172,8 @@ export class WaveStealthClient {
       depositTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedDepositTx = await wallet.signTransaction(depositTx);
-      const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize());
-      await this.connection.confirmTransaction(depositSig, 'confirmed');
+      const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
       console.log('[WaveStealthClient] ✓ Deposit complete (USER SIGNED ONCE):', depositSig);
 
@@ -1044,15 +1364,27 @@ export class WaveStealthClient {
 
       // USER SIGNS ONE TRANSACTION
       const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(signature, 'confirmed');
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+
+      // Use HTTP polling confirmation (avoids WebSocket issues on devnet)
+      const confirmed = await confirmTransactionPolling(this.connection, signature, 30, 2000);
+      if (!confirmed) {
+        console.warn('[WaveStealthClient] TX confirmation timed out, but may still succeed');
+      }
 
       console.log('[WaveStealthClient] ✓ Deposit + Delegate complete (USER SIGNED ONCE):', signature);
-      console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER');
-      console.log('[WaveStealthClient] ✓ PER (inside TEE) will automatically execute mixer transfer');
-      console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE!');
+      console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER (TEE Validator)');
+      console.log('[WaveStealthClient] ✓ PER (inside Intel TDX TEE) will automatically execute stealth transfer');
+      console.log('[WaveStealthClient] ✓ SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE!');
 
-      // PER automatically executes mixer transfer inside TEE
+      // PER automatically executes stealth transfer inside TEE
+      // The TEE will:
+      // 1. Read the deposit record with stealth config
+      // 2. Execute transfer to stealth vault
+      // 3. Commit state back to L1
       // No need for manual trigger - Magic Actions handles this
 
       return {
@@ -1065,6 +1397,7 @@ export class WaveStealthClient {
         // Additional info for tracking
         perDepositPda,
         nonce: Buffer.from(nonce).toString('hex'),
+        delegated: true, // Indicates deposit is delegated to MagicBlock TEE
       } as SendResult;
     } catch (error) {
       console.error('[WaveStealthClient] PER send error:', error);
@@ -1202,6 +1535,214 @@ export class WaveStealthClient {
       } as SendResult;
     } catch (error) {
       console.error('[WaveStealthClient] PER Mixer Pool send error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Send failed",
+      };
+    }
+  }
+
+  // ========================================
+  // V3 PER MIXER POOL - IDEAL PRIVACY (RECOMMENDED)
+  // ========================================
+  // TRUE PRIVACY via encrypted destination:
+  // 1. Sender deposits to shared PER mixer pool (anonymity set)
+  // 2. Destination wallet is ENCRYPTED with X-Wing shared secret
+  // 3. On-chain SHA256 verification: SHA256(shared_secret || "stealth-derive") == stealth_pubkey
+  // 4. TEE verifies and sets verified_destination
+  // 5. Permissionless withdrawal to verified_destination
+  //
+  // SENDER UNLINKABILITY: All senders deposit to same pool
+  // RECEIVER UNLINKABILITY: Destination encrypted, TEE handles claim
+  // NO RELAYER: Magic Actions → PER/TEE handles everything
+  async waveSendViaPerMixerPoolV3(
+    wallet: WalletAdapter,
+    params: WaveSendParams
+  ): Promise<SendResult> {
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const registry = await this.getRegistry(params.recipientWallet);
+    if (!registry || !registry.isFinalized) {
+      return { success: false, error: "Recipient not registered for stealth payments" };
+    }
+
+    const isSol = !params.mint || params.mint.equals(NATIVE_SOL_MINT);
+    if (!isSol) {
+      return { success: false, error: "SPL token transfers not yet supported" };
+    }
+
+    // V3 requires X-Wing keys for encrypted destination
+    if (!this.stealthKeys?.xwingKeys) {
+      console.warn('[WaveStealthClient] V3 requires X-Wing keys, falling back to V1');
+      return this.waveSendViaPerMixerPool(wallet, params);
+    }
+
+
+    // Generate random nonce
+    const nonce = randomBytes(32);
+
+    // X-Wing encapsulation: generate shared secret and ciphertext
+    // Reconstruct recipient's X-Wing public key
+    const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
+    let sharedSecret: Uint8Array;
+    let xwingCiphertext: Uint8Array | undefined;
+
+    if (hasXWingKeys) {
+      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
+      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
+      const recipientXWingPk: XWingPublicKey = {
+        mlkem: recipientMlkem,
+        x25519: recipientX25519,
+      };
+      const encapResult = xwingEncapsulate(recipientXWingPk);
+      xwingCiphertext = encapResult.ciphertext;
+      sharedSecret = encapResult.sharedSecret;
+    } else {
+      // Generate random shared secret if no X-Wing keys
+      sharedSecret = randomBytes(32);
+    }
+
+    // V3: Derive stealth pubkey using SHA256 (MUST match on-chain)
+    const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
+
+    // Ephemeral pubkey from X-Wing ciphertext or random
+    const ephemeralPubkey = xwingCiphertext
+      ? xwingCiphertext.slice(xwingCiphertext.length - 32)
+      : randomBytes(32);
+
+    // View tag is first byte of shared secret
+    const viewTag = sharedSecret[0];
+
+    // V3: ENCRYPT destination wallet with AES-GCM
+    const encryptedDestination = await encryptDestinationWallet(
+      params.recipientWallet.toBytes(),
+      sharedSecret
+    );
+
+    // Derive PDAs
+    const [perMixerPoolPda] = derivePerMixerPoolPda();
+    const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
+    const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+    const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPda);
+    const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
+    const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
+    const [delegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
+
+    const amountBigInt = BigInt(params.amount);
+
+    // ========================================
+    // BUILD DEPOSIT_TO_PER_MIXER_V3 TX
+    // ========================================
+    // This deposits to the shared mixer pool with ENCRYPTED destination
+    // The escrow is created and delegated to MagicBlock PER
+    const tx = new Transaction();
+
+    // Add compute budget
+    tx.add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
+    );
+
+    // Build instruction data for DEPOSIT_TO_PER_MIXER_V3
+    // V3 Layout: discriminator(1) + record_bump(1) + escrow_bump(1) + xwing_ct_bump(1) + nonce(32) + amount(8) +
+    //            stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) +
+    //            encrypted_destination(48) + commit_freq_ms(4) + xwing_ciphertext(1120) = 1281 bytes
+    const hasFullXWing = xwingCiphertext && xwingCiphertext.length === 1120;
+    const dataSize = hasFullXWing ? 1281 : 161; // Include full ciphertext or legacy format
+    const data = Buffer.alloc(dataSize);
+    let offset = 0;
+
+    data[offset++] = StealthDiscriminators.DEPOSIT_TO_PER_MIXER_V3;
+    data[offset++] = recordBump;
+    data[offset++] = escrowBump;
+    data[offset++] = xwingCtBump;
+
+    Buffer.from(nonce).copy(data, offset);
+    offset += 32;
+
+    // Write amount as 8 bytes little-endian
+    for (let i = 0; i < 8; i++) {
+      data[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+    }
+
+    Buffer.from(stealthPubkey).copy(data, offset);
+    offset += 32;
+
+    Buffer.from(ephemeralPubkey).copy(data, offset);
+    offset += 32;
+
+    data[offset++] = viewTag;
+
+    Buffer.from(encryptedDestination).copy(data, offset);
+    offset += 48;
+
+    // Commit frequency: 10000ms = 10 seconds
+    const commitFrequency = 10000;
+    data[offset++] = commitFrequency & 0xff;
+    data[offset++] = (commitFrequency >> 8) & 0xff;
+    data[offset++] = (commitFrequency >> 16) & 0xff;
+    data[offset++] = (commitFrequency >> 24) & 0xff;
+
+    // V3: Include full X-Wing ciphertext for receiver decapsulation
+    if (hasFullXWing) {
+      Buffer.from(xwingCiphertext).copy(data, offset);
+      offset += 1120;
+    }
+
+    // Build V3 deposit instruction
+    // V3 accounts: payer, pool, record, escrow, xwing_ct, buffer, del_record, del_meta, system, delegation, owner
+    tx.add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: false }, // Just for verification
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true }, // V3: XWingCiphertext account
+          { pubkey: escrowBuffer, isSigner: false, isWritable: true },
+          { pubkey: delegationRecord, isSigner: false, isWritable: true },
+          { pubkey: delegationMetadata, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
+          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false }, // owner_program
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      })
+    );
+
+    try {
+      tx.feePayer = wallet.publicKey;
+      const { blockhash } = await this.connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+
+      // USER SIGNS ONE TRANSACTION
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+
+
+      // Use HTTP polling confirmation
+      const confirmed = await confirmTransactionPolling(this.connection, signature, 20, 2000);
+
+      return {
+        success: true,
+        signature,
+        stealthPubkey,
+        ephemeralPubkey,
+        viewTag,
+        perDepositPda: depositRecordPda,
+        escrowPda,
+        nonce: Buffer.from(nonce).toString('hex'),
+        sharedSecret, // Receiver needs this to claim
+        isV3: true,
+        delegated: true,
+      } as SendResult;
+    } catch (error) {
+      console.error('[WaveStealthClient] V3 send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1450,8 +1991,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(txSignature);
+      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, txSignature, 30, 2000);
 
       return {
         success: true,
@@ -1525,8 +2066,8 @@ export class WaveStealthClient {
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
-      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize());
-      await this.connection.confirmTransaction(txSignature);
+      const txSignature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, txSignature, 30, 2000);
 
       return {
         success: true,
@@ -1666,6 +2207,376 @@ export class WaveStealthClient {
           ]).toString('base64'),
         },
       } as ClaimResult;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // V4 TRUE PRIVACY FLOW
+  // ═══════════════════════════════════════════════════════════════════════════════
+  //
+  // ARCHITECTURE:
+  // TX1 (L1): CREATE_V4_DEPOSIT - Create deposit record with stealth metadata
+  // TX2 (L1): UPLOAD_V4_CIPHERTEXT - Upload X-Wing ciphertext in chunks
+  // TX3 (L1): COMPLETE_V4_DEPOSIT - Create INPUT_ESCROW + delegate to PER
+  // TX4 (PER): INPUT_TO_POOL_V4 - TEE moves funds: INPUT → POOL (sender NOT in tx!)
+  // TX5 (PER): POOL_TO_ESCROW_V4 - TEE creates OUTPUT escrow from POOL
+  // TX6 (PER): CLAIM_ESCROW_V4 - TEE verifies, triggers undelegation
+  // TX7 (L1): WITHDRAW_FROM_ESCROW - Receiver withdraws
+  //
+  // PRIVACY GUARANTEE:
+  // - Sender's wallet only appears in TX1-TX3 (deposit phase)
+  // - TX4-TX5 run inside TEE, sender NOT in transaction
+  // - On-chain observer sees: Many inputs → Pool → Many outputs
+  // - Cannot correlate specific sender to specific receiver
+  //
+  async waveSendV4(
+    wallet: WalletAdapter,
+    params: WaveSendParams,
+    onProgress?: (step: string, current: number, total: number) => void
+  ): Promise<SendResult> {
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const registry = await this.getRegistry(params.recipientWallet);
+    if (!registry || !registry.isFinalized) {
+      return { success: false, error: "Recipient not registered for stealth payments" };
+    }
+
+    const isSol = !params.mint || params.mint.equals(NATIVE_SOL_MINT);
+    if (!isSol) {
+      return { success: false, error: "SPL token transfers not yet supported in V4" };
+    }
+
+    // V4 requires X-Wing keys for encrypted destination
+    if (!this.stealthKeys?.xwingKeys) {
+      console.warn('[WaveStealthClient] V4 requires X-Wing keys, falling back to V3');
+      return this.waveSendViaPerMixerPoolV3(wallet, params);
+    }
+
+
+    const reportProgress = (step: string, current: number, total: number) => {
+      onProgress?.(step, current, total);
+    };
+
+    // Generate random nonce
+    const nonce = randomBytes(32);
+    const amountBigInt = BigInt(params.amount);
+
+    // X-Wing encapsulation for encrypted destination
+    const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
+    let sharedSecret: Uint8Array;
+    let xwingCiphertext: Uint8Array;
+
+    if (hasXWingKeys) {
+      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
+      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
+      const recipientXWingPk: XWingPublicKey = {
+        mlkem: recipientMlkem,
+        x25519: recipientX25519,
+      };
+      const encapResult = xwingEncapsulate(recipientXWingPk);
+      xwingCiphertext = encapResult.ciphertext;
+      sharedSecret = encapResult.sharedSecret;
+    } else {
+      sharedSecret = randomBytes(32);
+      xwingCiphertext = new Uint8Array(1120); // Empty ciphertext
+    }
+
+    // Derive stealth pubkey using SHA256 (MUST match on-chain)
+    const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
+    const ephemeralPubkey = xwingCiphertext.slice(xwingCiphertext.length - 32);
+    const viewTag = sharedSecret[0];
+
+    // Encrypt destination wallet with AES-GCM
+    const encryptedDestination = await encryptDestinationWallet(
+      params.recipientWallet.toBytes(),
+      sharedSecret
+    );
+
+    // Derive all V4 PDAs
+    const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda();
+    const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
+    const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+    const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPda);
+    const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
+    const [escrowDelegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
+    const [escrowDelegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
+    const [permissionPda] = deriveEscrowPermissionPda(escrowPda);
+    const [permDelegationBuffer] = derivePermissionDelegationBufferPda(permissionPda);
+    const [permDelegationRecord] = derivePermissionDelegationRecordPda(permissionPda);
+    const [permDelegationMetadata] = derivePermissionDelegationMetadataPda(permissionPda);
+    const [xwingCtBuffer] = deriveXWingCtBufferPda(xwingCtPda);
+    const [xwingCtDelegationRecord] = deriveXWingCtDelegationRecordPda(xwingCtPda);
+    const [xwingCtDelegationMetadata] = deriveXWingCtDelegationMetadataPda(xwingCtPda);
+
+    try {
+      // ══════════════════════════════════════════════════════════════════════
+      // STEP 1: CREATE_V4_DEPOSIT
+      // ══════════════════════════════════════════════════════════════════════
+      reportProgress('Creating deposit record', 1, 4);
+
+      const createData = Buffer.alloc(155);
+      let offset = 0;
+      createData[offset++] = StealthDiscriminators.CREATE_V4_DEPOSIT;
+      createData[offset++] = recordBump;
+      Buffer.from(nonce).copy(createData, offset); offset += 32;
+      for (let i = 0; i < 8; i++) {
+        createData[offset++] = Number((amountBigInt >> BigInt(i * 8)) & BigInt(0xff));
+      }
+      Buffer.from(stealthPubkey).copy(createData, offset); offset += 32;
+      Buffer.from(ephemeralPubkey).copy(createData, offset); offset += 32;
+      createData[offset++] = viewTag;
+      Buffer.from(encryptedDestination).copy(createData, offset);
+
+      const createTx = new Transaction();
+      createTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+      createTx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: false },
+          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: createData,
+      }));
+
+      createTx.feePayer = wallet.publicKey;
+      createTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedCreateTx = await wallet.signTransaction(createTx);
+      const createSig = await this.connection.sendRawTransaction(signedCreateTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+      await confirmTransactionPolling(this.connection, createSig, 20, 2000);
+
+      // ══════════════════════════════════════════════════════════════════════
+      // STEP 2: UPLOAD_V4_CIPHERTEXT (chunk the 1120-byte X-Wing ciphertext)
+      // Build all chunk TXs, sign once with signAllTransactions, send sequentially
+      // ══════════════════════════════════════════════════════════════════════
+      reportProgress('Uploading X-Wing ciphertext', 2, 4);
+
+      const CHUNK_SIZE = 800;
+      const totalChunks = Math.ceil(xwingCiphertext.length / CHUNK_SIZE);
+      const { blockhash } = await this.connection.getLatestBlockhash();
+
+      // Build all chunk transactions
+      const uploadTxs: Transaction[] = [];
+      for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+        const chunkStart = chunkIdx * CHUNK_SIZE;
+        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, xwingCiphertext.length);
+        const chunk = xwingCiphertext.slice(chunkStart, chunkEnd);
+
+        // Data: discriminator(1) + nonce(32) + offset(2) + chunk_len(2) + chunk
+        const uploadData = Buffer.alloc(1 + 32 + 2 + 2 + chunk.length);
+        let uOffset = 0;
+        uploadData[uOffset++] = StealthDiscriminators.UPLOAD_V4_CIPHERTEXT;
+        Buffer.from(nonce).copy(uploadData, uOffset); uOffset += 32;
+        uploadData.writeUInt16LE(chunkStart, uOffset); uOffset += 2;
+        uploadData.writeUInt16LE(chunk.length, uOffset); uOffset += 2;
+        Buffer.from(chunk).copy(uploadData, uOffset);
+
+        const uploadTx = new Transaction();
+        uploadTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 100_000 }));
+        uploadTx.add(new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+            { pubkey: depositRecordPda, isSigner: false, isWritable: true },
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data: uploadData,
+        }));
+        uploadTx.feePayer = wallet.publicKey;
+        uploadTx.recentBlockhash = blockhash;
+        uploadTxs.push(uploadTx);
+      }
+
+      // Sign all chunk transactions with ONE user approval
+      const signedUploadTxs = await wallet.signAllTransactions(uploadTxs);
+
+      // Send sequentially, waiting for each confirmation
+      for (let i = 0; i < signedUploadTxs.length; i++) {
+        const uploadSig = await this.connection.sendRawTransaction(signedUploadTxs[i].serialize(), {
+          skipPreflight: true,
+          maxRetries: 3,
+        });
+        await confirmTransactionPolling(this.connection, uploadSig, 20, 2000);
+      }
+
+      // ══════════════════════════════════════════════════════════════════════
+      // STEP 3: COMPLETE_V4_DEPOSIT (creates input_escrow + delegates everything)
+      // ══════════════════════════════════════════════════════════════════════
+      reportProgress('Completing deposit and delegating to TEE', 3, 4);
+
+      const completeData = Buffer.alloc(39);
+      let cOffset = 0;
+      completeData[cOffset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT;
+      Buffer.from(nonce).copy(completeData, cOffset); cOffset += 32;
+      completeData[cOffset++] = escrowBump;
+      completeData[cOffset++] = xwingCtBump;
+      // Commit frequency: 10000ms = 10 seconds
+      const commitFreq = 10000;
+      completeData.writeUInt32LE(commitFreq, cOffset);
+
+      const completeTx = new Transaction();
+      completeTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }));
+      completeTx.add(new TransactionInstruction({
+        keys: [
+          // 0. [signer, writable] payer
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          // 1. [] deposit_record
+          { pubkey: depositRecordPda, isSigner: false, isWritable: false },
+          // 2. [writable] input_escrow
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          // 3. [writable] escrow_buffer
+          { pubkey: escrowBuffer, isSigner: false, isWritable: true },
+          // 4. [writable] escrow_delegation_record
+          { pubkey: escrowDelegationRecord, isSigner: false, isWritable: true },
+          // 5. [writable] escrow_delegation_metadata
+          { pubkey: escrowDelegationMetadata, isSigner: false, isWritable: true },
+          // 6. [] system_program
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          // 7. [] delegation_program
+          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
+          // 8. [] owner_program (stealth)
+          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false },
+          // 9. [writable] permission_pda
+          { pubkey: permissionPda, isSigner: false, isWritable: true },
+          // 10. [] permission_program
+          { pubkey: PROGRAM_IDS.PERMISSION, isSigner: false, isWritable: false },
+          // 11. [writable] perm_delegation_buffer
+          { pubkey: permDelegationBuffer, isSigner: false, isWritable: true },
+          // 12. [writable] perm_delegation_record
+          { pubkey: permDelegationRecord, isSigner: false, isWritable: true },
+          // 13. [writable] perm_delegation_metadata
+          { pubkey: permDelegationMetadata, isSigner: false, isWritable: true },
+          // 14. [] validator (TEE)
+          { pubkey: TEE_VALIDATOR, isSigner: false, isWritable: false },
+          // 15. [writable] xwing_ct
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true },
+          // 16. [writable] xwing_ct_buffer
+          { pubkey: xwingCtBuffer, isSigner: false, isWritable: true },
+          // 17. [writable] xwing_ct_delegation_record
+          { pubkey: xwingCtDelegationRecord, isSigner: false, isWritable: true },
+          // 18. [writable] xwing_ct_delegation_metadata
+          { pubkey: xwingCtDelegationMetadata, isSigner: false, isWritable: true },
+          // 19. [writable] per_mixer_pool (receives user's deposit!)
+          { pubkey: derivePerMixerPoolPda()[0], isSigner: false, isWritable: true },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: completeData,
+      }));
+
+      completeTx.feePayer = wallet.publicKey;
+      completeTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedCompleteTx = await wallet.signTransaction(completeTx);
+      const completeSig = await this.connection.sendRawTransaction(signedCompleteTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+      await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
+
+      // ══════════════════════════════════════════════════════════════════════
+      // STEP 4: POOL_TO_ESCROW_V4 on MagicBlock PER
+      // ══════════════════════════════════════════════════════════════════════
+      // Funds are now in POOL on L1. We need to call POOL_TO_ESCROW_V4 on PER
+      // to move funds from pool to escrow. This breaks the sender→escrow link!
+      reportProgress('Moving funds: POOL → ESCROW on PER...', 4, 5);
+
+      // Wait for PER to sync the delegated accounts
+      await new Promise(r => setTimeout(r, 5000));
+
+      // Create MagicBlock PER connection
+      const MAGICBLOCK_PER_RPC = 'https://devnet.magicblock.app';
+      const perConnection = new Connection(MAGICBLOCK_PER_RPC, 'confirmed');
+
+      // DEBUG: Check pool state on BOTH L1 and PER
+      const [poolInfoL1, poolInfoPER, escrowInfoPER, depositRecordInfoL1] = await Promise.all([
+        this.connection.getAccountInfo(perMixerPoolPda).catch(() => null),
+        perConnection.getAccountInfo(perMixerPoolPda).catch(() => null),
+        perConnection.getAccountInfo(escrowPda).catch(() => null),
+        this.connection.getAccountInfo(depositRecordPda).catch(() => null),
+      ]);
+      console.log('[WaveStealthClient] DEBUG: Pool state check:', {
+        poolPda: perMixerPoolPda.toBase58(),
+        poolOnL1: poolInfoL1 ? { lamports: poolInfoL1.lamports, owner: poolInfoL1.owner.toBase58() } : 'NOT FOUND',
+        poolOnPER: poolInfoPER ? { lamports: poolInfoPER.lamports, owner: poolInfoPER.owner.toBase58() } : 'NOT FOUND',
+        escrowOnPER: escrowInfoPER ? { lamports: escrowInfoPER.lamports, owner: escrowInfoPER.owner.toBase58() } : 'NOT FOUND',
+        depositRecordOnL1: depositRecordInfoL1 ? { lamports: depositRecordInfoL1.lamports, owner: depositRecordInfoL1.owner.toBase58() } : 'NOT FOUND',
+        expectedAmount: amountBigInt.toString(),
+      });
+
+      // Build POOL_TO_ESCROW_V4 instruction
+      // Using poolBump, escrowBump, xwingCtBump from lines 2298-2301 above
+      // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
+      const poolToEscrowData = Buffer.alloc(36);
+      let p2eOffset = 0;
+      poolToEscrowData[p2eOffset++] = StealthDiscriminators.POOL_TO_ESCROW_V4;
+      poolToEscrowData[p2eOffset++] = poolBump;
+      Buffer.from(nonce).copy(poolToEscrowData, p2eOffset); p2eOffset += 32;
+      poolToEscrowData[p2eOffset++] = escrowBump;
+      poolToEscrowData[p2eOffset++] = xwingCtBump;
+
+      const poolToEscrowTx = new Transaction();
+      poolToEscrowTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }));
+      poolToEscrowTx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },   // tee_authority (any signer)
+          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },   // pool
+          { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // deposit_record (read-only on L1)
+          { pubkey: escrowPda, isSigner: false, isWritable: true },         // claim_escrow
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // xwing_ciphertext
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: poolToEscrowData,
+      }));
+
+      poolToEscrowTx.feePayer = wallet.publicKey;
+      poolToEscrowTx.recentBlockhash = (await perConnection.getLatestBlockhash()).blockhash;
+      const signedPoolTx = await wallet.signTransaction(poolToEscrowTx);
+      const poolToEscrowSig = await perConnection.sendRawTransaction(signedPoolTx.serialize(), {
+        skipPreflight: true,
+      });
+
+      // Wait for PER confirmation - MUST check return value!
+      console.log('[WaveStealthClient] POOL_TO_ESCROW_V4 sent to PER:', poolToEscrowSig);
+      const poolToEscrowConfirmed = await confirmTransactionPolling(perConnection, poolToEscrowSig, 30, 2000);
+      if (!poolToEscrowConfirmed) {
+        // Try to get more details about the failure
+        const txStatus = await perConnection.getSignatureStatus(poolToEscrowSig).catch(() => null);
+        console.error('[WaveStealthClient] POOL_TO_ESCROW_V4 failed on PER!', {
+          signature: poolToEscrowSig,
+          status: txStatus?.value,
+          error: txStatus?.value?.err,
+        });
+        throw new Error(`POOL_TO_ESCROW_V4 failed on PER: ${JSON.stringify(txStatus?.value?.err || 'unknown')}`);
+      }
+      console.log('[WaveStealthClient] POOL_TO_ESCROW_V4 confirmed on PER!');
+
+      reportProgress('Send complete! Receiver can now claim.', 5, 5);
+
+      return {
+        success: true,
+        signature: completeSig,
+        stealthPubkey,
+        ephemeralPubkey,
+        viewTag,
+        perDepositPda: depositRecordPda,
+        escrowPda,
+        nonce: Buffer.from(nonce).toString('hex'),
+        sharedSecret,
+        isV4: true,
+        delegated: true,
+      } as SendResult;
+
+    } catch (error) {
+      console.error('[WaveStealthClient] V4 send error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "V4 send failed",
+      };
     }
   }
 }

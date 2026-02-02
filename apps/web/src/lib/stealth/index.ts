@@ -14,11 +14,36 @@ export {
   checkStealthAddress,
   stealthSign,
   stealthVerify,
+  // X-Wing post-quantum cryptography
+  xwingKeyGenFromSeed,
+  xwingEncapsulate,
+  xwingDecapsulate,
+  deriveXWingStealthAddress,
+  deriveXWingStealthPrivateKey,
+  checkXWingViewTag,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  XWING_PUBLIC_KEY_SIZE,
+  XWING_CIPHERTEXT_SIZE,
+  // Ed25519 → X25519 conversion (X-Wing uses spend key as X25519)
+  generateXWingFromSpendKey,
+  ed25519ToX25519Keypair,
+  // Privacy: Encrypted destination functions
+  encryptDestinationWallet,
+  decryptDestinationWallet,
+  deriveStealthPubkeyFromSharedSecret,
 } from "./crypto";
-export type { StealthKeyPair, StealthVaultConfig } from "./crypto";
+export type {
+  StealthKeyPair,
+  StealthVaultConfig,
+  XWingKeyPair,
+  XWingPublicKey,
+  XWingSecretKey,
+} from "./crypto";
 
 export {
   PROGRAM_IDS,
+  MASTER_AUTHORITY,
   NATIVE_SOL_MINT,
   RegistryDiscriminators,
   StealthDiscriminators,
@@ -39,6 +64,23 @@ export {
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
+  deriveXWingCiphertextPda,
+  XWING_CIPHERTEXT_ACCOUNT_SIZE,
+  // V4 PDAs
+  deriveEscrowBufferPda,
+  deriveEscrowDelegationRecordPda,
+  deriveEscrowDelegationMetadataPda,
+  deriveEscrowPermissionPda,
+  derivePermissionDelegationBufferPda,
+  derivePermissionDelegationRecordPda,
+  derivePermissionDelegationMetadataPda,
+  deriveXWingCtBufferPda,
+  deriveXWingCtDelegationRecordPda,
+  deriveXWingCtDelegationMetadataPda,
+  // MagicBlock constants
+  TEE_VALIDATOR,
+  MAGIC_CONTEXT,
+  MAGIC_PROGRAM,
 } from "./config";
 
 export type {
@@ -55,10 +97,29 @@ export type {
   WaveStakeParams,
   WaveSwapParams,
   SwapQuote,
+  // X-Wing types (re-exported from types.ts)
+  XWingKeyPair as XWingKeyPairType,
+  XWingPublicKey as XWingPublicKeyType,
+  XWingSecretKey as XWingSecretKeyType,
 } from "./types";
 
-export { StealthScanner, isPaymentForUs, deriveStealthFromEphemeral } from "./scanner";
-export type { DetectedPayment, ScannerConfig } from "./scanner";
+export {
+  StealthScanner,
+  // V4 TRUE PRIVACY Scanner (primary)
+  scanForEscrowsV4,
+  isEscrowForUs,
+  verifyStealthPubkey,
+  // Legacy aliases for backwards compatibility
+  scanForEscrowsV3,
+  isEscrowForUsV3,
+  verifyStealthPubkeyV3,
+  checkViewTagV3,
+  isPaymentForUs,
+  isPaymentForUsXWing,
+  isPaymentForUsUniversal,
+  deriveStealthFromEphemeral,
+} from "./scanner";
+export type { DetectedPayment, ScannerConfig, DetectedEscrowV4, DetectedEscrowV3 } from "./scanner";
 
 // PER Privacy Integration - Full privacy flow with MagicBlock
 export { PERPrivacyClient, MAGICBLOCK_RPC_DEVNET, MAGICBLOCK_TEE_PUBKEY } from "./per-privacy";

@@ -1,9 +1,11 @@
 // WaveSwap Stealth SDK
 // Privacy-preserving transactions using OceanVault stealth addresses
+// Supports both Ed25519 (classical) and X-Wing (post-quantum) cryptography
 
 export { WaveStealthClient } from "./client";
 export type { ClientConfig, WalletAdapter } from "./client";
 
+// Ed25519 stealth crypto (classical security)
 export {
   generateViewingKeys,
   generateStealthKeysFromSignature,
@@ -16,6 +18,33 @@ export {
   stealthVerify,
 } from "./crypto";
 export type { StealthKeyPair, StealthVaultConfig } from "./crypto";
+
+// X-Wing post-quantum crypto (ML-KEM-768 + X25519)
+export {
+  xwingKeyGen,
+  xwingEncapsulate,
+  xwingDecapsulate,
+  serializeXWingPublicKey,
+  deserializeXWingPublicKey,
+  deriveXWingStealthAddress,
+  deriveXWingStealthPrivateKey,
+  checkXWingViewTag,
+  generateXWingStealthKeys,
+  generateXWingKeyBundle,
+  prepareXWingStealthPayment,
+  recoverXWingStealthPayment,
+  XWING_PUBLIC_KEY_SIZE,
+  XWING_CIPHERTEXT_SIZE,
+  XWING_SHARED_SECRET_SIZE,
+} from "./xwing";
+export type {
+  XWingPublicKey,
+  XWingSecretKey,
+  XWingKeyPair,
+  XWingEncapsulationResult,
+  XWingStealthResult,
+  XWingKeyBundle,
+} from "./xwing";
 
 export {
   PROGRAM_IDS,

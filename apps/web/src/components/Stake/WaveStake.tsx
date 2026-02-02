@@ -1078,7 +1078,7 @@ function StakeModal({
               {/* Quick Select Buttons */}
               <div className="flex gap-2">
                 <button
-                  onClick={() => setStakeAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.25).toFixed(4))}
+                  onClick={() => setAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.25).toFixed(4))}
                   disabled={isProcessing || !connected}
                   className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                   style={{
@@ -1090,7 +1090,7 @@ function StakeModal({
                   25%
                 </button>
                 <button
-                  onClick={() => setStakeAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.5).toFixed(4))}
+                  onClick={() => setAmount(((activeTab === 'deposit' ? parseFloat(pool.userBalance || '0') : parseFloat(pool.userStaked || '0')) * 0.5).toFixed(4))}
                   disabled={isProcessing || !connected}
                   className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                   style={{
@@ -1102,7 +1102,7 @@ function StakeModal({
                   50%
                 </button>
                 <button
-                  onClick={() => setStakeAmount((activeTab === 'deposit' ? pool.userBalance || '0' : pool.userStaked || '0').toString())}
+                  onClick={() => setAmount((activeTab === 'deposit' ? pool.userBalance || '0' : pool.userStaked || '0').toString())}
                   disabled={isProcessing || !connected}
                   className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                   style={{

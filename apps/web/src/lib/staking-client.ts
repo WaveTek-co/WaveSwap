@@ -1,6 +1,6 @@
 import { Connection, PublicKey, Transaction, SystemProgram, TransactionInstruction } from '@solana/web3.js'
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor'
-import { createHash } from 'crypto'
+import { sha256 } from '@noble/hashes/sha256'
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token'
 
 // WaveStake Program ID (Deployed to Devnet)
@@ -43,7 +43,8 @@ export enum LockType {
 // Helper to create instruction discriminator (8 bytes)
 function createDiscriminator(name: string): Buffer {
   const preimage = `global:${name}`
-  return createHash('sha256').update(preimage).digest().slice(0, 8)
+  const hash = sha256(new TextEncoder().encode(preimage))
+  return Buffer.from(hash.slice(0, 8))
 }
 
 // Helper to encode public key
