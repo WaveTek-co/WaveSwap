@@ -1576,9 +1576,44 @@ export function useAutoClaim(): UseAutoClaimReturn {
   // This prevents wallet popup spam from legacy unclaimed deposits
   // Users can manually call triggerMagicAction() or withdrawFromEscrow() as needed
 
-  // NOTE: Auto-claim and auto-withdraw DISABLED to prevent wallet popup spam
-  // Users can manually call claimAll(), claimSingle(), or withdrawFromEscrow()
-  // The UI should provide buttons for these actions
+  // AUTO-CLAIM V4 ESCROWS
+  // When V4 escrows are detected (isV3: true with sharedSecret), automatically claim them
+  const autoClaimingRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!publicKey || !signTransaction || !stealthKeys) return
+
+    const claimPendingEscrows = async () => {
+      // Find V4 escrows that are pending and have sharedSecret (from X-Wing decapsulation)
+      const toClaim = pendingEscrows.filter(e =>
+        e.status === 'pending' &&
+        e.sharedSecret &&
+        !autoClaimingRef.current.has(e.escrowAddress)
+      )
+
+      for (const escrow of toClaim) {
+        autoClaimingRef.current.add(escrow.escrowAddress)
+        console.log('[AutoClaim] V4: Auto-claiming escrow:', escrow.escrowAddress.slice(0, 12) + '...')
+
+        try {
+          const success = await claimViaTEE(escrow, publicKey, escrow.sharedSecret)
+          if (success) {
+            console.log('[AutoClaim] V4: Successfully claimed:', escrow.escrowAddress.slice(0, 12) + '...')
+            showClaimSuccess(Number(escrow.amount) / LAMPORTS_PER_SOL)
+          } else {
+            console.warn('[AutoClaim] V4: Claim returned false:', escrow.escrowAddress.slice(0, 12) + '...')
+          }
+        } catch (err) {
+          console.error('[AutoClaim] V4: Claim error:', err)
+        }
+      }
+    }
+
+    // Run auto-claim when pendingEscrows changes
+    if (pendingEscrows.some(e => e.status === 'pending' && e.sharedSecret)) {
+      claimPendingEscrows()
+    }
+  }, [pendingEscrows, publicKey, signTransaction, stealthKeys, claimViaTEE])
 
   return {
     isScanning,
