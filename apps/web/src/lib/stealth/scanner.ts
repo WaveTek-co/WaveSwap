@@ -134,30 +134,33 @@ export function isEscrowForUs(
 ): { isOurs: boolean; sharedSecret?: Uint8Array } {
   // Must have X-Wing keys
   if (!keys.xwingKeys) {
+    console.log('[isEscrowForUs] No X-Wing keys available');
     return { isOurs: false };
   }
 
   // Validate ciphertext length
   if (xwingCiphertext.length !== XWING_CIPHERTEXT_LENGTH) {
-    console.warn(`[V4 Scanner] Invalid ciphertext length: ${xwingCiphertext.length}, expected ${XWING_CIPHERTEXT_LENGTH}`);
+    console.warn(`[isEscrowForUs] Invalid ciphertext length: ${xwingCiphertext.length}, expected ${XWING_CIPHERTEXT_LENGTH}`);
     return { isOurs: false };
   }
 
   try {
     // Step 1: X-Wing decapsulation
     const sharedSecret = xwingDecapsulate(keys.xwingKeys.secretKey, xwingCiphertext);
+    console.log('[isEscrowForUs] X-Wing decapsulation succeeded, verifying stealth pubkey...');
 
     // Step 2: Verify stealth pubkey derivation
     if (!verifyStealthPubkey(sharedSecret, stealthPubkey)) {
       // Decapsulation succeeded but stealth pubkey doesn't match
-      // This escrow was created for someone else
+      console.log('[isEscrowForUs] Stealth pubkey mismatch - escrow not ours');
       return { isOurs: false };
     }
 
     // Step 3: SUCCESS - This escrow is ours!
+    console.log('[isEscrowForUs] ✓ MATCH - this escrow is OURS!');
     return { isOurs: true, sharedSecret };
   } catch {
-    // Decapsulation failed - escrow not ours (expected during scanning)
+    // Decapsulation failed - escrow not ours (normal during scanning)
     return { isOurs: false };
   }
 }
@@ -235,6 +238,8 @@ export async function scanForEscrowsV4(
 ): Promise<DetectedEscrowV4[]> {
   const escrows: DetectedEscrowV4[] = [];
 
+  console.log('[V4 Scanner] Starting scan, hasXWingKeys:', !!keys.xwingKeys);
+
   try {
     // Create MagicBlock PER connection for delegated accounts
     const perConnection = new Connection(MAGICBLOCK_RPC, "confirmed");
@@ -246,6 +251,8 @@ export async function scanForEscrowsV4(
       // Query MagicBlock PER for delegated escrows (stealth program owns them on PER)
       perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }).catch(() => []),
     ]);
+
+    console.log('[V4 Scanner] Found accounts - L1 stealth:', l1StealthAccounts.length, 'L1 delegated:', l1DelegatedAccounts.length, 'PER:', perAccounts.length);
 
     // Deduplicate by pubkey (same escrow might appear in multiple sources)
     const seenPubkeys = new Set<string>();
@@ -307,14 +314,18 @@ export async function scanForEscrowsV4(
 
       if (keys.xwingKeys) {
         const xwingCiphertext = await fetchXWingCiphertextFromPER(connection, perConnection, pubkey);
+        console.log('[V4 Scanner] Escrow', pubkey.toBase58().slice(0,8), 'from', source, '- XWing CT:', xwingCiphertext ? 'FOUND' : 'NOT FOUND');
         if (xwingCiphertext) {
           const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
+          console.log('[V4 Scanner] isEscrowForUs result:', result.isOurs);
           if (result.isOurs) {
             isOurs = true;
             sharedSecret = result.sharedSecret;
             oursCount++;
           }
         }
+      } else {
+        console.log('[V4 Scanner] NO X-WING KEYS - cannot check escrow', pubkey.toBase58().slice(0,8));
       }
 
       escrows.push({
@@ -329,6 +340,16 @@ export async function scanForEscrowsV4(
         sharedSecret,
         isOurs,
       });
+    }
+
+    const oursEscrows = escrows.filter(e => e.isOurs);
+    console.log('[V4 Scanner] SUMMARY: Total escrows:', escrows.length, 'Ours:', oursEscrows.length);
+    if (oursEscrows.length > 0) {
+      console.log('[V4 Scanner] OUR ESCROWS:', oursEscrows.map(e => ({
+        pda: e.escrowPda.toBase58().slice(0, 12) + '...',
+        amount: (Number(e.amount) / 1e9).toFixed(4) + ' SOL',
+        isWithdrawn: e.isWithdrawn,
+      })));
     }
 
     return escrows;
