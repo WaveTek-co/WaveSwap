@@ -110,7 +110,7 @@ export async function POST(
 
         // CRITICAL: For failed private swaps, check Encifher balances and attempt recovery
         try {
-          console.log('[Transaction Recovery API] 🔍 CHECKING ENCIFHER ACCOUNT FOR CONFIDENTIAL BALANCES...')
+          console.log('[Transaction Recovery API] CHECKING ENCIFHER ACCOUNT FOR CONFIDENTIAL BALANCES...')
 
           // Get user's token mints to check what confidential tokens they have
           const userTokenMints = await defiClient.getUserTokenMints(userPubkey)
@@ -126,7 +126,7 @@ export async function POST(
             )
 
             if (waveToken || usdcToken) {
-              console.log('[Transaction Recovery API] ✅ FOUND CONFIDENTIAL TOKENS:', {
+              console.log('[Transaction Recovery API] FOUND CONFIDENTIAL TOKENS:', {
                 wave: waveToken ? 'YES' : 'NO',
                 usdc: usdcToken ? 'YES' : 'NO'
               })
@@ -149,12 +149,12 @@ export async function POST(
                 })
 
                 if (balanceResponse.ok) {
-                  console.log('[Transaction Recovery API] ✅ Successfully updated confidential balance tracking')
+                  console.log('[Transaction Recovery API] Successfully updated confidential balance tracking')
                 } else {
-                  console.warn('[Transaction Recovery API] ⚠️ Failed to update confidential balance tracking')
+                  console.warn('[Transaction Recovery API] Failed to update confidential balance tracking')
                 }
               } catch (balanceError: any) {
-                console.warn('[Transaction Recovery API] ⚠️ Could not update balance tracking:', balanceError.message)
+                console.warn('[Transaction Recovery API] Could not update balance tracking:', balanceError.message)
               }
 
             } else {

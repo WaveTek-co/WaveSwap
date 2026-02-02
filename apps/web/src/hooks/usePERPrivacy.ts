@@ -76,7 +76,7 @@ export interface UsePERPrivacyReturn {
   stopScanning: () => void
   refreshMixerStatus: () => Promise<void>
 
-  // V4 TRUE PRIVACY (PRODUCTION RECOMMENDED)
+  // WAVETEK TRUE PRIVACY (PRODUCTION RECOMMENDED)
   sendPrivateV4: (
     recipientXWingPubkey: { mlkem: Uint8Array; x25519: Uint8Array },
     destinationWallet: PublicKey,
@@ -197,7 +197,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
       const spendPubkey = new Uint8Array(data.slice(44, 76))
       const viewPubkey = new Uint8Array(data.slice(76, 108))
 
-      console.log('[PER Privacy] Starting privacy send to:', recipientWallet.toBase58())
+      console.log('[PER Privacy] Starting privacy send to recipient...')
 
       // Use PER client for full privacy flow
       // This needs wallet adapter, but we'll construct a compatible interface
@@ -243,7 +243,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     setError(null)
 
     try {
-      console.log('[PER Privacy] Claiming via relayer:', claim.vaultAddress)
+      console.log('[PER Privacy] Claiming via relayer...')
 
       const result = await perClient.privacyClaim({
         stealthKeys,
@@ -257,7 +257,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
         setPendingClaims(prev => prev.map(c =>
           c.vaultAddress === claim.vaultAddress ? { ...c, status: 'claimed' as const } : c
         ))
-        console.log('[PER Privacy] Claim successful:', result.signature)
+        console.log('[PER Privacy] Claim successful')
       } else {
         setPendingClaims(prev => prev.map(c =>
           c.vaultAddress === claim.vaultAddress
@@ -351,7 +351,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
         const vaultInfo = await connection.getAccountInfo(vaultPda)
         if (!vaultInfo || vaultInfo.lamports === 0) continue
 
-        console.log(`[PER Privacy] Found payment: ${vaultInfo.lamports / 1e9} SOL`)
+        console.log('[PER Privacy] Found payment: <ENCRYPTED>')
 
         setPendingClaims(prev => {
           if (prev.some(c => c.vaultAddress === vaultPda.toBase58())) return prev
@@ -380,7 +380,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     setIsScanning(false)
   }, [])
 
-  // V4 TRUE PRIVACY SEND
+  // WAVETEK TRUE PRIVACY SEND
   // Uses complete V4 flow: CREATE + UPLOAD + COMPLETE + INPUT_TO_POOL + POOL_TO_ESCROW
   const sendPrivateV4 = useCallback(async (
     recipientXWingPubkey: { mlkem: Uint8Array; x25519: Uint8Array },
@@ -409,7 +409,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     }
   }, [publicKey])
 
-  // V4 TRUE PRIVACY CLAIM
+  // WAVETEK TRUE PRIVACY CLAIM
   // Uses complete V4 flow: CLAIM_ESCROW + WITHDRAW_FROM_ESCROW
   const claimPrivateV4 = useCallback(async (
     nonce: Uint8Array,
@@ -466,7 +466,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     startScanning,
     stopScanning,
     refreshMixerStatus,
-    // V4 TRUE PRIVACY
+    // WAVETEK TRUE PRIVACY
     sendPrivateV4,
     claimPrivateV4,
     stealthKeys,

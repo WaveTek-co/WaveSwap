@@ -78,7 +78,7 @@ export interface SwapActions {
 // Fetch confidential balances using the working Encifher Proxy API
 async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<string, string>> {
   try {
-    console.log('[Confidential Balance] Fetching via API for:', userPublicKey)
+    console.log('[Confidential Balance] Fetching via API for: <ENCRYPTED>')
 
     // Use GET request with userPublicKey as query parameter (the working format)
     // Add cache-busting timestamp to force fresh data
@@ -104,13 +104,8 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
 
       if (response.ok) {
       const result = await response.json()
-      console.log('[Confidential Balance] Successfully fetched balances:', result)
-      console.log('[Confidential Balance] Response structure:', {
-        hasConfidentialBalances: !!result.confidentialBalances,
-        confidentialBalancesType: Array.isArray(result.confidentialBalances) ? 'array' : typeof result.confidentialBalances,
-        confidentialBalancesLength: result.confidentialBalances?.length || 0,
-        fullResponse: result
-      })
+      console.log('[Confidential Balance] Successfully fetched balances: <ENCRYPTED>')
+      console.log('[Confidential Balance] Response structure: <ENCRYPTED>')
 
       // Convert the response to a Map of balances
       const confidentialBalances = new Map<string, string>()
@@ -135,10 +130,7 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
         })
       }
 
-      console.log('[Confidential Balance] Processed balances:', {
-        totalBalances: confidentialBalances.size,
-        balances: Object.fromEntries(confidentialBalances)
-      })
+      console.log('[Confidential Balance] Processed balances: <ENCRYPTED> count:', confidentialBalances.size)
 
       return confidentialBalances
       } else if (response.status === 401) {
@@ -146,7 +138,7 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
         console.log('[Confidential Balance] Authentication required for confidential balances')
         try {
           const authData = await response.json()
-          console.log('[Confidential Balance] Authentication details:', authData)
+          console.log('[Confidential Balance] Authentication details: <ENCRYPTED>')
           return new Map()
         } catch (jsonError) {
           console.log('[Confidential Balance] Authentication required but could not parse response')
@@ -188,7 +180,7 @@ async function subtractConfidentialBalance(tokenAddress: string, amount: number,
   if (!userPublicKey) return
 
   console.log('[Confidential Balance] Balance subtraction disabled - no POST endpoint available')
-  console.log('[Confidential Balance] Balance subtraction would be:', { tokenAddress, amount, userPublicKey })
+  console.log('[Confidential Balance] Balance subtraction would be: <ENCRYPTED>')
 
   // The /api/v1/confidential/balances endpoint only supports GET requests
   // Balance tracking should be handled by the frontend state only
@@ -196,7 +188,7 @@ async function subtractConfidentialBalance(tokenAddress: string, amount: number,
 }
 
 export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): SwapState & SwapActions {
-  console.log('[useSwap] Hook MOUNTED! privacyMode:', privacyMode, 'publicKey:', publicKey?.toString())
+  console.log('[useSwap] Hook MOUNTED! privacyMode:', privacyMode, 'publicKey: <ENCRYPTED>')
   const { connection } = useConnection()
   const { signTransaction, signAllTransactions } = useWallet()
   console.log('[useSwap] After wallet hooks - connection:', !!connection, 'signTransaction:', !!signTransaction)
@@ -465,7 +457,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's tokens when wallet connects or privacy mode changes
   useEffect(() => {
-    console.log('[useSwap] Main wallet effect triggered - publicKey:', publicKey?.toString(), 'connection:', !!connection, 'privacyMode:', privacyMode)
+    console.log('[useSwap] Main wallet effect triggered - publicKey:', <ENCRYPTED>, 'connection:', !!connection, 'privacyMode:', privacyMode)
     if (publicKey && connection) {
       console.log('[useSwap] Wallet connected, calling loadUserTokens()...')
       loadUserTokens()
@@ -483,7 +475,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's wallet tokens
   const loadUserTokens = async () => {
-    console.log('[useSwap] loadUserTokens called - publicKey:', publicKey?.toString(), 'connection:', !!connection)
+    console.log('[useSwap] loadUserTokens called - publicKey:', <ENCRYPTED>, 'connection:', !!connection)
     if (!publicKey || !connection) {
       console.log('[useSwap] loadUserTokens returning early - no publicKey or connection')
       return
@@ -1143,7 +1135,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                     if (status.value.err) {
                       throw new Error(`Deposit transaction failed: ${JSON.stringify(status.value.err)}`)
                     } else if (status.value.confirmationStatus === 'confirmed' || status.value.confirmationStatus === 'finalized') {
-                      console.log('[Private Swap] ✓ Transaction was confirmed despite timeouts!')
+                      console.log('[Private Swap] Transaction was confirmed despite timeouts')
                       depositConfirmation = { value: { err: null } }
                       break
                     } else {
@@ -1306,7 +1298,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           console.log('[Private Swap] Real private swap completed successfully')
 
           // Update confidential balance tracking for withdraw tab
-          await updateConfidentialBalance(outputToken.address, parseFloat(outputAmount), publicKey?.toString())
+          await updateConfidentialBalance(outputToken.address, parseFloat(outputAmount), <ENCRYPTED>)
 
           // Return successful result
           const result: SwapQuote = {
@@ -1369,7 +1361,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             }
           } else {
             // 🚨 CRITICAL: Fund Recovery Logic for other errors
-            console.error('🚨 FUND LOSS DETECTED: Private swap failed after deposit')
+            console.error('[useSwap] CRITICAL: Private swap failed after deposit')
             console.error('Transaction deposit was confirmed but swap execution failed')
             console.error('Funds may be held by Encifher system')
             console.error('Error details:', error)
@@ -1420,7 +1412,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   // Optimized batch balance fetching
   const fetchMultipleBalances = useCallback(async (tokens: Token[]): Promise<Map<string, string>> => {
     console.log(`[useSwap] fetchMultipleBalances called with ${tokens.length} tokens`)
-    console.log(`[useSwap] publicKey: ${publicKey?.toString()}`)
+    console.log(`[useSwap] publicKey: ${<ENCRYPTED>}`)
     console.log(`[useSwap] connection: ${!!connection}`)
 
     if (!publicKey || !connection || tokens.length === 0) {
@@ -1436,10 +1428,10 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       try {
         console.log(`[useSwap] Starting balance fetch for token ${index + 1}/${tokens.length}: ${token.address} (${token.symbol})`)
         const balance = await getTokenBalance(connection, publicKey, token.address)
-        console.log(`[useSwap] ✅ Balance fetched for ${token.symbol}: ${balance}`)
+        console.log(`[useSwap] Balance fetched for ${token.symbol}: <ENCRYPTED>`)
         return [token.address, balance] as [string, string]
       } catch (error) {
-        console.error(`[useSwap] ❌ Failed to fetch balance for ${token.address} (${token.symbol}):`, error)
+        console.error(`[useSwap] Failed to fetch balance for <ENCRYPTED>:`, error)
         return [token.address, '0'] as [string, string]
       }
     })
@@ -1452,18 +1444,18 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       if (result.status === 'fulfilled' && result.value) {
         const [address, balance] = result.value
         newBalances.set(address, balance)
-        console.log(`[useSwap] ✅ Result ${index}: ${address} -> ${balance}`)
+        console.log(`[useSwap] Result ${index}: <ENCRYPTED>`)
       } else {
-        console.error(`[useSwap] ❌ Balance fetch failed:`, result)
+        console.error(`[useSwap] Balance fetch failed:`, result)
       }
     })
 
-    console.log(`[useSwap] Final balances Map created with ${newBalances.size} entries:`, Object.fromEntries(newBalances))
+    console.log(`[useSwap] Final balances Map created with ${newBalances.size} entries: <ENCRYPTED>`)
     return newBalances
   }, [publicKey, connection])
 
   const refreshBalances = useCallback(async () => {
-    console.log('[refreshBalances] Called with publicKey:', publicKey?.toString())
+    console.log('[refreshBalances] Called with publicKey:', <ENCRYPTED>)
     if (!publicKey || !connection) {
       console.log('[refreshBalances] No publicKey or connection, clearing balances')
       setBalances(new Map())
@@ -1791,7 +1783,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             maxRetries: 3
           })
 
-          console.log('[Confidential Withdrawal] Transaction sent:', signature)
+          console.log('[Confidential Withdrawal] Transaction sent: <ENCRYPTED>')
 
           // Wait for confirmation
           setProgress({
@@ -1801,7 +1793,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             totalSteps: 3
           })
 
-          console.log('[Confidential Withdrawal] Confirming transaction:', signature)
+          console.log('[Confidential Withdrawal] Confirming transaction: <ENCRYPTED>')
 
           const confirmation = await connection.confirmTransaction(signature, 'confirmed')
 
@@ -1812,10 +1804,10 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`)
           }
 
-          console.log('[Confidential Withdrawal] Transaction confirmed successfully:', signature)
+          console.log('[Confidential Withdrawal] Transaction confirmed successfully: <ENCRYPTED>')
 
           // Update tracked confidential balance after successful withdrawal
-          subtractConfidentialBalance(tokenAddress, amount, publicKey?.toString())
+          subtractConfidentialBalance(tokenAddress, amount, <ENCRYPTED>)
 
           // Clear balance cache and refresh balances after successful withdrawal
           console.log('[Confidential Withdrawal] Clearing balance cache and refreshing token balances')

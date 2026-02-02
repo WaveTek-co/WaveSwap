@@ -162,7 +162,7 @@ export function useWaveSend(): UseWaveSendReturn {
       const walletAddress = publicKey.toBase58()
       const cachedKeys = getCachedStealthKeys(walletAddress)
       if (cachedKeys) {
-        console.log('[WaveSend] Auto-initialized from cache for:', walletAddress.slice(0, 8))
+        console.log('[WaveSend] Auto-initialized from cache for: <ENCRYPTED>')
         setStealthKeys(cachedKeys)
         client.setKeys(cachedKeys)
         setIsInitialized(true)
@@ -190,7 +190,7 @@ export function useWaveSend(): UseWaveSendReturn {
       const walletAddress = publicKey.toBase58()
       const cachedKeys = getCachedStealthKeys(walletAddress)
       if (cachedKeys) {
-        console.log('[WaveSend] Using cached stealth keys for:', walletAddress.slice(0, 8))
+        console.log('[WaveSend] Using cached stealth keys for: <ENCRYPTED>')
         setStealthKeys(cachedKeys)
         client.setKeys(cachedKeys)
         setIsInitialized(true)
@@ -210,10 +210,7 @@ export function useWaveSend(): UseWaveSendReturn {
     try {
       console.log('[WaveSend] Generating stealth keys (one-time signature required)...')
       const keys = await client.initializeKeys(signMessage)
-      console.log('[WaveSend] Keys generated successfully:', {
-        spendPubkey: Buffer.from(keys.spendPubkey).toString('hex').slice(0, 16) + '...',
-        viewPubkey: Buffer.from(keys.viewPubkey).toString('hex').slice(0, 16) + '...',
-      })
+      console.log('[WaveSend] Keys generated successfully: <ENCRYPTED>')
 
       setStealthKeys(keys)
       setIsInitialized(true)
@@ -252,11 +249,7 @@ export function useWaveSend(): UseWaveSendReturn {
     }
 
     const hasXWing = !!stealthKeys.xwingKeys
-    console.log('[WaveSend] Starting registration with keys:', {
-      spendPubkey: Buffer.from(stealthKeys.spendPubkey).toString('hex').slice(0, 16) + '...',
-      viewPubkey: Buffer.from(stealthKeys.viewPubkey).toString('hex').slice(0, 16) + '...',
-      hasXWingKeys: hasXWing,
-    })
+    console.log('[WaveSend] Starting registration with keys: <ENCRYPTED> hasXWingKeys:', hasXWing)
 
     setIsLoading(true)
     setError(null)
@@ -278,7 +271,7 @@ export function useWaveSend(): UseWaveSendReturn {
       console.log('[WaveSend] register result:', result)
 
       if (result.success) {
-        console.log('[WaveSend] Registration successful, tx:', result.signature)
+        console.log('[WaveSend] Registration successful, tx: <ENCRYPTED>')
         setIsRegistered(true)
         setRegistrationProgress(null)
         return true
@@ -354,11 +347,7 @@ export function useWaveSend(): UseWaveSendReturn {
           ? BigInt(Math.floor(amountFloat * LAMPORTS_PER_SOL))
           : BigInt(Math.floor(amountFloat * 1e6)) // Assume 6 decimals for SPL tokens
 
-        console.log('[WaveSend] Sending stealth transfer:', {
-          recipient: recipientWallet.toBase58(),
-          amount: amount.toString(),
-          isSol,
-        })
+        console.log('[WaveSend] Sending stealth transfer: <ENCRYPTED> isSol:', isSol)
 
         const sendParams: WaveSendParams = {
           recipientWallet,

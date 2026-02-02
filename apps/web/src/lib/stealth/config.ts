@@ -76,7 +76,7 @@ export const StealthDiscriminators = {
   // Phase 2: EXECUTE_PER_TRANSFER (0x13) - marks executed + undelegates to L1
   // Phase 3: CREATE_VAULT_FROM_DEPOSIT (0x24) - creates vault on L1 from executed deposit
   CREATE_VAULT_FROM_DEPOSIT: 0x24,
-  // V4 TRUE PRIVACY: Pool intermediary breaks sender↔receiver link
+  // WAVETEK TRUE PRIVACY: Pool intermediary breaks sender↔receiver link
   // TX1a (L1): CREATE + UPLOAD + COMPLETE - creates deposit record + delegates escrow
   // TX1b (PER): INPUT_TO_POOL - moves funds from input escrow to pool
   // TX2 (PER): POOL_TO_ESCROW - creates stealth address + XWing ciphertext
@@ -90,6 +90,9 @@ export const StealthDiscriminators = {
   COMPLETE_V4_DEPOSIT: 0x2a,
   INPUT_TO_POOL_V4: 0x2b,
   TEE_PROCESS_DEPOSIT: 0x2c,
+  // WAVETEK ER-compatible instructions (pre-create and delegate accounts)
+  PROCESS_DEPOSIT_V4: 0x2d,
+  PREPARE_OUTPUT_V4: 0x2e,
 };
 
 // DeFi instruction discriminators

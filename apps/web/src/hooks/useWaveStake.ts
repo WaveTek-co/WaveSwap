@@ -56,7 +56,7 @@ export function useWaveStake() {
 
   // Initialize client with wallet
   useEffect(() => {
-    console.log('[useWaveStake] Wallet state changed:', { connected, publicKey: publicKey?.toString(), hasSignTx: !!signTransaction })
+    console.log('[useWaveStake] Wallet state changed:', { connected, publicKey: '<ENCRYPTED>', hasSignTx: !!signTransaction })
 
     if (connected && publicKey && signTransaction) {
       try {
@@ -172,7 +172,7 @@ export function useWaveStake() {
     amount: number,
     lockType: LockType
   ) => {
-    console.log('[useWaveStake] stake called:', { poolId, amount, lockType, connected, publicKey: publicKey?.toString() })
+    console.log('[useWaveStake] stake called:', { poolId, amount, lockType, connected, publicKey: '<ENCRYPTED>' })
 
     if (!connected || !publicKey) {
       throw new Error('Wallet not connected')
@@ -239,7 +239,7 @@ export function useWaveStake() {
       // Send transaction
       console.log('[useWaveStake] Sending transaction to blockchain...')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      console.log('[useWaveStake] Transaction sent! Signature:', signature)
+      console.log('[useWaveStake] Transaction sent! Signature: <ENCRYPTED>')
 
       // Confirm transaction
       console.log('[useWaveStake] Confirming transaction...')
@@ -300,7 +300,7 @@ export function useWaveStake() {
       // Send transaction
       console.log('[useWaveStake] Sending transaction to blockchain...')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      console.log('[useWaveStake] Transaction sent! Signature:', signature)
+      console.log('[useWaveStake] Transaction sent! Signature: <ENCRYPTED>')
 
       // Confirm transaction
       console.log('[useWaveStake] Confirming transaction...')
@@ -355,7 +355,7 @@ export function useWaveStake() {
       // Send transaction
       console.log('[useWaveStake] Sending transaction to blockchain...')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      console.log('[useWaveStake] Transaction sent! Signature:', signature)
+      console.log('[useWaveStake] Transaction sent! Signature: <ENCRYPTED>')
 
       // Confirm transaction
       console.log('[useWaveStake] Confirming transaction...')

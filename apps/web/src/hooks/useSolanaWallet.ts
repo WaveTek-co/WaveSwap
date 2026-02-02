@@ -122,7 +122,7 @@ export function useSolanaWallet() {
         response = await wallet.connect()
       }
 
-      console.log('Connect response:', response)
+      console.log('Connect response: <ENCRYPTED>')
 
       // Get public key from response or wallet object
       let key = response?.publicKey
@@ -146,7 +146,7 @@ export function useSolanaWallet() {
         throw new Error('Invalid public key format')
       }
 
-      console.log('Wallet connected with key:', keyString)
+      console.log('Wallet connected with key: <ENCRYPTED>')
 
       setPublicKey(new PublicKey(keyString))
     } catch (err: any) {

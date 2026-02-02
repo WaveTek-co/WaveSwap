@@ -66,7 +66,7 @@ export {
   deriveClaimEscrowPda,
   deriveXWingCiphertextPda,
   XWING_CIPHERTEXT_ACCOUNT_SIZE,
-  // V4 PDAs
+  // WAVETEK PDAs
   deriveEscrowBufferPda,
   deriveEscrowDelegationRecordPda,
   deriveEscrowDelegationMetadataPda,
@@ -108,7 +108,7 @@ export type {
 
 export {
   StealthScanner,
-  // V4 TRUE PRIVACY Scanner (primary)
+  // WAVETEK TRUE PRIVACY Scanner (primary)
   scanForEscrowsV4,
   isEscrowForUs,
   verifyStealthPubkey,

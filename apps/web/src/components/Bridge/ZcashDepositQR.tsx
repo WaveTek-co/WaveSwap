@@ -62,7 +62,7 @@ export function ZcashDepositQR({
 
     try {
       // Show coming soon message for deposit checking
-      console.log('🚀 Zcash deposit monitoring coming soon!')
+      console.log('[Bridge] Zcash deposit monitoring coming soon')
     } catch (error) {
       // Error handling would be implemented here
     }

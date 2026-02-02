@@ -484,13 +484,13 @@ export async function getTokenBalance(
         const lamports = data.lamports || 0
         const solAmount = parseFloat(balance) / 1e9
 
-        console.log(`[getTokenBalance] ✅ SOL balance fetched via proxy: ${balance} lamports (${solAmount} SOL)`)
+        console.log(`[getTokenBalance] SOL balance fetched via proxy: <ENCRYPTED>`)
 
         // Log for debugging the actual values
         if (solAmount > 0) {
-          console.log(`[getTokenBalance] ✅ User has SOL balance: ${solAmount} SOL (${balance} lamports)`)
+          console.log(`[getTokenBalance] User has SOL balance: <ENCRYPTED>`)
         } else {
-          console.log(`[getTokenBalance] ⚠️ SOL balance is 0`)
+          console.log(`[getTokenBalance] SOL balance is 0`)
         }
 
       } catch (proxyError) {
@@ -529,7 +529,7 @@ export async function getTokenBalance(
         }
 
         balance = data.balance
-        console.log(`[getTokenBalance] ✅ SPL token balance fetched via proxy: ${balance}`)
+        console.log(`[getTokenBalance] SPL token balance fetched via proxy: <ENCRYPTED>`)
 
       } catch (proxyError) {
         console.error(`[getTokenBalance] Proxy SPL balance fetch error:`, proxyError)

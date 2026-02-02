@@ -103,7 +103,7 @@ export class WaveStakeClient {
 
   setProvider(wallet: Wallet) {
     try {
-      console.log('[WaveStake] Initializing provider with wallet:', wallet.publicKey?.toString())
+      console.log('[WaveStake] Initializing provider with wallet: <ENCRYPTED>')
 
       this.provider = new AnchorProvider(this.connection, wallet, {
         commitment: 'confirmed',
@@ -222,9 +222,9 @@ export class WaveStakeClient {
     const poolPda = getPoolPDA(poolId)
     const userPda = getUserPDA(poolId, provider.wallet.publicKey)
 
-    console.log('[WaveStakeClient] poolPda:', poolPda[0].toString())
-    console.log('[WaveStakeClient] userPda:', userPda[0].toString())
-    console.log('[WaveStakeClient] provider.wallet.publicKey:', provider.wallet.publicKey?.toString())
+    console.log('[WaveStakeClient] poolPda: <ENCRYPTED>')
+    console.log('[WaveStakeClient] userPda: <ENCRYPTED>')
+    console.log('[WaveStakeClient] provider.wallet.publicKey: <ENCRYPTED>')
 
     // Get the pool's stake mint address from pool configuration
     const tokenMints: { [key: string]: string } = {
@@ -543,7 +543,7 @@ export class WaveStakeClient {
     console.log('[WaveStake] Sending close transaction...')
     const signature = await this.connection.sendRawTransaction(signedTransaction.serialize())
 
-    console.log('[WaveStake] Close transaction sent:', signature)
+    console.log('[WaveStake] Close transaction sent: <ENCRYPTED>')
     await this.connection.confirmTransaction(signature, 'confirmed')
 
     return signature

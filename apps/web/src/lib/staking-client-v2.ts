@@ -141,7 +141,7 @@ export class WaveStakeClient {
 
   setProvider(wallet: Wallet) {
     try {
-      console.log('[WaveStake] Initializing provider with wallet:', wallet.publicKey?.toString())
+      console.log('[WaveStake] Initializing provider with wallet: <ENCRYPTED>')
 
       this.provider = new AnchorProvider(this.connection, wallet, {
         commitment: 'confirmed',

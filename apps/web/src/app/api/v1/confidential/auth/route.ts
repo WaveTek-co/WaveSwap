@@ -124,13 +124,13 @@ export async function POST(
       // Session sync temporarily disabled due to module import issues
       // The session is already cached in this API endpoint for future use
 
-      console.log('[Confidential Balance Auth API] ✅ Authentication successful, session cached')
+      console.log('[Confidential Balance Auth API] Authentication successful, session cached')
 
       // Now fetch the actual balances using the authenticated SDK client
-      console.log('[Confidential Balance Auth API] 🔄 Fetching confidential balances with authentication...')
+      console.log('[Confidential Balance Auth API] Fetching confidential balances with authentication...')
 
-      // 🔍 ENHANCED TOKEN DETECTION - Same logic as confidential/balances API
-      console.log('[Confidential Balance Auth API] 🔍 STARTING ENHANCED TOKEN DETECTION')
+      // ENHANCED TOKEN DETECTION - Same logic as confidential/balances API
+      console.log('[Confidential Balance Auth API] STARTING ENHANCED TOKEN DETECTION')
 
       // Method 1: getUserTokenMints() - Get real tokens from Encifher (Following GitHub example exactly)
       console.log('[Confidential Balance Auth API] Getting real tokens from Encifher SDK')

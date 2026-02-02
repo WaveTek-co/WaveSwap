@@ -1,7 +1,7 @@
-// V4 TRUE PRIVACY Scanner for WaveSwap
-// Scans for ClaimEscrow accounts created by V4 POOL_TO_ESCROW flow
+// WAVETEK TRUE PRIVACY Scanner for WaveSwap
+// Scans for ClaimEscrow accounts created by WAVETEK POOL_TO_ESCROW flow
 //
-// V4 ARCHITECTURE:
+// WAVETEK ARCHITECTURE:
 // 1. Sender deposits to pool (breaks sender link)
 // 2. TEE creates ClaimEscrow + XWingCiphertextAccount (no sender in tx)
 // 3. Receiver scans ClaimEscrows, decapsulates X-Wing, claims
@@ -31,7 +31,7 @@ const MAGICBLOCK_RPC = MAGICBLOCK_PER.ER_ENDPOINT;
 export { cryptoDeriveStealthPubkey as deriveStealthPubkeyFromSharedSecret };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// V4 CONSTANTS - MUST MATCH ON-CHAIN EXACTLY
+// WAVETEK CONSTANTS - MUST MATCH ON-CHAIN EXACTLY
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ClaimEscrow discriminator and size
@@ -60,7 +60,7 @@ const XWING_CT_OFFSET_CIPHERTEXT = 40;
 const XWING_CIPHERTEXT_LENGTH = 1120;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// V4 TYPES
+// WAVETEK TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface DetectedEscrowV4 {
@@ -72,7 +72,7 @@ export interface DetectedEscrowV4 {
   verifiedDestination?: Uint8Array;
   isVerified: boolean;
   isWithdrawn: boolean;
-  // V4: Auto-recovered from X-Wing decapsulation
+  // WAVETEK: Auto-recovered from X-Wing decapsulation
   sharedSecret?: Uint8Array;
   isOurs: boolean;
 }
@@ -99,7 +99,7 @@ export interface DetectedPayment {
 export type DetectedEscrowV3 = DetectedEscrowV4;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// V4 CORE CRYPTOGRAPHY
+// WAVETEK CORE CRYPTOGRAPHY
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -120,7 +120,7 @@ export function verifyStealthPubkey(
 }
 
 /**
- * Check if a V4 escrow belongs to us using X-Wing decapsulation
+ * Check if a WAVETEK escrow belongs to us using X-Wing decapsulation
  *
  * FLOW:
  * 1. Decapsulate X-Wing ciphertext → sharedSecret
@@ -157,7 +157,7 @@ export function isEscrowForUs(
     }
 
     // Step 3: SUCCESS - This escrow is ours!
-    console.log('[isEscrowForUs] ✓ MATCH - this escrow is OURS!');
+    console.log('[isEscrowForUs] MATCH - this escrow is OURS');
     return { isOurs: true, sharedSecret };
   } catch {
     // Decapsulation failed - escrow not ours (normal during scanning)
@@ -166,12 +166,12 @@ export function isEscrowForUs(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// V4 SCANNER
+// WAVETEK SCANNER
 // ═══════════════════════════════════════════════════════════════════════════
 
 
 /**
- * V4 TRUE PRIVACY SCANNER
+ * WAVETEK TRUE PRIVACY SCANNER
  *
  * Scans all ClaimEscrow accounts (171 bytes) and identifies which belong to us.
  *
@@ -238,7 +238,7 @@ export async function scanForEscrowsV4(
 ): Promise<DetectedEscrowV4[]> {
   const escrows: DetectedEscrowV4[] = [];
 
-  console.log('[V4 Scanner] Starting scan, hasXWingKeys:', !!keys.xwingKeys);
+  console.log('[WAVETEK Scanner] Starting scan, hasXWingKeys:', !!keys.xwingKeys);
 
   try {
     // Create MagicBlock PER connection for delegated accounts
@@ -252,7 +252,7 @@ export async function scanForEscrowsV4(
       perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }).catch(() => []),
     ]);
 
-    console.log('[V4 Scanner] Found accounts - L1 stealth:', l1StealthAccounts.length, 'L1 delegated:', l1DelegatedAccounts.length, 'PER:', perAccounts.length);
+    console.log('[WAVETEK Scanner] Found accounts - L1 stealth:', l1StealthAccounts.length, 'L1 delegated:', l1DelegatedAccounts.length, 'PER:', perAccounts.length);
 
     // Deduplicate by pubkey (same escrow might appear in multiple sources)
     const seenPubkeys = new Set<string>();
@@ -314,10 +314,10 @@ export async function scanForEscrowsV4(
 
       if (keys.xwingKeys) {
         const xwingCiphertext = await fetchXWingCiphertextFromPER(connection, perConnection, pubkey);
-        console.log('[V4 Scanner] Escrow', pubkey.toBase58().slice(0,8), 'from', source, '- XWing CT:', xwingCiphertext ? 'FOUND' : 'NOT FOUND');
+        console.log('[WAVETEK Scanner] Escrow <ENCRYPTED> from', source, '- XWing CT:', xwingCiphertext ? 'FOUND' : 'NOT FOUND');
         if (xwingCiphertext) {
           const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
-          console.log('[V4 Scanner] isEscrowForUs result:', result.isOurs);
+          console.log('[WAVETEK Scanner] isEscrowForUs result:', result.isOurs);
           if (result.isOurs) {
             isOurs = true;
             sharedSecret = result.sharedSecret;
@@ -325,7 +325,7 @@ export async function scanForEscrowsV4(
           }
         }
       } else {
-        console.log('[V4 Scanner] NO X-WING KEYS - cannot check escrow', pubkey.toBase58().slice(0,8));
+        console.log('[WAVETEK Scanner] NO X-WING KEYS - cannot check escrow <ENCRYPTED>');
       }
 
       escrows.push({
@@ -343,18 +343,14 @@ export async function scanForEscrowsV4(
     }
 
     const oursEscrows = escrows.filter(e => e.isOurs);
-    console.log('[V4 Scanner] SUMMARY: Total escrows:', escrows.length, 'Ours:', oursEscrows.length);
+    console.log('[WAVETEK Scanner] SUMMARY: Total escrows:', escrows.length, 'Ours:', oursEscrows.length);
     if (oursEscrows.length > 0) {
-      console.log('[V4 Scanner] OUR ESCROWS:', oursEscrows.map(e => ({
-        pda: e.escrowPda.toBase58().slice(0, 12) + '...',
-        amount: (Number(e.amount) / 1e9).toFixed(4) + ' SOL',
-        isWithdrawn: e.isWithdrawn,
-      })));
+      console.log('[WAVETEK Scanner] OUR ESCROWS: <ENCRYPTED>', oursEscrows.length, 'found');
     }
 
     return escrows;
   } catch (err) {
-    console.error("[V4 Scanner] Scan error:", err);
+    console.error("[WAVETEK Scanner] Scan error:", err);
     return [];
   }
 }
@@ -365,13 +361,13 @@ export const scanForEscrowsV3 = scanForEscrowsV4;
 // ═══════════════════════════════════════════════════════════════════════════
 // LEGACY FUNCTIONS (for backwards compatibility with older deposit types)
 // These use Ed25519 view key derivation (NOT X-Wing)
-// V4 TRUE PRIVACY uses X-Wing decapsulation instead
+// WAVETEK TRUE PRIVACY uses X-Wing decapsulation instead
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * LEGACY: Check if view tag matches (Ed25519 derivation)
  * Used for old PER deposits that use ephemeral pubkey + view tag
- * V4 uses X-Wing decapsulation instead
+ * WAVETEK uses X-Wing decapsulation instead
  */
 export function checkViewTag(
   viewPrivkey: Uint8Array,
@@ -420,7 +416,7 @@ export function deriveStealthFromEphemeral(
 
 /**
  * LEGACY: Full check if payment belongs to us (Ed25519 derivation)
- * Used for old PER deposits - V4 uses X-Wing instead
+ * Used for old PER deposits - WAVETEK uses X-Wing instead
  */
 export function isPaymentForUs(
   keys: StealthKeyPair,

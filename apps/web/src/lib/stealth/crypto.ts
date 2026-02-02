@@ -340,7 +340,7 @@ Domain: ${domain}`;
 
   console.log('[Crypto] Requesting signature for stealth keys...');
   const result = await signMessage(messageBytes);
-  console.log('[Crypto] signMessage result type:', typeof result, result);
+  console.log('[Crypto] signMessage result type:', typeof result, '<ENCRYPTED>');
 
   // Handle different wallet return formats
   let signature: Uint8Array;
@@ -360,7 +360,7 @@ Domain: ${domain}`;
     // Plain array
     signature = new Uint8Array(result);
   } else {
-    console.error('[Crypto] Unexpected signMessage result format:', result);
+    console.error('[Crypto] Unexpected signMessage result format: <ENCRYPTED>');
     throw new Error('Unexpected signature format from wallet');
   }
 

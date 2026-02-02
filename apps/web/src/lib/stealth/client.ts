@@ -39,7 +39,7 @@ import {
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
   deriveXWingCiphertextPda,
-  // V4 TRUE PRIVACY PDA derivations
+  // WAVETEK TRUE PRIVACY PDA derivations
   deriveEscrowBufferPda,
   deriveEscrowDelegationRecordPda,
   deriveEscrowDelegationMetadataPda,
@@ -302,7 +302,7 @@ export class WaveStealthClient {
     }
 
     const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
-    console.log('[Client] Registry PDA:', registryPda.toBase58(), 'bump:', bump);
+    console.log('[Client] Registry PDA: <ENCRYPTED>');
 
     // Check if already registered
     console.log('[Client] Checking if already registered...');
@@ -514,7 +514,7 @@ export class WaveStealthClient {
     }
 
     const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
-    console.log('[Client] Registry PDA:', registryPda.toBase58(), 'bump:', bump);
+    console.log('[Client] Registry PDA: <ENCRYPTED>');
 
     // Check if already registered
     console.log('[Client] Checking if already registered...');
@@ -570,7 +570,7 @@ export class WaveStealthClient {
       const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
-      console.log('[Client] Registration complete (single tx):', signature);
+      console.log('[Client] Registration complete (single tx): <ENCRYPTED>');
       reportProgress('complete', 1, 1, 'Registration complete!');
 
       // Trigger background X-Wing upgrade (non-blocking)
@@ -758,9 +758,9 @@ export class WaveStealthClient {
     params: WaveSendParams
   ): Promise<SendResult> {
     // ═══════════════════════════════════════════════════════════════════════════
-    // PRIORITY 1: V4 TRUE PRIVACY FLOW (MAXIMUM PRIVACY)
+    // PRIORITY 1: WAVETEK TRUE PRIVACY FLOW (MAXIMUM PRIVACY)
     // ═══════════════════════════════════════════════════════════════════════════
-    // V4 achieves TRUE sender unlinkability:
+    // WAVETEK achieves TRUE sender unlinkability:
     // - Sender creates INPUT_ESCROW and delegates to MagicBlock PER
     // - TEE moves: INPUT → POOL → OUTPUT (sender NOT in these transactions!)
     // - On-chain observer cannot correlate sender to receiver
@@ -913,7 +913,7 @@ export class WaveStealthClient {
       const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
-      console.log('[WaveStealthClient] Deposit to mixer pool complete:', signature);
+      console.log('[WaveStealthClient] Deposit to mixer pool complete: <ENCRYPTED>');
       console.log('[WaveStealthClient] Recipient will trigger mixer transfer to release funds');
 
       return {
@@ -1073,8 +1073,8 @@ export class WaveStealthClient {
       }
 
       console.log('[WaveStealthClient] FULL PRIVACY SEND COMPLETE');
-      console.log('[WaveStealthClient] Deposit sig:', depositSig);
-      console.log('[WaveStealthClient] Mixer sig:', result.signature);
+      console.log('[WaveStealthClient] Deposit sig: <ENCRYPTED>');
+      console.log('[WaveStealthClient] Mixer sig: <ENCRYPTED>');
 
       return {
         success: true,
@@ -1170,7 +1170,7 @@ export class WaveStealthClient {
       const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
-      console.log('[WaveStealthClient] ✓ Deposit complete (USER SIGNED ONCE):', depositSig);
+      console.log('[WaveStealthClient] Deposit complete (USER SIGNED ONCE): <ENCRYPTED>');
 
       // ========================================
       // Submit stealth config to PER listener
@@ -1199,10 +1199,10 @@ export class WaveStealthClient {
         const perResult = await perResponse.json();
 
         if (perResult.success) {
-          console.log('[WaveStealthClient] ✓ PER received stealth config');
-          console.log('[WaveStealthClient] Action ID:', perResult.actionId);
-          console.log('[WaveStealthClient] PER will execute mixer transfer in ~6 seconds');
-          console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED!');
+          console.log('[WaveStealthClient] PER received stealth config');
+          console.log('[WaveStealthClient] Action ID: <ENCRYPTED>');
+          console.log('[WaveStealthClient] PER will execute mixer transfer');
+          console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED');
         } else {
           console.warn('[WaveStealthClient] PER submission failed:', perResult.error);
           console.warn('[WaveStealthClient] Deposit completed but mixer transfer needs manual execution');
@@ -1370,10 +1370,10 @@ export class WaveStealthClient {
         console.warn('[WaveStealthClient] TX confirmation timed out, but may still succeed');
       }
 
-      console.log('[WaveStealthClient] ✓ Deposit + Delegate complete (USER SIGNED ONCE):', signature);
-      console.log('[WaveStealthClient] ✓ Deposit delegated to MagicBlock PER (TEE Validator)');
-      console.log('[WaveStealthClient] ✓ PER (inside Intel TDX TEE) will automatically execute stealth transfer');
-      console.log('[WaveStealthClient] ✓ SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE!');
+      console.log('[WaveStealthClient] Deposit + Delegate complete (USER SIGNED ONCE): <ENCRYPTED>');
+      console.log('[WaveStealthClient] Deposit delegated to MagicBlock PER (TEE Validator)');
+      console.log('[WaveStealthClient] PER (inside Intel TDX TEE) will automatically execute stealth transfer');
+      console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE');
 
       // PER automatically executes stealth transfer inside TEE
       // The TEE will:
@@ -1508,15 +1508,15 @@ export class WaveStealthClient {
         maxRetries: 3,
       });
 
-      console.log('[WaveStealthClient] TX sent:', signature);
+      console.log('[WaveStealthClient] TX sent: <ENCRYPTED>');
 
       // Use HTTP polling confirmation (avoids WebSocket issues on devnet)
       const confirmed = await confirmTransactionPolling(this.connection, signature, 20, 2000);
       console.log('[WaveStealthClient] TX confirmed:', confirmed);
 
-      console.log('[WaveStealthClient] ✓ Deposited to PER Mixer Pool:', signature);
-      console.log('[WaveStealthClient] ✓ Deposit record:', depositRecordPda.toBase58());
-      console.log('[WaveStealthClient] ✓ Expected escrow:', escrowPda.toBase58());
+      console.log('[WaveStealthClient] Deposited to PER Mixer Pool: <ENCRYPTED>');
+      console.log('[WaveStealthClient] Deposit record: <ENCRYPTED>');
+      console.log('[WaveStealthClient] Expected escrow: <ENCRYPTED>');
 
       return {
         success: true,
@@ -2093,8 +2093,8 @@ export class WaveStealthClient {
     }
 
     console.log("[WaveStealthClient] Privacy claim via relayer...");
-    console.log("[WaveStealthClient] Relayer:", this.relayerPubkey.toBase58());
-    console.log("[WaveStealthClient] Destination:", destination.toBase58());
+    console.log("[WaveStealthClient] Relayer: <ENCRYPTED>");
+    console.log("[WaveStealthClient] Destination: <ENCRYPTED>");
 
     return this.claimViaRelayer(
       this.stealthKeys,
@@ -2202,7 +2202,7 @@ export class WaveStealthClient {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // V4 TRUE PRIVACY FLOW
+  // WAVETEK TRUE PRIVACY FLOW
   // ═══════════════════════════════════════════════════════════════════════════════
   //
   // ARCHITECTURE:
@@ -2236,12 +2236,12 @@ export class WaveStealthClient {
 
     const isSol = !params.mint || params.mint.equals(NATIVE_SOL_MINT);
     if (!isSol) {
-      return { success: false, error: "SPL token transfers not yet supported in V4" };
+      return { success: false, error: "SPL token transfers not yet supported in WAVETEK" };
     }
 
-    // V4 requires X-Wing keys for encrypted destination
+    // WAVETEK requires X-Wing keys for encrypted destination
     if (!this.stealthKeys?.xwingKeys) {
-      console.warn('[WaveStealthClient] V4 requires X-Wing keys, falling back to V3');
+      console.warn('[WaveStealthClient] WAVETEK requires X-Wing keys, falling back to V3');
       return this.waveSendViaPerMixerPoolV3(wallet, params);
     }
 
@@ -2264,12 +2264,7 @@ export class WaveStealthClient {
       // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
       // The X-Wing X25519 pubkey is stored in registry, NOT derived from spendPubkey
       const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
-      console.log('[waveSendV4] Deserialized X-Wing pubkey:', {
-        mlkemSize: recipientXWingPk.mlkem.length,
-        x25519Size: recipientXWingPk.x25519.length,
-        mlkemFirst4: Array.from(recipientXWingPk.mlkem.slice(0, 4)),
-        x25519First4: Array.from(recipientXWingPk.x25519.slice(0, 4)),
-      });
+      console.log('[waveSendWAVETEK] Deserialized X-Wing pubkey: <ENCRYPTED>');
       const encapResult = xwingEncapsulate(recipientXWingPk);
       xwingCiphertext = encapResult.ciphertext;
       sharedSecret = encapResult.sharedSecret;
@@ -2293,7 +2288,8 @@ export class WaveStealthClient {
     const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda();
     const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
     const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
-    const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPda);
+    // Note: xwingCtPda is NOT created on L1 anymore - TEE creates it seeded by stealth_address (output)
+    // This preserves privacy: no on-chain link between input_escrow and xwing_ct
     const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
     const [escrowDelegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
     const [escrowDelegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
@@ -2301,9 +2297,6 @@ export class WaveStealthClient {
     const [permDelegationBuffer] = derivePermissionDelegationBufferPda(permissionPda);
     const [permDelegationRecord] = derivePermissionDelegationRecordPda(permissionPda);
     const [permDelegationMetadata] = derivePermissionDelegationMetadataPda(permissionPda);
-    const [xwingCtBuffer] = deriveXWingCtBufferPda(xwingCtPda);
-    const [xwingCtDelegationRecord] = deriveXWingCtDelegationRecordPda(xwingCtPda);
-    const [xwingCtDelegationMetadata] = deriveXWingCtDelegationMetadataPda(xwingCtPda);
     // Deposit record delegation PDAs (for pool_to_escrow_v4 on PER)
     const [depositRecordBuffer] = deriveDepositRecordBufferPda(depositRecordPda);
     const [depositRecordDelegationRecord] = deriveDepositRecordDelegationRecordPda(depositRecordPda);
@@ -2405,16 +2398,16 @@ export class WaveStealthClient {
 
       // ══════════════════════════════════════════════════════════════════════
       // STEP 3: COMPLETE_V4_DEPOSIT (creates input_escrow + delegates everything)
+      // TEE will create xwing_ct seeded by stealth_address (output) for privacy!
       // ══════════════════════════════════════════════════════════════════════
       reportProgress('Completing deposit and delegating to TEE', 3, 4);
 
-      // data: disc(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) + commit_freq_ms(4) + record_bump(1) = 40 bytes
-      const completeData = Buffer.alloc(40);
+      // data: disc(1) + nonce(32) + escrow_bump(1) + commit_freq_ms(4) + record_bump(1) = 39 bytes
+      const completeData = Buffer.alloc(39);
       let cOffset = 0;
       completeData[cOffset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT;
       Buffer.from(nonce).copy(completeData, cOffset); cOffset += 32;
       completeData[cOffset++] = escrowBump;
-      completeData[cOffset++] = xwingCtBump;
       // Commit frequency: 10000ms = 10 seconds
       const commitFreq = 10000;
       completeData.writeUInt32LE(commitFreq, cOffset); cOffset += 4;
@@ -2426,9 +2419,9 @@ export class WaveStealthClient {
         keys: [
           // 0. [signer, writable] payer
           { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-          // 1. [writable] deposit_record (now delegated to PER!)
+          // 1. [writable] deposit_record (delegated to PER, has X-Wing ciphertext)
           { pubkey: depositRecordPda, isSigner: false, isWritable: true },
-          // 2. [writable] input_escrow
+          // 2. [writable] input_escrow (created with funds, delegated to PER)
           { pubkey: escrowPda, isSigner: false, isWritable: true },
           // 3. [writable] escrow_buffer
           { pubkey: escrowBuffer, isSigner: false, isWritable: true },
@@ -2454,22 +2447,13 @@ export class WaveStealthClient {
           { pubkey: permDelegationMetadata, isSigner: false, isWritable: true },
           // 14. [] validator (TEE)
           { pubkey: TEE_VALIDATOR, isSigner: false, isWritable: false },
-          // 15. [writable] xwing_ct
-          { pubkey: xwingCtPda, isSigner: false, isWritable: true },
-          // 16. [writable] xwing_ct_buffer
-          { pubkey: xwingCtBuffer, isSigner: false, isWritable: true },
-          // 17. [writable] xwing_ct_delegation_record
-          { pubkey: xwingCtDelegationRecord, isSigner: false, isWritable: true },
-          // 18. [writable] xwing_ct_delegation_metadata
-          { pubkey: xwingCtDelegationMetadata, isSigner: false, isWritable: true },
-          // 19. [writable] per_mixer_pool (receives user's deposit!)
-          { pubkey: derivePerMixerPoolPda()[0], isSigner: false, isWritable: true },
-          // 20. [writable] deposit_record_buffer (for delegation)
+          // 15. [writable] deposit_record_buffer (for delegation)
           { pubkey: depositRecordBuffer, isSigner: false, isWritable: true },
-          // 21. [writable] deposit_record_delegation_record
+          // 16. [writable] deposit_record_delegation_record
           { pubkey: depositRecordDelegationRecord, isSigner: false, isWritable: true },
-          // 22. [writable] deposit_record_delegation_metadata
+          // 17. [writable] deposit_record_delegation_metadata
           { pubkey: depositRecordDelegationMetadata, isSigner: false, isWritable: true },
+          // Note: xwing_ct and pool accounts removed - TEE creates xwing_ct seeded by stealth_address (output)
         ],
         programId: PROGRAM_IDS.STEALTH,
         data: completeData,
@@ -2485,84 +2469,20 @@ export class WaveStealthClient {
       await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
 
       // ══════════════════════════════════════════════════════════════════════
-      // STEP 4: POOL_TO_ESCROW_V4 on MagicBlock PER
+      // STEP 4: WAIT FOR MAGIC ACTIONS (TEE_PROCESS_DEPOSIT)
       // ══════════════════════════════════════════════════════════════════════
-      // Funds are now in POOL on L1. We need to call POOL_TO_ESCROW_V4 on PER
-      // to move funds from pool to escrow. This breaks the sender→escrow link!
-      reportProgress('Moving funds: POOL → ESCROW on PER...', 4, 5);
+      // Magic Actions (TEE) automatically detects the delegated deposit and executes:
+      //   INPUT_DEPOSIT → POOL → STEALTH_ADDRESS
+      // All in one atomic operation. Sender NOT in that transaction!
+      reportProgress('Waiting for Magic Actions to process deposit...', 4, 4);
 
-      // Wait for PER to sync the delegated accounts
-      await new Promise(r => setTimeout(r, 5000));
+      console.log('[WaveStealthClient] Deposit delegated to PER. Waiting for Magic Actions...');
+      console.log('[WaveStealthClient] TEE will execute: INPUT → POOL → STEALTH_ADDRESS');
 
-      // Create MagicBlock PER connection
-      const MAGICBLOCK_PER_RPC = 'https://devnet.magicblock.app';
-      const perConnection = new Connection(MAGICBLOCK_PER_RPC, 'confirmed');
+      // Magic Actions processes automatically - no manual intervention needed
+      // The receiver will scan for their stealth address using X-Wing decapsulation
 
-      // DEBUG: Check pool state on BOTH L1 and PER
-      const [poolInfoL1, poolInfoPER, escrowInfoPER, depositRecordInfoL1] = await Promise.all([
-        this.connection.getAccountInfo(perMixerPoolPda).catch(() => null),
-        perConnection.getAccountInfo(perMixerPoolPda).catch(() => null),
-        perConnection.getAccountInfo(escrowPda).catch(() => null),
-        this.connection.getAccountInfo(depositRecordPda).catch(() => null),
-      ]);
-      console.log('[WaveStealthClient] DEBUG: Pool state check:', {
-        poolPda: perMixerPoolPda.toBase58(),
-        poolOnL1: poolInfoL1 ? { lamports: poolInfoL1.lamports, owner: poolInfoL1.owner.toBase58() } : 'NOT FOUND',
-        poolOnPER: poolInfoPER ? { lamports: poolInfoPER.lamports, owner: poolInfoPER.owner.toBase58() } : 'NOT FOUND',
-        escrowOnPER: escrowInfoPER ? { lamports: escrowInfoPER.lamports, owner: escrowInfoPER.owner.toBase58() } : 'NOT FOUND',
-        depositRecordOnL1: depositRecordInfoL1 ? { lamports: depositRecordInfoL1.lamports, owner: depositRecordInfoL1.owner.toBase58() } : 'NOT FOUND',
-        expectedAmount: amountBigInt.toString(),
-      });
-
-      // Build POOL_TO_ESCROW_V4 instruction
-      // Using poolBump, escrowBump, xwingCtBump from lines 2298-2301 above
-      // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
-      const poolToEscrowData = Buffer.alloc(36);
-      let p2eOffset = 0;
-      poolToEscrowData[p2eOffset++] = StealthDiscriminators.POOL_TO_ESCROW_V4;
-      poolToEscrowData[p2eOffset++] = poolBump;
-      Buffer.from(nonce).copy(poolToEscrowData, p2eOffset); p2eOffset += 32;
-      poolToEscrowData[p2eOffset++] = escrowBump;
-      poolToEscrowData[p2eOffset++] = xwingCtBump;
-
-      const poolToEscrowTx = new Transaction();
-      poolToEscrowTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }));
-      poolToEscrowTx.add(new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },   // tee_authority (any signer)
-          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },   // pool
-          { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // deposit_record (read-only on L1)
-          { pubkey: escrowPda, isSigner: false, isWritable: true },         // claim_escrow
-          { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // xwing_ciphertext
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data: poolToEscrowData,
-      }));
-
-      poolToEscrowTx.feePayer = wallet.publicKey;
-      poolToEscrowTx.recentBlockhash = (await perConnection.getLatestBlockhash()).blockhash;
-      const signedPoolTx = await wallet.signTransaction(poolToEscrowTx);
-      const poolToEscrowSig = await perConnection.sendRawTransaction(signedPoolTx.serialize(), {
-        skipPreflight: true,
-      });
-
-      // Wait for PER confirmation - MUST check return value!
-      console.log('[WaveStealthClient] POOL_TO_ESCROW_V4 sent to PER:', poolToEscrowSig);
-      const poolToEscrowConfirmed = await confirmTransactionPolling(perConnection, poolToEscrowSig, 30, 2000);
-      if (!poolToEscrowConfirmed) {
-        // Try to get more details about the failure
-        const txStatus = await perConnection.getSignatureStatus(poolToEscrowSig).catch(() => null);
-        console.error('[WaveStealthClient] POOL_TO_ESCROW_V4 failed on PER!', {
-          signature: poolToEscrowSig,
-          status: txStatus?.value,
-          error: txStatus?.value?.err,
-        });
-        throw new Error(`POOL_TO_ESCROW_V4 failed on PER: ${JSON.stringify(txStatus?.value?.err || 'unknown')}`);
-      }
-      console.log('[WaveStealthClient] POOL_TO_ESCROW_V4 confirmed on PER!');
-
-      reportProgress('Send complete! Receiver can now claim.', 5, 5);
+      reportProgress('Send complete! Magic Actions will process. Receiver can scan & claim.', 4, 4);
 
       return {
         success: true,
@@ -2579,7 +2499,7 @@ export class WaveStealthClient {
       } as SendResult;
 
     } catch (error) {
-      console.error('[WaveStealthClient] V4 send error:', error);
+      console.error('[WaveStealthClient] WAVETEK send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "V4 send failed",

@@ -175,14 +175,7 @@ export function useTransactionHistory(privacyMode: boolean = false) {
           const outputTokenInfo = getTokenInfo(swap.outputToken)
 
           // Debug logging for transaction status
-          console.log(`[Transaction History] Processing swap: ${swap.intentId}`, {
-            status: swap.status,
-            settledAt: swap.settledAt,
-            createdAt: swap.createdAt,
-            error: swap.error,
-            inputAmount: swap.inputAmount,
-            outputAmount: swap.outputAmount
-          })
+          console.log(`[Transaction History] Processing swap: <ENCRYPTED>`)
 
           // Enhanced status detection
           let status: 'success' | 'pending' | 'failed'

@@ -216,11 +216,11 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
           finalTokenMints = userTokensResponse.tokens || userTokensResponse.mints || userTokensResponse.data || []
         }
 
-        console.log(`[SwapComponent] 🎉 FINAL: Found ${finalTokenMints.length} user-deposited tokens!`)
+        console.log(`[SwapComponent] FINAL: Found ${finalTokenMints.length} user-deposited tokens`)
         console.log('[SwapComponent] Token addresses:', finalTokenMints)
 
       } catch (tokenMintsError) {
-        console.error('[SwapComponent] ❌ getUserTokenMints FAILED:', tokenMintsError)
+        console.error('[SwapComponent] getUserTokenMints FAILED:', tokenMintsError)
         throw new Error(`Failed to get user tokens: ${tokenMintsError instanceof Error ? tokenMintsError.message : String(tokenMintsError)}`)
       }
 
@@ -251,7 +251,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
         // Debug each balance object completely (handle BigInt)
         authenticatedBalance.forEach((balance, index) => {
-          console.log(`[SwapComponent] 🔍 Balance[${index}] COMPLETE DEBUG:`)
+          console.log(`[SwapComponent] Balance[${index}] COMPLETE DEBUG:`)
           console.log('  - Raw object:', balance)
           console.log('  - Object keys:', Object.keys(balance))
 
@@ -816,11 +816,11 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
       // Ensure we never return '0' when we have a positive balance
       if (lamports > 0 && formatted === '0') {
-        console.warn(`[Balance Debug] ⚠️ Formatted as 0 but lamports > 0. Fallback to raw display: ${humanReadable}`)
+        console.warn(`[Balance Debug] Formatted as 0 but lamports > 0. Fallback to raw display: ${humanReadable}`)
         return humanReadable.toString()
       }
 
-      console.log(`[Balance Debug] ✅ FINAL inputBalanceFormatted result: ${formatted}`)
+      console.log(`[Balance Debug] FINAL inputBalanceFormatted result: ${formatted}`)
       return formatted
     } catch (error) {
       console.error('[Balance Debug] Error formatting input balance:', error, balanceToUse)
@@ -829,10 +829,10 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
         const lamports = parseFloat(balanceToUse)
         const decimals = safeInputToken.decimals || 9
         const fallback = (lamports / Math.pow(10, decimals)).toString()
-        console.log(`[Balance Debug] ✅ FINAL inputBalanceFormatted fallback: ${fallback}`)
+        console.log(`[Balance Debug] FINAL inputBalanceFormatted fallback: ${fallback}`)
         return fallback
       } catch {
-        console.log(`[Balance Debug] ❌ FINAL inputBalanceFormatted: '0' (all failed)`)
+        console.log(`[Balance Debug] FINAL inputBalanceFormatted: '0' (all failed)`)
         return '0'
       }
     }
@@ -848,7 +848,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       const formatted = formatTokenAmount(humanReadable, decimals)
 
       if (lamports > 0 && formatted === '0') {
-        console.warn(`[Balance Debug] ⚠️ Output balance formatted as 0 but lamports > 0: ${humanReadable}`)
+        console.warn(`[Balance Debug] Output balance formatted as 0 but lamports > 0: ${humanReadable}`)
         return humanReadable.toString()
       }
 

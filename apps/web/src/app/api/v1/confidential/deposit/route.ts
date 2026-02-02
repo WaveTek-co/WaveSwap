@@ -46,7 +46,7 @@ export async function POST(
       }, { status: 500 })
     }
 
-    console.log('[Deposit API] 🚀 Initializing Encifher SDK client...')
+    console.log('[Deposit API] Initializing Encifher SDK client...')
     console.log('[Deposit API] Configuration:', {
       hasKey: !!encifherConfig.encifherKey,
       rpcUrl: encifherConfig.rpcUrl,
@@ -58,7 +58,7 @@ export async function POST(
     // Convert addresses to PublicKey objects
     const userPubkey = new PublicKey(userPublicKey)
 
-    console.log('[Deposit API] 🏗️ Building deposit transaction...')
+    console.log('[Deposit API] Building deposit transaction...')
 
     // Create token object following SDK documentation
     const token: Token = {
@@ -73,7 +73,7 @@ export async function POST(
       amount: amount // Amount in token units (not base units)
     }
 
-    console.log('[Deposit API] 📥 Calling getDepositTxn with parameters:', {
+    console.log('[Deposit API] Calling getDepositTxn with parameters:', {
       tokenMintAddress: token.tokenMintAddress.slice(0, 8) + '...',
       decimals: token.decimals,
       amount: depositParams.amount,
@@ -84,7 +84,7 @@ export async function POST(
       // Get deposit transaction using SDK
       const depositTxn = await defiClient.getDepositTxn(depositParams)
 
-      console.log('[Deposit API] ✅ Deposit transaction created successfully')
+      console.log('[Deposit API] Deposit transaction created successfully')
       console.log('[Deposit API] Transaction details:', {
         instructions: depositTxn.instructions.length,
         signers: depositTxn.signatures.length,
@@ -97,7 +97,7 @@ export async function POST(
         verifySignatures: false
       }).toString('base64')
 
-      console.log('[Deposit API] 📦 Transaction serialized and ready for client signing')
+      console.log('[Deposit API] Transaction serialized and ready for client signing')
 
       return NextResponse.json({
         success: true,
@@ -122,7 +122,7 @@ export async function POST(
       })
 
     } catch (sdkError: any) {
-      console.error('[Deposit API] ❌ SDK error creating deposit transaction:', sdkError)
+      console.error('[Deposit API] SDK error creating deposit transaction:', sdkError)
       console.error('[Deposit API] Error details:', {
         message: sdkError.message,
         stack: sdkError.stack,
@@ -163,7 +163,7 @@ export async function POST(
     }
 
   } catch (error: any) {
-    console.error('[Deposit API] 💥 Unexpected error:', error)
+    console.error('[Deposit API] Unexpected error:', error)
     console.error('[Deposit API] Error stack:', error.stack)
 
     return NextResponse.json({

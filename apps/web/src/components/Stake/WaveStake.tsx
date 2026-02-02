@@ -76,7 +76,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
   // Fetch user token balances when wallet connects
   useEffect(() => {
     const fetchBalances = async () => {
-      console.log('[WaveStake] Fetching balances, connected:', connected, 'publicKey:', publicKey?.toString())
+      console.log('[WaveStake] Fetching balances, connected:', connected, 'publicKey: <ENCRYPTED>')
 
       if (!connected || !publicKey) {
         console.log('[WaveStake] No wallet connected, setting balances to 0')
@@ -90,12 +90,12 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
 
         // Fetch SOL balance from Devnet
         try {
-          console.log('[WaveStake] Fetching SOL balance from devnet for wallet:', publicKey.toString())
+          console.log('[WaveStake] Fetching SOL balance from devnet for wallet: <ENCRYPTED>')
           const solBalance = await devnetConnection.getBalance(publicKey)
           balances['sol'] = (solBalance / 1e9).toFixed(4)
-          console.log('[WaveStake] ✅ SOL balance fetched:', balances['sol'], '(raw:', solBalance, 'lamports)')
+          console.log('[WaveStake] SOL balance fetched: <ENCRYPTED>')
         } catch (error) {
-          console.error('[WaveStake] ❌ Error fetching SOL balance:', error)
+          console.error('[WaveStake] Error fetching SOL balance:', error)
           balances['sol'] = '0'
         }
 
@@ -126,24 +126,18 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
             // WAVE and WEALTH use 6 decimals, GOLD and ZEC use 8 decimals
             const decimals = (key === 'wave' || key === 'wealth') ? 1e6 : 1e8
             balances[key] = (balance / decimals).toFixed(2)
-            console.log(`[WaveStake] ✅ ${key.toUpperCase()} balance:`, balances[key])
+            console.log(`[WaveStake] ${key.toUpperCase()} balance: <ENCRYPTED>`)
           } catch (error: any) {
             // Token doesn't exist or user has no balance
-            console.log(`[WaveStake] ℹ️ Token ${key}: No balance or token not found`)
+            console.log(`[WaveStake] Token ${key}: No balance or token not found`)
             balances[key] = '0'
           }
         }
 
-        console.log('[WaveStake] 🎯 Final balances to set:', balances)
-        console.log('[WaveStake] 📊 Calling setUserBalances with:', balances)
+        console.log('[WaveStake] Final balances to set: <ENCRYPTED>')
         setUserBalances(balances)
-
-        // Verify the state was updated
-        setTimeout(() => {
-          console.log('[WaveStake] ⏱️ State update timeout check - balances should be updated now')
-        }, 100)
       } catch (error) {
-        console.error('[WaveStake] ❌ Error fetching balances:', error)
+        console.error('[WaveStake] Error fetching balances:', error)
         setUserBalances({ wave: '0', wealth: '0', gold: '0', zec: '0', sol: '0' })
       }
     }
@@ -183,7 +177,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
 
   // Pool data - All 5 tokens on devnet (using test tokens)
   const stakePools: StakePool[] = useMemo(() => {
-    console.log('[WaveStake] 🔧 useMemo recalculating stakePools with userBalances:', userBalances)
+    console.log('[WaveStake] useMemo recalculating stakePools with userBalances:', userBalances)
 
     const poolsToShow = [
       {

@@ -346,7 +346,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
 
     try {
-      console.log('[MagicAction] Triggering for:', deposit.depositAddress, 'type:', deposit.type)
+      console.log('[MagicAction] Triggering deposit processing, type:', deposit.type)
       processedDepositsRef.current.add(deposit.depositAddress)
 
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
@@ -364,7 +364,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         // Check if escrow exists on L1 (V2 flow creates it during deposit)
         const escrowInfo = await connection.getAccountInfo(escrowPda)
         const useV2 = escrowInfo && escrowInfo.lamports > 0
-        console.log('[MagicAction] Escrow pre-exists:', useV2, escrowInfo?.lamports || 0, 'lamports')
+        console.log('[MagicAction] Escrow pre-exists:', useV2)
 
         // MagicBlock Ephemeral Rollups program and context
         const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
@@ -420,7 +420,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         console.log('[MagicAction] Sending to MagicBlock rollup...')
         const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
-        console.log('[MagicAction] Sent:', signature)
+        console.log('[MagicAction] Transaction sent to PER')
 
         // Use HTTP polling instead of WebSocket confirmation
         const confirmed = await confirmTransactionPolling(rollupConnection, signature, 15, 1000)
@@ -431,7 +431,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           await new Promise(r => setTimeout(r, 2000))
           const escrowInfo = await connection.getAccountInfo(escrowPda)
           if (escrowInfo && escrowInfo.lamports > 0) {
-            console.log('[MagicAction] Escrow arrived on L1:', escrowInfo.lamports)
+            console.log('[MagicAction] Escrow arrived on L1')
             setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
             setPendingEscrows(prev => {
               if (prev.some(e => e.escrowAddress === escrowPda.toBase58())) return prev
@@ -461,7 +461,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         // Check if vault already exists (from previous partial attempt)
         const existingVaultInfo = await connection.getAccountInfo(vaultPda)
         if (existingVaultInfo && existingVaultInfo.lamports > 0) {
-          console.log('[MagicAction] Vault already exists with', existingVaultInfo.lamports, 'lamports - claiming directly')
+          console.log('[MagicAction] Vault already exists - claiming directly')
 
           // Just claim from existing vault
           const claimData = Buffer.alloc(33)
@@ -535,7 +535,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
           console.log('[MagicAction] Sending to MagicBlock rollup...')
           const executeSignature = await rollupConnection.sendRawTransaction(signedExecuteTx.serialize(), { skipPreflight: true })
-          console.log('[MagicAction] Sent:', executeSignature)
+          console.log('[MagicAction] Transaction sent to PER')
 
           await confirmTransactionPolling(rollupConnection, executeSignature, 15, 1000)
           console.log('[MagicAction] PER confirmed, waiting for undelegation to L1...')
@@ -613,7 +613,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.log('[MagicAction] Sending combined tx to L1...')
         const claimSignature = await connection.sendRawTransaction(signedCombinedTx.serialize())
         await confirmTransactionPolling(connection, claimSignature)
-        console.log('[MagicAction] Vault created and claimed:', claimSignature)
+        console.log('[MagicAction] Vault created and claimed')
 
         // Verify funds arrived at wallet
         setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
@@ -669,7 +669,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.log('[MagicAction] Sending to mainnet...')
         const signature = await connection.sendRawTransaction(signedTx.serialize())
         await confirmTransactionPolling(connection, signature)
-        console.log('[MagicAction] Mixer transfer confirmed:', signature)
+        console.log('[MagicAction] Mixer transfer confirmed')
 
         const vaultInfo = await connection.getAccountInfo(vaultPda)
         if (vaultInfo && vaultInfo.lamports > 0) {
@@ -696,7 +696,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [publicKey, signTransaction, connection, rollupConnection])
 
-  // PRIVATE CLAIM VIA TEE - V4 TRUE PRIVACY
+  // PRIVATE CLAIM VIA TEE - WAVETEK TRUE PRIVACY
   //
   // V4 PRIVACY ARCHITECTURE:
   // 1. Receiver scans ClaimEscrows, X-Wing decapsulates to get sharedSecret
@@ -720,10 +720,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
     const destination = destinationWallet || publicKey
 
     try {
-      console.log('[TEE Claim] V4 TRUE PRIVACY CLAIM VIA MAGICBLOCK TEE')
-      console.log('[TEE Claim] Escrow:', escrow.escrowAddress)
-      console.log('[TEE Claim] Destination:', destination.toBase58())
-      console.log('[TEE Claim] Amount:', Number(escrow.amount) / LAMPORTS_PER_SOL, 'SOL')
+      console.log('[TEE Claim] WAVETEK TRUE PRIVACY CLAIM VIA MAGICBLOCK TEE')
+      console.log('[TEE Claim] Escrow: <ENCRYPTED>')
+      console.log('[TEE Claim] Destination: <ENCRYPTED>')
+      console.log('[TEE Claim] Amount: <ENCRYPTED>')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
@@ -732,7 +732,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // Get shared_secret from X-Wing decapsulation (recovered during scanning)
       const sharedSecret = sharedSecretInput || escrow.sharedSecret
       if (!sharedSecret) {
-        console.error('[TEE Claim] V4 requires sharedSecret from X-Wing decapsulation')
+        console.error('[TEE Claim] WAVETEK requires sharedSecret from X-Wing decapsulation')
         throw new Error('V4 claim requires sharedSecret')
       }
 
@@ -744,7 +744,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         throw new Error('Invalid sharedSecret for this escrow')
       }
 
-      console.log('[TEE Claim] V4: Shared secret verified locally')
+      console.log('[TEE Claim] WAVETEK: Stealth verification passed')
 
       // =====================================================
       // STEP 0: POOL_TO_ESCROW_V4 - Fund escrow from pool (ALWAYS for V4!)
@@ -762,13 +762,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // Need funding if: no info on PER, or lamports < amount + rent
       const needsFunding = !escrowInfoPER || escrowInfoPER.lamports < Number(escrow.amount) + escrowRent
 
-      console.log('[TEE Claim] V4: Escrow state on PER:', escrowInfoPER ? escrowInfoPER.lamports : 'null', 'lamports')
-      console.log('[TEE Claim] V4: Expected:', Number(escrow.amount) + escrowRent, 'lamports')
-      console.log('[TEE Claim] V4: Needs funding:', needsFunding)
+      console.log('[TEE Claim] WAVETEK: Escrow state on PER: <ENCRYPTED>')
+      console.log('[TEE Claim] WAVETEK: Checking funding requirements...')
+      console.log('[TEE Claim] WAVETEK: Needs funding:', needsFunding)
 
       if (needsFunding) {
-        console.log('[TEE Claim] V4: Escrow needs funding from pool')
-        console.log('[TEE Claim] V4: Calling POOL_TO_ESCROW_V4 on PER...')
+        console.log('[TEE Claim] WAVETEK: Escrow needs funding from pool')
+        console.log('[TEE Claim] WAVETEK: Calling POOL_TO_ESCROW on PER...')
 
         // Derive PDAs for POOL_TO_ESCROW_V4
         const [poolPda, poolBump] = derivePerMixerPoolPda()
@@ -806,14 +806,14 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         const signedPoolTx = await signTransaction!(poolToEscrowTx)
         const poolToEscrowSig = await rollupConnection.sendRawTransaction(signedPoolTx.serialize(), { skipPreflight: true })
-        console.log('[TEE Claim] V4: POOL_TO_ESCROW_V4 sent:', poolToEscrowSig)
+        console.log('[TEE Claim] WAVETEK: POOL_TO_ESCROW sent: <ENCRYPTED>')
 
         // Wait for confirmation
         const poolConfirmed = await confirmTransactionPolling(rollupConnection, poolToEscrowSig, 20, 2000)
         if (!poolConfirmed) {
-          console.warn('[TEE Claim] V4: POOL_TO_ESCROW_V4 confirmation timeout')
+          console.warn('[TEE Claim] WAVETEK: POOL_TO_ESCROW confirmation timeout')
         }
-        console.log('[TEE Claim] V4: Escrow funded from pool')
+        console.log('[TEE Claim] WAVETEK: Escrow funded from pool')
       }
 
       // Build CLAIM_ESCROW_V4 instruction (0x27)
@@ -852,21 +852,21 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const { blockhash } = await rollupConnection.getLatestBlockhash()
       tx.recentBlockhash = blockhash
 
-      console.log('[TEE Claim] V4: Signing CLAIM_ESCROW_V4...')
+      console.log('[TEE Claim] WAVETEK: Signing CLAIM_ESCROW...')
       const signedTx = await signTransaction!(tx)
 
-      console.log('[TEE Claim] V4: Sending to MagicBlock PER...')
+      console.log('[TEE Claim] WAVETEK: Sending to MagicBlock PER...')
       const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
-      console.log('[TEE Claim] V4: Sent:', signature)
+      console.log('[TEE Claim] WAVETEK: Transaction sent to PER')
 
       // Wait for PER confirmation
       const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
       if (!confirmed) {
-        console.warn('[TEE Claim] V4: PER confirmation timeout')
+        console.warn('[TEE Claim] WAVETEK: PER confirmation timeout')
         throw new Error('PER confirmation timeout')
       }
 
-      console.log('[TEE Claim] V4: Waiting for escrow undelegation to L1...')
+      console.log('[TEE Claim] WAVETEK: Waiting for escrow undelegation to L1...')
 
       // Wait for escrow to be undelegated and verified
       for (let i = 0; i < 15; i++) {
@@ -876,7 +876,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           // Check if verified
           const escrowData = escrowInfo.data
           if (escrowData.length >= 162 && escrowData[ESCROW_V3_OFFSET_IS_VERIFIED] === 1) {
-            console.log('[TEE Claim] V4: Escrow verified on L1!')
+            console.log('[TEE Claim] WAVETEK: Escrow verified on L1!')
 
             // Now call WITHDRAW_FROM_ESCROW on L1
             // Rent goes to MASTER_AUTHORITY as service fee
@@ -898,7 +898,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             // Check if XWingCiphertext account exists and add it for cleanup
             const xwingCtInfo = await connection.getAccountInfo(claimXwingCtPda)
             if (xwingCtInfo && xwingCtInfo.data.length > 0) {
-              console.log('[TEE Claim] V4: Including XWingCiphertext for cleanup')
+              console.log('[TEE Claim] WAVETEK: Including XWingCiphertext for cleanup')
               withdrawAccounts.push({ pubkey: claimXwingCtPda, isSigner: false, isWritable: true })
             }
 
@@ -917,7 +917,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
             await confirmTransactionPolling(connection, withdrawSig)
 
-            console.log('[TEE Claim] V4: Withdraw complete:', withdrawSig)
+            console.log('[TEE Claim] WAVETEK: Withdraw complete')
 
             setPendingEscrows(prev => prev.map(e =>
               e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -930,13 +930,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
             }])
             showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
 
-                  console.log('[TEE Claim] ✓ V4 PRIVATE CLAIM COMPLETE')
+                  console.log('[TEE Claim] WAVETEK PRIVATE CLAIM COMPLETE')
                   return true
           }
         }
       }
 
-      console.warn('[TEE Claim] V4: Escrow not verified on L1 within timeout')
+      console.warn('[TEE Claim] WAVETEK: Escrow not verified on L1 within timeout')
       return false
 
     } catch (err: any) {
@@ -959,7 +959,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     try {
       console.log('[Escrow] WARNING: This method links your wallet on-chain!')
       console.log('[Escrow] Use claimViaTEE() for private claims')
-      console.log('[Escrow] Withdrawing from:', escrow.escrowAddress)
+      console.log('[Escrow] Withdrawing from escrow...')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
@@ -1013,7 +1013,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.log('[Escrow] Sending to L1...')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
       await confirmTransactionPolling(connection, signature)
-      console.log('[Escrow] Withdraw confirmed:', signature)
+      console.log('[Escrow] Withdraw confirmed')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -1334,7 +1334,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         }
       }
 
-      // V4 TRUE PRIVACY SCANNER
+      // WAVETEK TRUE PRIVACY SCANNER
       // Uses X-Wing decapsulation to identify our escrows
       // ONLY includes escrows that belong to us (isOurs === true)
       if (keys.xwingKeys) {
@@ -1593,18 +1593,18 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       for (const escrow of toClaim) {
         autoClaimingRef.current.add(escrow.escrowAddress)
-        console.log('[AutoClaim] V4: Auto-claiming escrow:', escrow.escrowAddress.slice(0, 12) + '...')
+        console.log('[AutoClaim] WAVETEK: Auto-claiming detected escrow...')
 
         try {
           const success = await claimViaTEE(escrow, publicKey, escrow.sharedSecret)
           if (success) {
-            console.log('[AutoClaim] V4: Successfully claimed:', escrow.escrowAddress.slice(0, 12) + '...')
+            console.log('[AutoClaim] WAVETEK: Successfully claimed escrow')
             showClaimSuccess(Number(escrow.amount) / LAMPORTS_PER_SOL)
           } else {
-            console.warn('[AutoClaim] V4: Claim returned false:', escrow.escrowAddress.slice(0, 12) + '...')
+            console.warn('[AutoClaim] WAVETEK: Claim returned false')
           }
         } catch (err) {
-          console.error('[AutoClaim] V4: Claim error:', err)
+          console.error('[AutoClaim] WAVETEK: Claim error:', err)
         }
       }
     }
