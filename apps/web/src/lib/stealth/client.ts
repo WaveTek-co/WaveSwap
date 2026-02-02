@@ -820,17 +820,9 @@ export class WaveStealthClient {
       // POST-QUANTUM PATH: Use X-Wing encapsulation
       console.log('[WaveStealthClient] Using X-Wing post-quantum encryption');
 
-      // Reconstruct recipient's X-Wing public key
-      // Layout: spend(32) + view(32) + mlkem(1152)
-      // X25519 is derived from spend key
-      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
-      // Derive X25519 from spend key (same curve conversion)
-      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
-
-      const recipientXWingPk: XWingPublicKey = {
-        mlkem: recipientMlkem,
-        x25519: recipientX25519,
-      };
+      // FIX: Use deserializeXWingPublicKey to correctly extract ML-KEM and X25519
+      // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
+      const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
 
       // X-Wing encapsulation produces quantum-safe shared secret
       const { ciphertext, sharedSecret } = xwingEncapsulate(recipientXWingPk);
@@ -1584,18 +1576,14 @@ export class WaveStealthClient {
     const nonce = randomBytes(32);
 
     // X-Wing encapsulation: generate shared secret and ciphertext
-    // Reconstruct recipient's X-Wing public key
     const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
     let sharedSecret: Uint8Array;
     let xwingCiphertext: Uint8Array | undefined;
 
     if (hasXWingKeys) {
-      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
-      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
-      const recipientXWingPk: XWingPublicKey = {
-        mlkem: recipientMlkem,
-        x25519: recipientX25519,
-      };
+      // FIX: Use deserializeXWingPublicKey to correctly extract ML-KEM and X25519
+      // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
+      const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
       const encapResult = xwingEncapsulate(recipientXWingPk);
       xwingCiphertext = encapResult.ciphertext;
       sharedSecret = encapResult.sharedSecret;
@@ -2269,12 +2257,16 @@ export class WaveStealthClient {
     let xwingCiphertext: Uint8Array;
 
     if (hasXWingKeys) {
-      const recipientMlkem = registry.xwingPubkey.slice(64, 64 + 1152);
-      const { publicKey: recipientX25519 } = ed25519ToX25519Keypair(registry.spendPubkey);
-      const recipientXWingPk: XWingPublicKey = {
-        mlkem: recipientMlkem,
-        x25519: recipientX25519,
-      };
+      // FIX: Use deserializeXWingPublicKey to correctly extract ML-KEM and X25519
+      // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
+      // The X-Wing X25519 pubkey is stored in registry, NOT derived from spendPubkey
+      const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
+      console.log('[waveSendV4] Deserialized X-Wing pubkey:', {
+        mlkemSize: recipientXWingPk.mlkem.length,
+        x25519Size: recipientXWingPk.x25519.length,
+        mlkemFirst4: Array.from(recipientXWingPk.mlkem.slice(0, 4)),
+        x25519First4: Array.from(recipientXWingPk.x25519.slice(0, 4)),
+      });
       const encapResult = xwingEncapsulate(recipientXWingPk);
       xwingCiphertext = encapResult.ciphertext;
       sharedSecret = encapResult.sharedSecret;
