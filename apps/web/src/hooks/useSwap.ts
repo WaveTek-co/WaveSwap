@@ -457,7 +457,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's tokens when wallet connects or privacy mode changes
   useEffect(() => {
-    console.log('[useSwap] Main wallet effect triggered - publicKey:', <ENCRYPTED>, 'connection:', !!connection, 'privacyMode:', privacyMode)
+    console.log('[useSwap] Main wallet effect triggered - publicKey: <ENCRYPTED>, connection:', !!connection, 'privacyMode:', privacyMode)
     if (publicKey && connection) {
       console.log('[useSwap] Wallet connected, calling loadUserTokens()...')
       loadUserTokens()
@@ -475,7 +475,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's wallet tokens
   const loadUserTokens = async () => {
-    console.log('[useSwap] loadUserTokens called - publicKey:', <ENCRYPTED>, 'connection:', !!connection)
+    console.log('[useSwap] loadUserTokens called - publicKey: <ENCRYPTED>, connection:', !!connection)
     if (!publicKey || !connection) {
       console.log('[useSwap] loadUserTokens returning early - no publicKey or connection')
       return
@@ -1298,7 +1298,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           console.log('[Private Swap] Real private swap completed successfully')
 
           // Update confidential balance tracking for withdraw tab
-          await updateConfidentialBalance(outputToken.address, parseFloat(outputAmount), <ENCRYPTED>)
+          await updateConfidentialBalance(outputToken.address, parseFloat(outputAmount), publicKey?.toBase58())
 
           // Return successful result
           const result: SwapQuote = {
@@ -1412,7 +1412,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   // Optimized batch balance fetching
   const fetchMultipleBalances = useCallback(async (tokens: Token[]): Promise<Map<string, string>> => {
     console.log(`[useSwap] fetchMultipleBalances called with ${tokens.length} tokens`)
-    console.log(`[useSwap] publicKey: ${<ENCRYPTED>}`)
+    console.log('[useSwap] publicKey: <ENCRYPTED>')
     console.log(`[useSwap] connection: ${!!connection}`)
 
     if (!publicKey || !connection || tokens.length === 0) {
@@ -1455,7 +1455,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   }, [publicKey, connection])
 
   const refreshBalances = useCallback(async () => {
-    console.log('[refreshBalances] Called with publicKey:', <ENCRYPTED>)
+    console.log('[refreshBalances] Called with publicKey: <ENCRYPTED>')
     if (!publicKey || !connection) {
       console.log('[refreshBalances] No publicKey or connection, clearing balances')
       setBalances(new Map())
@@ -1807,7 +1807,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           console.log('[Confidential Withdrawal] Transaction confirmed successfully: <ENCRYPTED>')
 
           // Update tracked confidential balance after successful withdrawal
-          subtractConfidentialBalance(tokenAddress, amount, <ENCRYPTED>)
+          subtractConfidentialBalance(tokenAddress, amount, publicKey?.toBase58())
 
           // Clear balance cache and refresh balances after successful withdrawal
           console.log('[Confidential Withdrawal] Clearing balance cache and refreshing token balances')
