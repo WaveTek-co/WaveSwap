@@ -63,7 +63,8 @@ export {
   deriveRelayerAuthPda,
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
-  deriveClaimEscrowPda,
+  deriveInputEscrowPda,
+  deriveOutputEscrowPda,
   deriveXWingCiphertextPda,
   XWING_CIPHERTEXT_ACCOUNT_SIZE,
   // WAVETEK PDAs

@@ -272,6 +272,24 @@ export function deriveClaimEscrowPda(nonce: Uint8Array): [PublicKey, number] {
   );
 }
 
+// Input Escrow PDA (WAVETEK: holds sender's funds before mixing)
+// This is the escrow that receives the INPUT from sender, linked to nonce
+export function deriveInputEscrowPda(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("input-escrow"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Output Escrow PDA (WAVETEK: holds receiver's funds after mixing)
+// This is the escrow that holds the OUTPUT for receiver, linked to stealth_pubkey
+export function deriveOutputEscrowPda(stealthPubkey: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("output-escrow"), Buffer.from(stealthPubkey)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
 // X-Wing Ciphertext PDA (stores full X-Wing ciphertext for receiver decapsulation)
 // Derived from escrow PDA - scanner can find it automatically
 export function deriveXWingCiphertextPda(escrowPda: PublicKey): [PublicKey, number] {

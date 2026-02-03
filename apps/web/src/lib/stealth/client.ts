@@ -37,7 +37,7 @@ import {
   deriveDelegateBufferPda,
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
-  deriveClaimEscrowPda,
+  deriveInputEscrowPda,
   deriveXWingCiphertextPda,
   // WAVETEK TRUE PRIVACY PDA derivations
   deriveEscrowBufferPda,
@@ -1441,7 +1441,7 @@ export class WaveStealthClient {
     // Derive PER Mixer Pool PDAs
     const [perMixerPoolPda] = derivePerMixerPoolPda();
     const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
-    const [escrowPda] = deriveClaimEscrowPda(nonce);
+    const [escrowPda] = deriveInputEscrowPda(nonce);
 
     const amountBigInt = BigInt(params.amount);
 
@@ -1615,7 +1615,7 @@ export class WaveStealthClient {
     // Derive PDAs
     const [perMixerPoolPda] = derivePerMixerPoolPda();
     const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
-    const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+    const [escrowPda, escrowBump] = deriveInputEscrowPda(nonce);
     const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPda);
     const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
     const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
@@ -2287,7 +2287,7 @@ export class WaveStealthClient {
     // Derive all V4 PDAs
     const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda();
     const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
-    const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+    const [escrowPda, escrowBump] = deriveInputEscrowPda(nonce);
     // Note: xwingCtPda is NOT created on L1 anymore - TEE creates it seeded by stealth_address (output)
     // This preserves privacy: no on-chain link between input_escrow and xwing_ct
     const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);

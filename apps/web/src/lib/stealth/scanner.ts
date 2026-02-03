@@ -17,7 +17,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha256";
 import { sha3_256 } from "js-sha3";
 import { ed25519 } from "@noble/curves/ed25519";
-import { PROGRAM_IDS, deriveClaimEscrowPda, deriveXWingCiphertextPda, MAGICBLOCK_PER } from "./config";
+import { PROGRAM_IDS, deriveOutputEscrowPda, deriveXWingCiphertextPda, MAGICBLOCK_PER } from "./config";
 import {
   StealthKeyPair,
   xwingDecapsulate,
@@ -296,8 +296,8 @@ export async function scanForEscrowsV4(
       const verifiedDestination = new Uint8Array(data.slice(ESCROW_OFFSET_VERIFIED_DEST, ESCROW_OFFSET_VERIFIED_DEST + 32));
       const isVerified = data[ESCROW_OFFSET_IS_VERIFIED] === 1;
 
-      // Verify PDA derivation
-      const [expectedPda] = deriveClaimEscrowPda(nonce);
+      // Verify PDA derivation - WAVETEK V4 only (output-escrow from stealthPubkey)
+      const [expectedPda] = deriveOutputEscrowPda(stealthPubkey);
       if (!pubkey.equals(expectedPda)) {
         continue;
       }

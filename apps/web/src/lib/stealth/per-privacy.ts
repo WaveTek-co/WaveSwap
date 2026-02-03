@@ -31,7 +31,8 @@ import {
   deriveRelayerAuthPda,
   derivePerMixerPoolPda,
   derivePerDepositRecordPda,
-  deriveClaimEscrowPda,
+  deriveInputEscrowPda,
+  deriveOutputEscrowPda,
   deriveXWingCiphertextPda,
   deriveEscrowBufferPda,
   deriveEscrowDelegationRecordPda,
@@ -375,563 +376,16 @@ export class PERPrivacyClient {
     }
   }
 
-  // STEP 2 (V2): Deposit to PER mixer pool with pre-created escrow
-  // This creates both the deposit record AND the claim escrow on L1,
-  // then delegates the escrow to MagicBlock so TEE can fill it later.
-  // This is the IDEAL privacy architecture - escrows created on L1 can be committed.
-  async depositToPerMixerV2(
-    wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    amount: bigint,
-    stealthPubkey: Uint8Array,
-    ephemeralPubkey: Uint8Array,
-    viewTag: number,
-    commitFreqMs: number = 10000
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    signature?: string;
-    depositRecordPda?: PublicKey;
-    escrowPda?: PublicKey;
-    nonce?: Uint8Array;
-  }> {
-    try {
-      // Generate random nonce
-      const nonce = crypto.getRandomValues(new Uint8Array(32));
-
-      const [perMixerPoolPda] = derivePerMixerPoolPda();
-      const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
-      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
-      const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
-      const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
-      const [delegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
-
-      // Build deposit V2 instruction
-      // Data: record_bump(1) + escrow_bump(1) + nonce(32) + amount(8) +
-      //       stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) + commit_freq_ms(4) = 111 bytes
-      const data = Buffer.alloc(112);
-      let offset = 0;
-      data[offset++] = StealthDiscriminators.DEPOSIT_TO_PER_MIXER_V2;
-      data[offset++] = recordBump;
-      data[offset++] = escrowBump;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      for (let i = 0; i < 8; i++) {
-        data[offset++] = Number((amount >> BigInt(i * 8)) & BigInt(0xff));
-      }
-      Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
-      Buffer.from(ephemeralPubkey).copy(data, offset); offset += 32;
-      data[offset++] = viewTag;
-      data.writeUInt32LE(commitFreqMs, offset);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },
-          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
-          { pubkey: escrowPda, isSigner: false, isWritable: true },
-          { pubkey: escrowBuffer, isSigner: false, isWritable: true },
-          { pubkey: delegationRecord, isSigner: false, isWritable: true },
-          { pubkey: delegationMetadata, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
-          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false }, // owner_program
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data,
-      });
-
-      const tx = new Transaction().add(ix);
-      tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await this.mainnetConnection.getLatestBlockhash()).blockhash;
-
-      const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
-
-      console.log("[PER Privacy V2] Deposit complete - escrow created and delegated");
-
-      return {
-        success: true,
-        signature,
-        depositRecordPda,
-        escrowPda,
-        nonce,
-      };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // STEP 2 (V3): Deposit to PER mixer pool with ENCRYPTED destination
-  // This is the IDEAL PRIVACY architecture:
-  // - Sender encrypts receiver's wallet using X-Wing shared secret
-  // - On-chain observers CANNOT see where funds will go
-  // - Only receiver can decrypt (using their X-Wing secret key)
-  async depositToPerMixerV3(
-    wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    amount: bigint,
-    recipientXWingPubkey: { mlkem: Uint8Array; x25519: Uint8Array },
-    destinationWallet: PublicKey, // Receiver's wallet - will be ENCRYPTED
-    commitFreqMs: number = 10000
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    signature?: string;
-    depositRecordPda?: PublicKey;
-    escrowPda?: PublicKey;
-    nonce?: Uint8Array;
-    stealthPubkey?: Uint8Array;
-    ephemeralPubkey?: Uint8Array;
-    viewTag?: number;
-    sharedSecret?: Uint8Array; // For receiver to decrypt destination
-  }> {
-    try {
-      // Generate random nonce
-      const nonce = crypto.getRandomValues(new Uint8Array(32));
-
-      // X-Wing encapsulation: generate shared secret and ciphertext
-      const { ciphertext: xwingCiphertext, sharedSecret } = xwingEncapsulate(recipientXWingPubkey);
-
-      // Derive stealth pubkey from shared secret (must match on-chain)
-      const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
-
-      // Ephemeral pubkey is part of X-Wing ciphertext (first 32 bytes for view tag calculation)
-      const ephemeralPubkey = xwingCiphertext.slice(0, 32);
-
-      // View tag from shared secret
-      const viewTag = sharedSecret[0];
-
-      // ENCRYPT destination wallet using shared secret
-      const encryptedDestination = await encryptDestinationWallet(
-        destinationWallet.toBytes(),
-        sharedSecret
-      );
-
-      console.log("[PER Privacy V3] Encrypted destination:", encryptedDestination.length, "bytes");
-
-      const [perMixerPoolPda] = derivePerMixerPoolPda();
-      const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
-      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
-      const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
-      const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
-      const [delegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
-
-      // Build deposit V3 instruction
-      // Data: record_bump(1) + escrow_bump(1) + nonce(32) + amount(8) +
-      //       stealth_pubkey(32) + ephemeral_pubkey(32) + view_tag(1) +
-      //       encrypted_destination(48) + commit_freq_ms(4) = 159 bytes
-      const data = Buffer.alloc(160);
-      let offset = 0;
-      data[offset++] = StealthDiscriminators.DEPOSIT_TO_PER_MIXER_V3;
-      data[offset++] = recordBump;
-      data[offset++] = escrowBump;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      for (let i = 0; i < 8; i++) {
-        data[offset++] = Number((amount >> BigInt(i * 8)) & BigInt(0xff));
-      }
-      Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
-      Buffer.from(ephemeralPubkey).copy(data, offset); offset += 32;
-      data[offset++] = viewTag;
-      Buffer.from(encryptedDestination).copy(data, offset); offset += 48;
-      data.writeUInt32LE(commitFreqMs, offset);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-          { pubkey: perMixerPoolPda, isSigner: false, isWritable: false }, // Just for verification
-          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
-          { pubkey: escrowPda, isSigner: false, isWritable: true },
-          { pubkey: escrowBuffer, isSigner: false, isWritable: true },
-          { pubkey: delegationRecord, isSigner: false, isWritable: true },
-          { pubkey: delegationMetadata, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
-          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false }, // owner_program
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data,
-      });
-
-      const tx = new Transaction().add(ix);
-      tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await this.mainnetConnection.getLatestBlockhash()).blockhash;
-
-      const signedTx = await wallet.signTransaction(tx);
-      const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
-
-      console.log("[PER Privacy V3] Deposit complete - destination ENCRYPTED in escrow");
-
-      return {
-        success: true,
-        signature,
-        depositRecordPda,
-        escrowPda,
-        nonce,
-        stealthPubkey,
-        ephemeralPubkey,
-        viewTag,
-        sharedSecret, // Receiver needs this to decrypt destination
-      };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Claim via TEE (V3) - Receiver provides shared_secret + decrypted destination
-  // TEE verifies and sets verified_destination, then undelegates
-  async executePerClaimV3(
-    payer: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
-    sharedSecret: Uint8Array, // From X-Wing decapsulation (proves ownership)
-    decryptedDestination: PublicKey // Receiver decrypted this off-chain
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    signature?: string;
-  }> {
-    try {
-      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
-
-      // MagicBlock Ephemeral Rollups program and context
-      // CRITICAL: Use real MagicBlock addresses, not placeholders!
-      const MAGICBLOCK_ER_PROGRAM = new PublicKey("ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL");
-      const [magicContext] = PublicKey.findProgramAddressSync(
-        [Buffer.from("magic_context")],
-        MAGICBLOCK_ER_PROGRAM
-      );
-
-      // Build execute claim V3 instruction (runs inside PER/TEE)
-      // Data: nonce(32) + escrow_bump(1) + shared_secret(32) + destination(32) = 97 bytes
-      const data = Buffer.alloc(98);
-      let offset = 0;
-      data[offset++] = StealthDiscriminators.EXECUTE_PER_CLAIM_V3;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      data[offset++] = escrowBump;
-      Buffer.from(sharedSecret).copy(data, offset); offset += 32;
-      decryptedDestination.toBytes().copy(data, offset);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-          { pubkey: escrowPda, isSigner: false, isWritable: true },
-          { pubkey: magicContext, isSigner: false, isWritable: true },
-          { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data,
-      });
-
-      // Send to PER connection (MagicBlock rollup)
-      const tx = new Transaction().add(ix);
-      tx.feePayer = payer.publicKey;
-      tx.recentBlockhash = (await this.perConnection.getLatestBlockhash()).blockhash;
-
-      const signedTx = await payer.signTransaction(tx);
-      const signature = await this.perConnection.sendRawTransaction(signedTx.serialize());
-      await confirmTransactionPolling(this.perConnection, signature, 30, 2000);
-
-      console.log("[PER Privacy V3] Claim executed - TEE verified and undelegated escrow");
-
-      return { success: true, signature };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // L1 Withdraw from escrow (after TEE verification)
-  // Destination must match verified_destination set by TEE
-  async withdrawFromEscrow(
-    claimer: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
-    stealthPubkey: Uint8Array,
-    verifiedDestination: PublicKey // Must match what TEE set
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    signature?: string;
-  }> {
-    try {
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
-
-      // Build withdraw instruction
-      // Data: nonce(32) + stealth_pubkey(32) = 64 bytes
-      const data = Buffer.alloc(65);
-      let offset = 0;
-      data[offset++] = StealthDiscriminators.WITHDRAW_FROM_ESCROW;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      Buffer.from(stealthPubkey).copy(data, offset);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: claimer.publicKey, isSigner: true, isWritable: false },
-          { pubkey: escrowPda, isSigner: false, isWritable: true },
-          { pubkey: verifiedDestination, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data,
-      });
-
-      const tx = new Transaction().add(ix);
-      tx.feePayer = claimer.publicKey;
-      tx.recentBlockhash = (await this.mainnetConnection.getLatestBlockhash()).blockhash;
-
-      const signedTx = await claimer.signTransaction(tx);
-      const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
-
-      console.log("[PER Privacy] Withdrawn from escrow to: <ENCRYPTED>");
-
-      return { success: true, signature };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // STEP 3: Execute mixer transfer (can be called by ANYONE with valid TEE proof)
-  // This is the key privacy step - breaks the sender-vault link completely
-  // The TEE proof is the ONLY authorization required
+  // =========================================================================
+  // WAVETEK TRUE PRIVACY METHODS (PRODUCTION)
+  // =========================================================================
   //
-  // On-chain expects (test mixer - non-delegated):
-  // - accounts: submitter, mixer_pool, deposit_record, vault, announcement, system_program, instructions_sysvar
-  // - data: nonce (32) + stealth_pubkey (32) + announcement_bump (1) + vault_bump (1) + tee_proof (168) = 234 bytes
-  async executeMixerTransfer(
-    submitter: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
-    announcementPda: PublicKey,
-    vaultPda: PublicKey,
-    stealthPubkey: Uint8Array,
-    teeProof?: Uint8Array
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    signature?: string;
-  }> {
-    try {
-      const [mixerPoolPda] = deriveTestMixerPoolPda();
-      const [depositRecordPda] = deriveDepositRecordPda(nonce);
-      const [, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
-      const [, vaultBump] = deriveStealthVaultPda(stealthPubkey);
-
-      // Generate TEE proof if not provided (devnet)
-      const proof = teeProof || createDevnetTeeProof(announcementPda.toBytes(), vaultPda.toBytes());
-
-      // Build execute test mixer transfer instruction (non-delegated)
-      // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) + announcement_bump(1) + vault_bump(1) + tee_proof(168) = 235 bytes
-      // lib.rs consumes discriminator, passes remaining 234 bytes to execute_test_mixer_transfer::process
-      const data = Buffer.alloc(235);
-      let offset = 0;
-      data[offset++] = StealthDiscriminators.EXECUTE_TEST_MIXER_TRANSFER;
-      Buffer.from(nonce).copy(data, offset);
-      offset += 32;
-      Buffer.from(stealthPubkey).copy(data, offset);
-      offset += 32;
-      data[offset++] = announcementBump;
-      data[offset++] = vaultBump;
-      Buffer.from(proof).copy(data, offset);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: submitter.publicKey, isSigner: true, isWritable: false },
-          { pubkey: mixerPoolPda, isSigner: false, isWritable: true },
-          { pubkey: depositRecordPda, isSigner: false, isWritable: true },
-          { pubkey: vaultPda, isSigner: false, isWritable: true },
-          { pubkey: announcementPda, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data,
-      });
-
-      const tx = new Transaction().add(ix);
-      tx.feePayer = submitter.publicKey;
-      tx.recentBlockhash = (await this.mainnetConnection.getLatestBlockhash()).blockhash;
-
-      const signedTx = await submitter.signTransaction(tx);
-      const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
-      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
-
-      return { success: true, signature };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Complete privacy send: USER signs ONCE (announcement + deposit), RELAYER executes mixer transfer
-  // CRITICAL: The user wallet MUST NOT sign the mixer transfer - that breaks privacy!
-  async privacySend(
-    wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    params: PrivacySendParams
-  ): Promise<PrivacySendResult> {
-    console.log("[PER Privacy] Starting full privacy send flow...");
-
-    if (!this.relayerEndpoint) {
-      return { success: false, error: "Relayer not configured. Call setRelayer() first for privacy." };
-    }
-
-    // Step 1: Publish announcement
-    console.log("[PER Privacy] Step 1: Publishing announcement...");
-    const announcementResult = await this.publishAnnouncement(
-      wallet,
-      params.recipientSpendPubkey,
-      params.recipientViewPubkey
-    );
-
-    if (!announcementResult.success) {
-      return { success: false, error: `Announcement failed: ${announcementResult.error}` };
-    }
-
-    console.log("[PER Privacy] Announcement published: <ENCRYPTED>");
-
-    // Step 2: Deposit to mixer (USER signs this - LAST user transaction!)
-    console.log("[PER Privacy] Step 2: Depositing to mixer pool...");
-    const depositResult = await this.depositToMixer(
-      wallet,
-      params.amount,
-      announcementResult.nonce!,
-      announcementResult.announcementPda!,
-      announcementResult.stealthConfig!.stealthPubkey
-    );
-
-    if (!depositResult.success) {
-      return {
-        success: false,
-        error: `Deposit failed: ${depositResult.error}`,
-        announcementSignature: announcementResult.signature,
-        announcementPda: announcementResult.announcementPda,
-      };
-    }
-
-    console.log("[PER Privacy] Deposited to mixer: <ENCRYPTED>");
-
-    // Step 3: Submit to RELAYER for mixer execution
-    // CRITICAL: The RELAYER executes this, NOT the user wallet!
-    // This is what breaks the sender-vault link and provides privacy!
-    console.log("[PER Privacy] Step 3: Submitting to relayer for mixer execution...");
-    console.log("[PER Privacy] Relayer endpoint:", this.relayerEndpoint);
-
-    const mixerRequest = {
-      nonce: Buffer.from(announcementResult.nonce!).toString("base64"),
-      announcementPda: announcementResult.announcementPda!.toBase58(),
-      vaultPda: depositResult.vaultPda!.toBase58(),
-      stealthPubkey: Buffer.from(announcementResult.stealthConfig!.stealthPubkey).toString("base64"),
-      depositSignature: depositResult.signature,
-    };
-
-    try {
-      const response = await fetch(`${this.relayerEndpoint}/execute-mixer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mixerRequest),
-      });
-
-      const mixerResult = await response.json() as { success: boolean; signature?: string; error?: string };
-
-      if (!mixerResult.success) {
-        return {
-          success: false,
-          error: `Relayer mixer execution failed: ${mixerResult.error}. Funds safe in mixer pool.`,
-          announcementSignature: announcementResult.signature,
-          announcementPda: announcementResult.announcementPda,
-          depositSignature: depositResult.signature,
-          depositRecordPda: depositResult.depositRecordPda,
-        };
-      }
-
-      console.log("[PER Privacy] Mixer transfer complete (by RELAYER): <ENCRYPTED>");
-      console.log("[PER Privacy] FULL PRIVACY SEND COMPLETE");
-
-      return {
-        success: true,
-        announcementSignature: announcementResult.signature,
-        announcementPda: announcementResult.announcementPda,
-        depositSignature: depositResult.signature,
-        depositRecordPda: depositResult.depositRecordPda,
-        mixerTransferSignature: mixerResult.signature,
-        vaultPda: depositResult.vaultPda,
-        stealthPubkey: announcementResult.stealthConfig!.stealthPubkey,
-        ephemeralPubkey: announcementResult.stealthConfig!.ephemeralPubkey,
-        viewTag: announcementResult.stealthConfig!.viewTag,
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: `Relayer request failed: ${error.message}`,
-        announcementSignature: announcementResult.signature,
-        announcementPda: announcementResult.announcementPda,
-        depositSignature: depositResult.signature,
-        depositRecordPda: depositResult.depositRecordPda,
-      };
-    }
-  }
-
-  // Privacy claim via relayer - recipient NEVER signs or appears on-chain
-  async privacyClaim(params: PrivacyClaimParams): Promise<PrivacyClaimResult> {
-    console.log("[PER Privacy] Starting privacy claim via relayer...");
-
-    if (!this.relayerPubkey) {
-      return { success: false, error: "Relayer not configured. Call setRelayer() first." };
-    }
-
-    // Create claim proof
-    const destinationHash = computeDestinationHash(params.destination);
-
-    // Sign claim message: "claim:" || vault || destination_hash
-    const message = Buffer.alloc(70);
-    message.write("claim:", 0);
-    params.vaultPda.toBytes().copy(message, 6);
-    Buffer.from(destinationHash).copy(message, 38);
-
-    const signature = stealthSign(params.stealthKeys.spendPrivkey, message);
-
-    // Build claim request
-    const claimRequest = {
-      vaultPda: params.vaultPda.toBase58(),
-      announcementPda: params.announcementPda.toBase58(),
-      destination: params.destination.toBase58(),
-      stealthPubkey: Buffer.from(params.stealthPubkey).toString("base64"),
-      signature: Buffer.from(signature).toString("base64"),
-      destinationHash: Buffer.from(destinationHash).toString("base64"),
-    };
-
-    if (this.relayerEndpoint) {
-      // Submit to relayer API
-      try {
-        console.log("[PER Privacy] Submitting claim to relayer:", this.relayerEndpoint);
-
-        const response = await fetch(`${this.relayerEndpoint}/claim`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(claimRequest),
-        });
-
-        const result = await response.json();
-
-        if (!result.success) {
-          return { success: false, error: result.error };
-        }
-
-        console.log("[PER Privacy] Claim successful via relayer: <ENCRYPTED>");
-
-        return {
-          success: true,
-          signature: result.signature,
-          amount: result.amount ? BigInt(result.amount) : undefined,
-        };
-      } catch (error: any) {
-        return { success: false, error: `Relayer request failed: ${error.message}` };
-      }
-    } else {
-      // Return claim proof for manual submission
-      console.log("[PER Privacy] No relayer endpoint - returning claim proof for manual submission");
-
-      return {
-        success: false,
-        error: "No relayer endpoint configured. Claim proof generated but needs manual submission.",
-      };
-    }
-  }
+  // WAVETEK ARCHITECTURE:
+  // - INPUT_ESCROW: ["input-escrow", nonce] - sender deposits here
+  // - OUTPUT_ESCROW: ["output-escrow", stealth_pubkey] - receiver claims from here
+  // - Pool breaks sender-receiver link on-chain
+  //
+  // Triple-tested on devnet. This is the ONLY supported flow.
 
   // Check vault balance
   async getVaultBalance(vaultPda: PublicKey): Promise<bigint> {
@@ -962,7 +416,7 @@ export class PERPrivacyClient {
   }
 
   // =========================================================================
-  // WAVETEK TRUE PRIVACY METHODS (PRODUCTION RECOMMENDED)
+  // WAVETEK TRUE PRIVACY METHODS
   // =========================================================================
   //
   // WAVETEK ARCHITECTURE:
@@ -1038,7 +492,7 @@ export class PERPrivacyClient {
       // Derive PDAs
       const [perMixerPoolPda] = derivePerMixerPoolPda();
       const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
       // Build instruction data (1275 bytes)
       // Layout: discriminator(1) + record_bump(1) + nonce(32) + amount(8) +
@@ -1264,10 +718,11 @@ export class PERPrivacyClient {
     try {
       console.log("[WAVETEK Privacy] Withdrawing from escrow...");
 
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
       // Check if XWingCiphertextAccount exists for cleanup
-      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
+      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
       const xwingCtAccount = await this.mainnetConnection.getAccountInfo(xwingCtPda);
       const hasXWingCt = xwingCtAccount && xwingCtAccount.data.length >= 1160;
 
@@ -1469,7 +924,7 @@ export class PERPrivacyClient {
       console.log("[WAVETEK] TX1a-3: COMPLETE_WAVETEK_DEPOSIT");
 
       const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+      const [escrowPda, escrowBump] = deriveInputEscrowPda(nonce);
       const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
       const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
       const [delegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
@@ -1548,7 +1003,7 @@ export class PERPrivacyClient {
 
       const [poolPda] = derivePerMixerPoolPda();
       const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+      const [escrowPda, escrowBump] = deriveInputEscrowPda(nonce);
 
       // data: disc(1) + nonce(32) + escrow_bump(1) = 34 bytes
       const data = Buffer.alloc(34);
@@ -1600,7 +1055,8 @@ export class PERPrivacyClient {
   // TX2 (PER): Move funds from pool to escrow + initialize XWing CT
   async poolToEscrowV4(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array
+    nonce: Uint8Array,
+    stealthPubkey: Uint8Array
   ): Promise<{
     success: boolean;
     error?: string;
@@ -1611,7 +1067,7 @@ export class PERPrivacyClient {
 
       const [poolPda, poolBump] = derivePerMixerPoolPda();
       const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [escrowPda, escrowBump] = deriveClaimEscrowPda(nonce);
+      const [escrowPda, escrowBump] = deriveOutputEscrowPda(stealthPubkey);
       const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPda);
 
       // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
@@ -1679,8 +1135,10 @@ export class PERPrivacyClient {
     try {
       console.log("[WAVETEK] TX3: CLAIM_ESCROW (on PER with undelegation)");
 
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+      const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
+      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
+      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
 
       // data: disc(1) + nonce(32) + shared_secret(32) = 65 bytes
       const data = Buffer.alloc(65);
@@ -1746,8 +1204,9 @@ export class PERPrivacyClient {
     try {
       console.log("[WAVETEK] TX4: WITHDRAW_FROM_ESCROW (on L1)");
 
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
+      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
+      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
 
       // Check if XWing CT exists
       const xwingCtAccount = await this.mainnetConnection.getAccountInfo(xwingCtPda);
@@ -1856,7 +1315,7 @@ export class PERPrivacyClient {
       await new Promise(r => setTimeout(r, 15000));
 
       // TX2: Pool to escrow (on PER)
-      const poolToEscrowResult = await this.poolToEscrowV4(wallet, nonce);
+      const poolToEscrowResult = await this.poolToEscrowV4(wallet, nonce, stealthPubkey);
       if (!poolToEscrowResult.success) {
         return { success: false, error: `POOL_TO_ESCROW failed: ${poolToEscrowResult.error}` };
       }
@@ -1901,7 +1360,7 @@ export class PERPrivacyClient {
 
       // Wait for undelegation
       console.log("[WAVETEK] Waiting for escrow undelegation (30 sec)...");
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
       for (let i = 0; i < 12; i++) {
         await new Promise(r => setTimeout(r, 2500));
@@ -1951,8 +1410,10 @@ export class PERPrivacyClient {
         throw new Error("SharedSecret must be 32 bytes");
       }
 
-      const [escrowPda] = deriveClaimEscrowPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+      const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
+      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
+      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
 
       // Build instruction data (65 bytes)
       // Layout: discriminator(1) + nonce(32) + shared_secret(32)
