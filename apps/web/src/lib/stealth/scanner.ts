@@ -34,23 +34,25 @@ export { cryptoDeriveStealthPubkey as deriveStealthPubkeyFromSharedSecret };
 // WAVETEK CONSTANTS - MUST MATCH ON-CHAIN EXACTLY
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ClaimEscrow discriminator and size
-const CLAIM_ESCROW_DISCRIMINATOR = "CLAIMESC";
-const CLAIM_ESCROW_SIZE = 171;
+// WAVETEK V4: OutputEscrow discriminator and size (created by POOL_TO_ESCROW_V4)
+// OutputEscrow is the privacy-preserving output - derived from stealth_pubkey, NOT nonce
+const OUTPUT_ESCROW_DISCRIMINATOR = "OUTPUTES";
+const OUTPUT_ESCROW_SIZE = 91;
 
-// ClaimEscrow layout offsets (from per_mixer.rs)
-// discriminator(8) + bump(1) + nonce(32) + amount(8) + stealth_pubkey(32) +
-// encrypted_destination(48) + verified_destination(32) + is_verified(1) +
-// is_withdrawn(1) + reserved(8) = 171 bytes
+// OutputEscrow layout offsets (from per_mixer.rs)
+// discriminator(8) + bump(1) + stealth_pubkey(32) + amount(8) +
+// verified_destination(32) + is_verified(1) + is_withdrawn(1) + reserved(8) = 91 bytes
 const ESCROW_OFFSET_DISCRIMINATOR = 0;
 const ESCROW_OFFSET_BUMP = 8;
-const ESCROW_OFFSET_NONCE = 9;
-const ESCROW_OFFSET_AMOUNT = 41;
-const ESCROW_OFFSET_STEALTH_PUBKEY = 49;
-const ESCROW_OFFSET_ENCRYPTED_DEST = 81;
-const ESCROW_OFFSET_VERIFIED_DEST = 129;
-const ESCROW_OFFSET_IS_VERIFIED = 161;
-const ESCROW_OFFSET_IS_WITHDRAWN = 162;
+const ESCROW_OFFSET_STEALTH_PUBKEY = 9;  // Starts right after bump!
+const ESCROW_OFFSET_AMOUNT = 41;          // 9 + 32 = 41
+const ESCROW_OFFSET_VERIFIED_DEST = 49;   // 41 + 8 = 49
+const ESCROW_OFFSET_IS_VERIFIED = 81;     // 49 + 32 = 81
+const ESCROW_OFFSET_IS_WITHDRAWN = 82;    // 81 + 1 = 82
+
+// Legacy ClaimEscrow (for backwards compatibility with V3)
+const CLAIM_ESCROW_DISCRIMINATOR = "CLAIMESC";
+const CLAIM_ESCROW_SIZE = 171;
 
 // XWingCiphertextAccount discriminator and size
 const XWING_CT_DISCRIMINATOR = "XWINGCT\0";
@@ -65,10 +67,8 @@ const XWING_CIPHERTEXT_LENGTH = 1120;
 
 export interface DetectedEscrowV4 {
   escrowPda: PublicKey;
-  nonce: Uint8Array;
   amount: bigint;
   stealthPubkey: Uint8Array;
-  encryptedDestination: Uint8Array;
   verifiedDestination?: Uint8Array;
   isVerified: boolean;
   isWithdrawn: boolean;
@@ -245,11 +245,12 @@ export async function scanForEscrowsV4(
     const perConnection = new Connection(MAGICBLOCK_RPC, "confirmed");
 
     // Fetch from L1 (stealth + delegation program) AND MagicBlock PER
+    // WAVETEK V4: Look for OutputEscrow (91 bytes) created by POOL_TO_ESCROW_V4
     const [l1StealthAccounts, l1DelegatedAccounts, perAccounts] = await Promise.all([
-      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
-      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }),
+      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }),
+      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }),
       // Query MagicBlock PER for delegated escrows (stealth program owns them on PER)
-      perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: CLAIM_ESCROW_SIZE }] }).catch(() => []),
+      perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }).catch(() => []),
     ]);
 
     console.log('[WAVETEK Scanner] Found accounts - L1 stealth:', l1StealthAccounts.length, 'L1 delegated:', l1DelegatedAccounts.length, 'PER:', perAccounts.length);
@@ -281,18 +282,17 @@ export async function scanForEscrowsV4(
     for (const { pubkey, account, source } of allAccounts) {
       const data = account.data;
 
-      // Verify discriminator
+      // Verify discriminator - WAVETEK V4 uses OutputEscrow ("OUTPUTES")
       const discriminator = Buffer.from(data.slice(ESCROW_OFFSET_DISCRIMINATOR, ESCROW_OFFSET_DISCRIMINATOR + 8)).toString();
-      if (discriminator !== CLAIM_ESCROW_DISCRIMINATOR) continue;
+      if (discriminator !== OUTPUT_ESCROW_DISCRIMINATOR) continue;
 
       // Check if already withdrawn
       const isWithdrawn = data[ESCROW_OFFSET_IS_WITHDRAWN] === 1;
       if (isWithdrawn) continue;
 
-      // Read escrow fields
-      const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32));
+      // Read OutputEscrow fields (WAVETEK V4 - no nonce, no encrypted_destination)
+      // Layout: discriminator(8) + bump(1) + stealth_pubkey(32) + amount(8) + verified_destination(32) + is_verified(1) + is_withdrawn(1) + reserved(8)
       const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH_PUBKEY, ESCROW_OFFSET_STEALTH_PUBKEY + 32));
-      const encryptedDestination = new Uint8Array(data.slice(ESCROW_OFFSET_ENCRYPTED_DEST, ESCROW_OFFSET_ENCRYPTED_DEST + 48));
       const verifiedDestination = new Uint8Array(data.slice(ESCROW_OFFSET_VERIFIED_DEST, ESCROW_OFFSET_VERIFIED_DEST + 32));
       const isVerified = data[ESCROW_OFFSET_IS_VERIFIED] === 1;
 
@@ -330,10 +330,8 @@ export async function scanForEscrowsV4(
 
       escrows.push({
         escrowPda: pubkey,
-        nonce,
         amount,
         stealthPubkey,
-        encryptedDestination,
         verifiedDestination: isVerified ? verifiedDestination : undefined,
         isVerified,
         isWithdrawn,
