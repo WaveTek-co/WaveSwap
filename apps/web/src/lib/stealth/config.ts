@@ -130,7 +130,7 @@ export const MAGICBLOCK_PER = {
   // Magic Router for intelligent routing
   ROUTER_ENDPOINT: "https://devnet-router.magicblock.app",
   // Direct ephemeral rollup endpoint
-  ER_ENDPOINT: "https://devnet.magicblock.app",
+  ER_ENDPOINT: "https://devnet-as.magicblock.app",
   // Default validator for devnet
   DEFAULT_VALIDATOR: new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57"),
   // Permission program for fine-grained access control
