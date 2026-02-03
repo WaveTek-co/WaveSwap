@@ -5,7 +5,7 @@ import { PublicKey } from "@solana/web3.js";
 // OceanVault Program IDs (Devnet)
 // CRITICAL: Must match deployed on-chain programs
 export const PROGRAM_IDS = {
-  REGISTRY: new PublicKey("DtiVQxR8BDfQLqMWS3qF5HRnZtFBMVkvJCrdLBX3xfWz"),
+  REGISTRY: new PublicKey("DgoW9MneWt6B3mBZqDf52csXMtJpgqwaHgP46tPs1tWu"),
   STEALTH: new PublicKey("4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX"),
   DEFI: new PublicKey("8Xi4D44Xt3DnT6r8LogM4K9CSt3bHtpc1m21nErGawaA"),
   BRIDGE: new PublicKey("AwZHcaizUMSsQC7fNAMbrahK2w3rLYXUDFCK4MvMKz1f"),
