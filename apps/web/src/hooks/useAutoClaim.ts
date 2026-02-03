@@ -764,13 +764,21 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       console.log('[TEE Claim] WAVETEK: Escrow state on PER: <ENCRYPTED>')
       console.log('[TEE Claim] WAVETEK: Checking funding requirements...')
+
+      // V4 OutputEscrows: If we have sharedSecret from X-Wing decapsulation,
+      // the escrow was found via scanner which means POOL_TO_ESCROW_V4 already ran
+      // (XWingCiphertext only exists after POOL_TO_ESCROW_V4 populates it)
+      const isV4OutputEscrow = !!sharedSecret && !escrow.nonce
+      console.log('[TEE Claim] WAVETEK: Is V4 OutputEscrow:', isV4OutputEscrow)
       console.log('[TEE Claim] WAVETEK: Needs funding:', needsFunding)
 
-      if (needsFunding) {
+      // Skip POOL_TO_ESCROW for V4 OutputEscrows - sender already called it
+      // V4 escrows don't have nonce (they're derived from stealth_pubkey, not nonce)
+      if (needsFunding && !isV4OutputEscrow && escrow.nonce) {
         console.log('[TEE Claim] WAVETEK: Escrow needs funding from pool')
         console.log('[TEE Claim] WAVETEK: Calling POOL_TO_ESCROW on PER...')
 
-        // Derive PDAs for POOL_TO_ESCROW_V4
+        // Derive PDAs for POOL_TO_ESCROW_V4 (V3 style - nonce-based)
         const [poolPda, poolBump] = derivePerMixerPoolPda()
         const [depositRecordPda] = derivePerDepositRecordPda(escrow.nonce)
         const [escrowPdaDerived, escrowBump] = deriveClaimEscrowPda(escrow.nonce)
@@ -814,10 +822,14 @@ export function useAutoClaim(): UseAutoClaimReturn {
           console.warn('[TEE Claim] WAVETEK: POOL_TO_ESCROW confirmation timeout')
         }
         console.log('[TEE Claim] WAVETEK: Escrow funded from pool')
+      } else if (needsFunding && isV4OutputEscrow) {
+        console.log('[TEE Claim] WAVETEK: V4 OutputEscrow - skipping POOL_TO_ESCROW (sender already called it)')
+        console.log('[TEE Claim] WAVETEK: If amount is 0, sender may not have completed POOL_TO_ESCROW_V4')
       }
 
-      // Build CLAIM_ESCROW_V4 instruction (0x27)
-      // Accounts: claimer, escrow, destination, master_authority, xwing_ct, magic_context, magic_program
+      // Build CLAIM_ESCROW_WAVETEK instruction (V4 ONLY)
+      // V4 OutputEscrows use stealth_pubkey (NOT nonce) for PDA derivation
+      // Accounts: claimer, output_escrow, destination, master_authority, xwing_ct, magic_context, magic_program
       const [claimXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
       const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
       const [magicContext] = PublicKey.findProgramAddressSync(
@@ -825,11 +837,11 @@ export function useAutoClaim(): UseAutoClaimReturn {
         MAGICBLOCK_ER_PROGRAM
       )
 
-      // Data: discriminator(1) + nonce(32) + shared_secret(32) = 65 bytes
+      // WAVETEK V4 Data: stealth_pubkey(32) + shared_secret(32) = 64 bytes
       const data = Buffer.alloc(65)
       let offset = 0
-      data[offset++] = StealthDiscriminators.CLAIM_ESCROW_V4
-      Buffer.from(escrow.nonce).copy(data, offset); offset += 32
+      data[offset++] = StealthDiscriminators.CLAIM_ESCROW_WAVETEK
+      Buffer.from(escrow.stealthPubkey).copy(data, offset); offset += 32
       Buffer.from(sharedSecret).copy(data, offset)
 
       const tx = new Transaction()
@@ -869,24 +881,25 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.log('[TEE Claim] WAVETEK: Waiting for escrow undelegation to L1...')
 
       // Wait for escrow to be undelegated and verified
+      // V4 OutputEscrow: 91 bytes, is_verified at offset 82
+      const OUTPUT_ESCROW_OFFSET_IS_VERIFIED = 82
       for (let i = 0; i < 15; i++) {
         await new Promise(r => setTimeout(r, 2000))
         const escrowInfo = await connection.getAccountInfo(escrowPda)
         if (escrowInfo && escrowInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
-          // Check if verified
           const escrowData = escrowInfo.data
-          if (escrowData.length >= 162 && escrowData[ESCROW_V3_OFFSET_IS_VERIFIED] === 1) {
-            console.log('[TEE Claim] WAVETEK: Escrow verified on L1!')
+          // V4 OutputEscrow is 91 bytes, check is_verified at offset 82
+          if (escrowData.length >= 91 && escrowData[OUTPUT_ESCROW_OFFSET_IS_VERIFIED] === 1) {
+            console.log('[TEE Claim] WAVETEK: OutputEscrow verified on L1!')
 
-            // Now call WITHDRAW_FROM_ESCROW on L1
-            // Rent goes to MASTER_AUTHORITY as service fee
-            const withdrawData = Buffer.alloc(65)
-            withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
-            Buffer.from(escrow.nonce).copy(withdrawData, 1)
-            Buffer.from(escrow.stealthPubkey).copy(withdrawData, 33)
+            // V4: Call WITHDRAW_FROM_OUTPUT_ESCROW on L1 (uses stealth_pubkey, NOT nonce)
+            // Data: stealth_pubkey(32) = 32 bytes
+            const withdrawData = Buffer.alloc(33)
+            withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_OUTPUT_ESCROW
+            Buffer.from(escrow.stealthPubkey).copy(withdrawData, 1)
 
             // Build accounts list
-            // Order: claimer, escrow, destination, master_authority, system, [optional: xwing_ct]
+            // Order: claimer, output_escrow, destination, master_authority, system, [optional: xwing_ct]
             const withdrawAccounts = [
               { pubkey: publicKey, isSigner: true, isWritable: false },
               { pubkey: escrowPda, isSigner: false, isWritable: true },
@@ -917,7 +930,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
             await confirmTransactionPolling(connection, withdrawSig)
 
-            console.log('[TEE Claim] WAVETEK: Withdraw complete')
+            console.log('[TEE Claim] WAVETEK: V4 Withdraw complete')
 
             setPendingEscrows(prev => prev.map(e =>
               e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -926,17 +939,17 @@ export function useAutoClaim(): UseAutoClaimReturn {
               signature: withdrawSig,
               amount: escrow.amount,
               timestamp: Date.now(),
-              sender: 'V4_TEE_CLAIM'
+              sender: 'WAVETEK_V4_TEE_CLAIM'
             }])
             showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
 
-                  console.log('[TEE Claim] WAVETEK PRIVATE CLAIM COMPLETE')
-                  return true
+            console.log('[TEE Claim] WAVETEK V4 PRIVATE CLAIM COMPLETE')
+            return true
           }
         }
       }
 
-      console.warn('[TEE Claim] WAVETEK: Escrow not verified on L1 within timeout')
+      console.warn('[TEE Claim] WAVETEK: OutputEscrow not verified on L1 within timeout')
       return false
 
     } catch (err: any) {

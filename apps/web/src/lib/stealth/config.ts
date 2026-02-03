@@ -94,6 +94,10 @@ export const StealthDiscriminators = {
   // WAVETEK ER-compatible instructions (pre-create and delegate accounts)
   PROCESS_DEPOSIT_V4: 0x2d,
   PREPARE_OUTPUT_V4: 0x2e,
+  // WAVETEK V4 claim instruction (same as CLAIM_ESCROW_V4 but clearer name)
+  CLAIM_ESCROW_WAVETEK: 0x27,
+  // WAVETEK V4 withdraw from OutputEscrow (L1, uses stealth_pubkey not nonce)
+  WITHDRAW_FROM_OUTPUT_ESCROW: 0x2f,
 };
 
 // DeFi instruction discriminators
