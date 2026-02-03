@@ -323,29 +323,20 @@ export class WaveStealthClient {
     }
 
     // Registry stores X-Wing public key (1216 bytes total)
-    // Layout optimized for post-quantum security:
-    // - Ed25519 spend pubkey: 32 bytes (for stealth address derivation)
-    // - Ed25519 view pubkey: 32 bytes (for view tag scanning)
-    // - ML-KEM-768 pubkey: 1152 bytes (post-quantum KEM, slightly truncated from 1184)
-    // Note: X25519 pubkey is DERIVED from Ed25519 spend key (same curve), so not stored separately
+    // CRITICAL: Layout must match serializeXWingPublicKey/deserializeXWingPublicKey:
+    // - Bytes 0-1183: ML-KEM-768 public key (1184 bytes)
+    // - Bytes 1184-1215: X25519 public key (32 bytes)
     //
-    // The X25519 component of X-Wing = Ed25519 spend key converted to X25519
-    // This saves 32 bytes and binds X-Wing identity to stealth identity
-    const REGISTRY_KEY_SIZE = 1216;
-    const fullKeyData = Buffer.alloc(REGISTRY_KEY_SIZE);
+    // This format is used directly by the sender during xwingEncapsulate
+    const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
 
-    // Ed25519 spend and view pubkeys (64 bytes)
-    Buffer.from(keysToUse.spendPubkey).copy(fullKeyData, 0);
-    Buffer.from(keysToUse.viewPubkey).copy(fullKeyData, 32);
-
-    // ML-KEM-768 public key (1152 bytes - fits in remaining space)
-    // Note: Full ML-KEM is 1184 bytes, we store first 1152 bytes
-    // The last 32 bytes are recoverable from the seed in TEE
     if (keysToUse.xwingKeys) {
-      const mlkemBytes = keysToUse.xwingKeys.publicKey.mlkem;
-      Buffer.from(mlkemBytes.slice(0, 1152)).copy(fullKeyData, 64);
-      console.log('[Client] Including ML-KEM-768 post-quantum key in registration');
-      console.log('[Client] X25519 component derived from Ed25519 spend key (not stored separately)');
+      // Serialize X-Wing public key in standard format
+      const serialized = serializeXWingPublicKey(keysToUse.xwingKeys.publicKey);
+      Buffer.from(serialized).copy(fullKeyData, 0);
+      console.log('[Client] Storing X-Wing public key (1184 ML-KEM + 32 X25519)');
+    } else {
+      console.warn('[Client] No X-Wing keys available - registration will lack post-quantum security');
     }
 
     // Split into multiple transactions to avoid tx size limits
@@ -722,18 +713,26 @@ export class WaveStealthClient {
       };
     }
 
-    // Handle OLD format (REGISTRY)
+    // Handle full X-Wing format (REGISTRY discriminator)
+    // Layout: disc(8) + bump(1) + owner(32) + is_finalized(1) + bytes_written(2) + xwing_pubkey(1216)
+    // xwing_pubkey layout: mlkem(1184) + x25519(32)
     if (discriminator === 'REGISTRY') {
       if (data.length < 44) return null;
 
       const isFinalized = data[41] === 1;
-      console.log('[Client] Legacy registry detected, isFinalized:', isFinalized);
+      console.log('[Client] X-Wing registry detected, isFinalized:', isFinalized, 'data.length:', data.length);
 
+      // Read full X-Wing public key (1216 bytes at offset 44)
+      const xwingPubkey = new Uint8Array(data.slice(44, Math.min(44 + XWING_PUBLIC_KEY_SIZE, data.length)));
+
+      // spendPubkey and viewPubkey are not stored separately in new format
+      // They're only needed for legacy Ed25519-based operations
+      // For X-Wing operations, we use the xwingPubkey directly
       return {
         owner: new PublicKey(data.slice(9, 41)),
-        spendPubkey: new Uint8Array(data.slice(44, 76)),
-        viewPubkey: new Uint8Array(data.slice(76, 108)),
-        xwingPubkey: new Uint8Array(data.slice(44, Math.min(1260, data.length))),
+        spendPubkey: new Uint8Array(32), // Not stored in X-Wing format
+        viewPubkey: new Uint8Array(32),  // Not stored in X-Wing format
+        xwingPubkey,
         createdAt: 0,
         isFinalized,
       };
