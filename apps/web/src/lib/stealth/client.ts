@@ -2474,10 +2474,93 @@ export class WaveStealthClient {
       await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
 
       // ══════════════════════════════════════════════════════════════════════
-      // STEP 4: INPUT_TO_POOL_V4 (on MagicBlock PER)
+      // STEP 4: PREPARE_OUTPUT_V4 (on L1 - creates OUTPUT_ESCROW + delegates)
+      // ══════════════════════════════════════════════════════════════════════
+      // PRIVACY: This creates OUTPUT_ESCROW derived from stealth_pubkey (NOT nonce!)
+      // In production, a RELAYER would do this step (no link to sender)
+      // For now, sender does it but the derivation still breaks the link
+      reportProgress('Preparing output escrow (L1)...', 4, 6);
+
+      console.log('[WaveStealthClient] Executing PREPARE_OUTPUT_V4 on L1...');
+
+      // Derive output escrow PDA from stealth pubkey
+      const [outputEscrowPda, outputEscrowBump] = deriveOutputEscrowPda(stealthPubkey);
+      const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(outputEscrowPda);
+
+      // Derive delegation PDAs for output escrow
+      const [outputEscrowBuffer] = deriveEscrowBufferPda(outputEscrowPda);
+      const [outputEscrowDelegationRecord] = deriveEscrowDelegationRecordPda(outputEscrowPda);
+      const [outputEscrowDelegationMetadata] = deriveEscrowDelegationMetadataPda(outputEscrowPda);
+
+      // Derive delegation PDAs for xwing_ct
+      const [xwingCtBuffer] = deriveXWingCtBufferPda(xwingCtPda);
+      const [xwingCtDelegationRecord] = deriveXWingCtDelegationRecordPda(xwingCtPda);
+      const [xwingCtDelegationMetadata] = deriveXWingCtDelegationMetadataPda(xwingCtPda);
+
+      // data: stealth_pubkey(32) + escrow_bump(1) + xwing_ct_bump(1) + commit_freq_ms(4) = 38 bytes
+      const prepareOutputData = Buffer.alloc(39);
+      let poOffset = 0;
+      prepareOutputData[poOffset++] = StealthDiscriminators.PREPARE_OUTPUT_V4;
+      Buffer.from(stealthPubkey).copy(prepareOutputData, poOffset); poOffset += 32;
+      prepareOutputData[poOffset++] = outputEscrowBump;
+      prepareOutputData[poOffset++] = xwingCtBump;
+      prepareOutputData.writeUInt32LE(5000, poOffset); // 5 second commit frequency
+
+      const prepareOutputTx = new Transaction();
+      prepareOutputTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }));
+      prepareOutputTx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5000 }));
+      prepareOutputTx.add(new TransactionInstruction({
+        keys: [
+          // 0. [signer, writable] payer
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          // 1. [writable] output_escrow PDA
+          { pubkey: outputEscrowPda, isSigner: false, isWritable: true },
+          // 2. [writable] escrow_buffer (for delegation)
+          { pubkey: outputEscrowBuffer, isSigner: false, isWritable: true },
+          // 3. [writable] escrow_delegation_record
+          { pubkey: outputEscrowDelegationRecord, isSigner: false, isWritable: true },
+          // 4. [writable] escrow_delegation_metadata
+          { pubkey: outputEscrowDelegationMetadata, isSigner: false, isWritable: true },
+          // 5. [writable] xwing_ct PDA
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true },
+          // 6. [writable] xwing_ct_buffer (for delegation)
+          { pubkey: xwingCtBuffer, isSigner: false, isWritable: true },
+          // 7. [writable] xwing_ct_delegation_record
+          { pubkey: xwingCtDelegationRecord, isSigner: false, isWritable: true },
+          // 8. [writable] xwing_ct_delegation_metadata
+          { pubkey: xwingCtDelegationMetadata, isSigner: false, isWritable: true },
+          // 9. [] system_program
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          // 10. [] delegation_program
+          { pubkey: PROGRAM_IDS.DELEGATION, isSigner: false, isWritable: false },
+          // 11. [] owner_program (stealth program)
+          { pubkey: PROGRAM_IDS.STEALTH, isSigner: false, isWritable: false },
+          // 12. [] validator (TEE)
+          { pubkey: TEE_VALIDATOR, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: prepareOutputData,
+      }));
+
+      prepareOutputTx.feePayer = wallet.publicKey;
+      prepareOutputTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedPrepareOutputTx = await wallet.signTransaction(prepareOutputTx);
+      const prepareOutputSig = await this.connection.sendRawTransaction(signedPrepareOutputTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
+      await confirmTransactionPolling(this.connection, prepareOutputSig, 30, 2000);
+      console.log('[WaveStealthClient] PREPARE_OUTPUT_V4 confirmed on L1');
+
+      // Wait for delegation to propagate to PER
+      console.log('[WaveStealthClient] Waiting for OUTPUT_ESCROW to appear on PER...');
+      await new Promise(resolve => setTimeout(resolve, 8000));
+
+      // ══════════════════════════════════════════════════════════════════════
+      // STEP 5: INPUT_TO_POOL_V4 (on MagicBlock PER)
       // ══════════════════════════════════════════════════════════════════════
       // Send transaction to PER to move funds: INPUT_ESCROW → POOL
-      reportProgress('Moving funds to mixer pool (PER)...', 4, 5);
+      reportProgress('Moving funds to mixer pool (PER)...', 5, 6);
 
       console.log('[WaveStealthClient] Executing INPUT_TO_POOL on MagicBlock PER...');
 
@@ -2513,16 +2596,15 @@ export class WaveStealthClient {
       console.log('[WaveStealthClient] INPUT_TO_POOL confirmed on PER');
 
       // ══════════════════════════════════════════════════════════════════════
-      // STEP 5: POOL_TO_ESCROW_V4 (on MagicBlock PER)
+      // STEP 6: POOL_TO_ESCROW_V4 (on MagicBlock PER)
       // ══════════════════════════════════════════════════════════════════════
       // Send transaction to PER to move funds: POOL → OUTPUT_ESCROW
-      reportProgress('Creating output escrow (PER)...', 5, 5);
+      // The OUTPUT_ESCROW was created and delegated in STEP 4 (PREPARE_OUTPUT_V4)
+      reportProgress('Transferring to output escrow (PER)...', 6, 6);
 
       console.log('[WaveStealthClient] Executing POOL_TO_ESCROW on MagicBlock PER...');
 
-      // Derive output escrow PDA from stealth pubkey
-      const [outputEscrowPda, outputEscrowBump] = deriveOutputEscrowPda(stealthPubkey);
-      const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(outputEscrowPda);
+      // outputEscrowPda and xwingCtPda were derived in STEP 4
 
       // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
       const poolToEscrowData = Buffer.alloc(36);
@@ -2559,7 +2641,7 @@ export class WaveStealthClient {
       await confirmTransactionPolling(this.perConnection, poolToEscrowSig, 30, 2000);
       console.log('[WaveStealthClient] POOL_TO_ESCROW confirmed on PER');
 
-      reportProgress('Send complete! Receiver can now scan & claim.', 5, 5);
+      reportProgress('Send complete! Receiver can now scan & claim.', 6, 6);
 
       return {
         success: true,
