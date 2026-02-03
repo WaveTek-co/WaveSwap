@@ -255,26 +255,29 @@ export async function scanForEscrowsV4(
 
     console.log('[WAVETEK Scanner] Found accounts - L1 stealth:', l1StealthAccounts.length, 'L1 delegated:', l1DelegatedAccounts.length, 'PER:', perAccounts.length);
 
-    // Deduplicate by pubkey (same escrow might appear in multiple sources)
+    // Deduplicate by pubkey - PREFER PER over L1-delegation (PER has latest state with actual funds)
     const seenPubkeys = new Set<string>();
     const allAccounts: { pubkey: PublicKey; account: { data: Buffer; lamports: number }; source: string }[] = [];
 
+    // Add PER accounts FIRST (has latest state with actual lamports)
+    for (const { pubkey, account } of perAccounts) {
+      if (!seenPubkeys.has(pubkey.toBase58())) {
+        seenPubkeys.add(pubkey.toBase58());
+        allAccounts.push({ pubkey, account, source: 'magicblock-per' });
+      }
+    }
+    // Add L1 stealth accounts (undelegated escrows)
     for (const { pubkey, account } of l1StealthAccounts) {
       if (!seenPubkeys.has(pubkey.toBase58())) {
         seenPubkeys.add(pubkey.toBase58());
         allAccounts.push({ pubkey, account, source: 'l1-stealth' });
       }
     }
+    // Add L1 delegation accounts LAST (placeholder with 0 lamports if funds are on PER)
     for (const { pubkey, account } of l1DelegatedAccounts) {
       if (!seenPubkeys.has(pubkey.toBase58())) {
         seenPubkeys.add(pubkey.toBase58());
         allAccounts.push({ pubkey, account, source: 'l1-delegation' });
-      }
-    }
-    for (const { pubkey, account } of perAccounts) {
-      if (!seenPubkeys.has(pubkey.toBase58())) {
-        seenPubkeys.add(pubkey.toBase58());
-        allAccounts.push({ pubkey, account, source: 'magicblock-per' });
       }
     }
 

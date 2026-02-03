@@ -475,6 +475,54 @@ export class WaveStealthClient {
     }
   }
 
+  // Close registry to allow re-registration
+  // This deletes the on-chain registry and returns rent to the wallet
+  async closeRegistry(wallet: WalletAdapter): Promise<TransactionResult> {
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
+    }
+
+    const [registryPda] = deriveRegistryPda(wallet.publicKey);
+    console.log('[Client] Closing registry PDA:', registryPda.toBase58());
+
+    // Check if registry exists
+    const existing = await this.connection.getAccountInfo(registryPda);
+    if (!existing) {
+      return { success: false, error: "No registry found to close" };
+    }
+
+    try {
+      const tx = new Transaction();
+
+      // Close registry instruction - accounts: owner (signer), registry pda, destination for rent
+      tx.add(
+        new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+            { pubkey: registryPda, isSigner: false, isWritable: true },
+            { pubkey: wallet.publicKey, isSigner: false, isWritable: true }, // rent destination
+          ],
+          programId: PROGRAM_IDS.REGISTRY,
+          data: RegistryDiscriminators.CLOSE_REGISTRY,
+        })
+      );
+
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      const signedTx = await wallet.signTransaction(tx);
+      const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+      await confirmTransactionPolling(this.connection, sig, 30, 2000);
+      console.log('[Client] Registry closed successfully:', sig);
+      return { success: true, signature: sig };
+    } catch (error) {
+      console.error('[Client] closeRegistry error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to close registry",
+      };
+    }
+  }
+
   // SIMPLIFIED SINGLE-TRANSACTION REGISTRATION
   //
   // This is the RECOMMENDED approach - user signs ONCE
