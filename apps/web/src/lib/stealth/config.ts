@@ -32,6 +32,35 @@ export const RegistryDiscriminators = {
 
 // Stealth instruction discriminators (must match on-chain program)
 export const StealthDiscriminators = {
+  // ═══════════════════════════════════════════════════════════════════════
+  // CURRENT: WAVETEK V4 TRUE PRIVACY (0x25-0x2F) - RECOMMENDED
+  // ═══════════════════════════════════════════════════════════════════════
+  DEPOSIT_TO_POOL_V4: 0x25,
+  POOL_TO_ESCROW_V4: 0x26,
+  CLAIM_ESCROW_V4: 0x27,
+  CLAIM_ESCROW_WAVETEK: 0x27,
+  CREATE_V4_DEPOSIT: 0x28,
+  UPLOAD_V4_CIPHERTEXT: 0x29,
+  COMPLETE_V4_DEPOSIT: 0x2a,
+  INPUT_TO_POOL_V4: 0x2b,
+  TEE_PROCESS_DEPOSIT: 0x2c,
+  PROCESS_DEPOSIT_V4: 0x2d,
+  PREPARE_OUTPUT_V4: 0x2e,
+  WITHDRAW_FROM_OUTPUT_ESCROW: 0x2f,
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CURRENT: POOL REGISTRY (0x30-0x35) - 3-SIGNATURE FLOW
+  // ═══════════════════════════════════════════════════════════════════════
+  INIT_POOL_REGISTRY: 0x30,
+  UPLOAD_REGISTRY_CHUNK: 0x31,
+  FINALIZE_POOL_REGISTRY: 0x32,
+  CREATE_POOL_DEPOSIT: 0x33,
+  PROCESS_POOL_DEPOSIT: 0x34,
+  CLAIM_POOL_DEPOSIT: 0x35,
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // LEGACY: Basic stealth (0x01-0x07) - kept for backwards compatibility
+  // ═══════════════════════════════════════════════════════════════════════
   PUBLISH_ANNOUNCEMENT: 0x01,
   FINALIZE_STEALTH_TRANSFER: 0x02,
   CLAIM_STEALTH_PAYMENT: 0x03,
@@ -39,23 +68,21 @@ export const StealthDiscriminators = {
   CREATE_VAULT_TOKEN_ACCOUNT: 0x05,
   UPLOAD_CIPHERTEXT_CHUNK: 0x06,
   FINALIZE_ANNOUNCEMENT: 0x07,
-  // Privacy-preserving mixer and relayer
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // DEPRECATED: Old mixer/PER flows (0x08-0x24) - do not use for new code
+  // ═══════════════════════════════════════════════════════════════════════
   INITIALIZE_MIXER_POOL: 0x08,
   DEPOSIT_TO_MIXER: 0x09,
   EXECUTE_MIXER_TRANSFER: 0x0a,
   INITIALIZE_RELAYER_AUTH: 0x0b,
   CLAIM_VIA_RELAYER: 0x0c,
-  // Test mixer pool (non-delegated, production-ready)
   INITIALIZE_TEST_MIXER_POOL: 0x0F,
   DEPOSIT_TO_TEST_MIXER: 0x10,
   EXECUTE_TEST_MIXER_TRANSFER: 0x11,
-  // Magic Actions: deposit + delegate to MagicBlock PER
   DEPOSIT_AND_DELEGATE: 0x12,
-  // Execute PER transfer (permissionless - for TEE/relayer/autoClaim)
   EXECUTE_PER_TRANSFER: 0x13,
-  // Undelegate PER deposit (fallback - manual recovery)
   UNDELEGATE_PER_DEPOSIT: 0x14,
-  // PER Mixer Pool (delegated shared pool for privacy)
   INITIALIZE_PER_MIXER_POOL: 0x15,
   DEPOSIT_TO_PER_MIXER: 0x16,
   EXECUTE_PER_CLAIM: 0x17,
@@ -63,75 +90,12 @@ export const StealthDiscriminators = {
   DELEGATE_PER_MIXER_POOL: 0x19,
   UNDELEGATE_PER_MIXER_POOL: 0x1A,
   CREATE_POOL_PERMISSION: 0x1B,
-  // V2 instructions with pre-delegated escrows
   DEPOSIT_TO_PER_MIXER_V2: 0x1C,
   EXECUTE_PER_CLAIM_V2: 0x1D,
   UNDELEGATE_ESCROW: 0x1E,
-  // V3 instructions with ENCRYPTED destination (ideal privacy)
-  // Destination wallet is encrypted with X-Wing shared secret
-  // Only receiver can decrypt by decapsulating X-Wing ciphertext
   DEPOSIT_TO_PER_MIXER_V3: 0x1F,
   EXECUTE_PER_CLAIM_V3: 0x20,
-  // 3-phase Magic Actions flow (NEW - 2026-01-31)
-  // Phase 1: DEPOSIT_AND_DELEGATE (0x12) - creates deposit + delegates to PER
-  // Phase 2: EXECUTE_PER_TRANSFER (0x13) - marks executed + undelegates to L1
-  // Phase 3: CREATE_VAULT_FROM_DEPOSIT (0x24) - creates vault on L1 from executed deposit
   CREATE_VAULT_FROM_DEPOSIT: 0x24,
-  // WAVETEK TRUE PRIVACY: Pool intermediary breaks sender↔receiver link
-  // TX1a (L1): CREATE + UPLOAD + COMPLETE - creates deposit record + delegates escrow
-  // TX1b (PER): INPUT_TO_POOL - moves funds from input escrow to pool
-  // TX2 (PER): POOL_TO_ESCROW - creates stealth address + XWing ciphertext
-  // TX3 (PER): CLAIM_ESCROW - TEE verifies, triggers undelegation
-  // TX4 (L1): WITHDRAW_FROM_ESCROW - funds to receiver
-  DEPOSIT_TO_POOL_V4: 0x25,
-  POOL_TO_ESCROW_V4: 0x26,
-  CLAIM_ESCROW_V4: 0x27,
-  CREATE_V4_DEPOSIT: 0x28,
-  UPLOAD_V4_CIPHERTEXT: 0x29,
-  COMPLETE_V4_DEPOSIT: 0x2a,
-  INPUT_TO_POOL_V4: 0x2b,
-  TEE_PROCESS_DEPOSIT: 0x2c,
-  // WAVETEK ER-compatible instructions (pre-create and delegate accounts)
-  PROCESS_DEPOSIT_V4: 0x2d,
-  PREPARE_OUTPUT_V4: 0x2e,
-  // WAVETEK V4 claim instruction (same as CLAIM_ESCROW_V4 but clearer name)
-  CLAIM_ESCROW_WAVETEK: 0x27,
-  // WAVETEK V4 withdraw from OutputEscrow (L1, uses stealth_pubkey not nonce)
-  WITHDRAW_FROM_OUTPUT_ESCROW: 0x2f,
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // POOL REGISTRY - Post-Quantum Key Storage in TEE (0x30-0x35)
-  // ═══════════════════════════════════════════════════════════════════════
-  // TeeSecretStore: Encrypted X-Wing SECRET key (TEE decrypts internally)
-  // TeePublicRegistry: X-Wing PUBLIC key (for encapsulation lookup)
-  // Both delegated to PER for TEE access
-  //
-  // USER SIGNATURES: Registration=1, Send=1, Claim=1 (3 total across lifecycle)
-  // AUTO via TEE: Upload chunks, process deposit, verify claim
-
-  // Initialize Pool Registry - Create TeePublicRegistry + delegate
-  // PER 1, Commit 1: User signs once
-  INIT_POOL_REGISTRY: 0x30,
-
-  // Upload Registry Chunk - Upload X-Wing pubkey chunk
-  // PER 1, Commit 2: Auto-commit via Magic Actions (no user signature)
-  UPLOAD_REGISTRY_CHUNK: 0x31,
-
-  // Finalize Pool Registry - Mark registration complete
-  // Called automatically when upload completes (no user signature)
-  FINALIZE_POOL_REGISTRY: 0x32,
-
-  // Create Pool Deposit - Sender creates deposit request
-  // PER 2, Commit 1: Sender signs once with recipient wallet
-  CREATE_POOL_DEPOSIT: 0x33,
-
-  // Process Pool Deposit - TEE encapsulates + moves funds
-  // PER 2, Commit 2: Auto-commit (no user signature)
-  PROCESS_POOL_DEPOSIT: 0x34,
-
-  // Claim Pool Deposit - TEE decapsulates + auto-withdraw
-  // Receiver signs once, TEE handles everything
-  CLAIM_POOL_DEPOSIT: 0x35,
 };
 
 // DeFi instruction discriminators

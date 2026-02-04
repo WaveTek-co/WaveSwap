@@ -797,55 +797,31 @@ export class WaveStealthClient {
 
   // Wave Send - PRODUCTION-READY stealth transfers with FULL PRIVACY
   //
-  // PRIVACY MODES (in order of preference):
-  // 1. V3 PER Mixer Pool (RECOMMENDED) - Encrypted destination, SHA256 verification
-  // 2. MagicBlock PER - True TEE privacy via Intel TDX
-  // 3. Mixer Pool + Relayer - Privacy with trusted relayer
-  // 4. Mixer Pool Direct - Recipient triggers transfer
-  //
-  // V3 flow (RECOMMENDED):
-  // - User signs ONE transaction (DEPOSIT_TO_PER_MIXER_V3)
-  // - Destination is ENCRYPTED with X-Wing shared secret
-  // - TEE verifies SHA256(shared_secret || "stealth-derive") == stealth_pubkey
-  // - Permissionless withdrawal after TEE verification
-  //
-  // IMPORTANT: V3 is preferred when X-Wing keys are available
+  // WAVETEK TRUE PRIVACY FLOW
+  // Requires: MagicBlock PER + X-Wing keys
+  // Achieves TRUE sender unlinkability via TEE pool intermediary
   async waveSend(
     wallet: WalletAdapter,
     params: WaveSendParams
   ): Promise<SendResult> {
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PRIORITY 1: WAVETEK TRUE PRIVACY FLOW (MAXIMUM PRIVACY)
-    // ═══════════════════════════════════════════════════════════════════════════
-    // WAVETEK achieves TRUE sender unlinkability:
-    // - Sender creates INPUT_ESCROW and delegates to MagicBlock PER
-    // - TEE moves: INPUT → POOL → OUTPUT (sender NOT in these transactions!)
-    // - On-chain observer cannot correlate sender to receiver
-    //
-    // This is the ONLY flow that provides TRUE cryptographic privacy!
-    if (this.useMagicBlockPer && this.stealthKeys?.xwingKeys) {
-      return this.waveSendV4(wallet, params);
+    // Validate wallet
+    if (!wallet.publicKey) {
+      return { success: false, error: "Wallet not connected" };
     }
 
-    // Priority 2: V3 PER Mixer Pool (good privacy, simpler flow)
-    // Note: V3 still has nonce linkability - use V4 for maximum privacy
-    if (this.useMagicBlockPer) {
-      return this.waveSendViaPerMixerPool(wallet, params);
+    // Validate X-Wing keys required for privacy
+    if (!this.stealthKeys?.xwingKeys) {
+      return { success: false, error: "X-Wing keys required. Please initialize stealth keys first." };
     }
 
-    // Priority 3: Use mixer pool with relayer for privacy (if configured)
-    if (this.relayerEndpoint) {
-      console.log('[WaveStealthClient] Using mixer pool + relayer for privacy');
-      return this.waveSendPrivate(wallet, params);
-    }
-
-    // Priority 4: Use mixer pool (recipient triggers mixer transfer)
-    console.log('[WaveStealthClient] Using mixer pool (recipient will trigger transfer)');
-    return this.waveSendToMixerPool(wallet, params);
+    // WAVETEK V4 - TRUE PRIVACY
+    // Sender creates INPUT_ESCROW → TEE moves to POOL → OUTPUT (sender NOT in tx!)
+    // On-chain observer cannot correlate sender to receiver
+    return this.waveSendV4(wallet, params);
   }
 
-  // Mixer pool send - deposits to shared pool, recipient triggers mixer transfer
-  // This is the RECOMMENDED approach for privacy on devnet
+  // @deprecated Use waveSendV4() or sendViaPoolDeposit() instead
+  // Legacy mixer pool send - kept for backwards compatibility only
   async waveSendToMixerPool(
     wallet: WalletAdapter,
     params: WaveSendParams
@@ -998,9 +974,8 @@ export class WaveStealthClient {
   // This breaks the on-chain link between sender and vault
   //
   // Flow:
-  // 1. Sender: Announcement + Deposit to Mixer (this method)
-  // 2. Relayer: Execute Mixer Transfer (separate transaction by relayer)
-  // 3. Relayer: Claim via Relayer (when recipient requests)
+  // @deprecated Use waveSendV4() or sendViaPoolDeposit() instead
+  // Legacy relayer flow - requires separate relayer infrastructure
   async waveSendPrivate(
     wallet: WalletAdapter,
     params: WaveSendParams
@@ -1156,9 +1131,7 @@ export class WaveStealthClient {
   // 1. User signs ONE transaction (deposit to mixer pool)
   // 2. UI submits stealth config to PER listener
   // 3. PER (running in MagicBlock TEE) executes mixer transfer
-  // 4. User's wallet is NOT linked to vault on-chain
-  //
-  // This achieves SENDER UNLINKABILITY!
+  // @deprecated Use waveSendV4() instead - this uses old DEPOSIT_AND_DELEGATE
   async waveSendDirect(
     wallet: WalletAdapter,
     params: WaveSendParams
@@ -1308,9 +1281,7 @@ export class WaveStealthClient {
   // 2. Deposit account is delegated to MagicBlock PER
   // 3. PER (inside Intel TDX TEE) executes mixer transfer
   // 4. X-Wing decryption happens inside TEE
-  // 5. State commits back to Solana L1
-  //
-  // This achieves SENDER UNLINKABILITY via actual MagicBlock TEE!
+  // @deprecated Use waveSendV4() instead - this uses old DEPOSIT_AND_DELEGATE (0x12)
   async waveSendViaPer(
     wallet: WalletAdapter,
     params: WaveSendParams
@@ -1468,9 +1439,7 @@ export class WaveStealthClient {
   // 2. PER (inside TEE) executes claim → creates escrow
   // 3. Escrow commits to L1
   // 4. Recipient withdraws from escrow
-  //
-  // SENDER UNLINKABILITY: All senders deposit to same pool
-  // RECEIVER UNLINKABILITY: Escrow withdrawal is permissionless
+  // @deprecated Use waveSendV4() instead - this uses old DEPOSIT_TO_PER_MIXER (0x16)
   async waveSendViaPerMixerPool(
     wallet: WalletAdapter,
     params: WaveSendParams
@@ -1604,9 +1573,7 @@ export class WaveStealthClient {
   // 4. TEE verifies and sets verified_destination
   // 5. Permissionless withdrawal to verified_destination
   //
-  // SENDER UNLINKABILITY: All senders deposit to same pool
-  // RECEIVER UNLINKABILITY: Destination encrypted, TEE handles claim
-  // NO RELAYER: Magic Actions → PER/TEE handles everything
+  // @deprecated Use waveSendV4() instead - V3 has nonce linkability issues
   async waveSendViaPerMixerPoolV3(
     wallet: WalletAdapter,
     params: WaveSendParams
