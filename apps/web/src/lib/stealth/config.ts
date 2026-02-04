@@ -98,6 +98,40 @@ export const StealthDiscriminators = {
   CLAIM_ESCROW_WAVETEK: 0x27,
   // WAVETEK V4 withdraw from OutputEscrow (L1, uses stealth_pubkey not nonce)
   WITHDRAW_FROM_OUTPUT_ESCROW: 0x2f,
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // POOL REGISTRY - Post-Quantum Key Storage in TEE (0x30-0x35)
+  // ═══════════════════════════════════════════════════════════════════════
+  // TeeSecretStore: Encrypted X-Wing SECRET key (TEE decrypts internally)
+  // TeePublicRegistry: X-Wing PUBLIC key (for encapsulation lookup)
+  // Both delegated to PER for TEE access
+  //
+  // USER SIGNATURES: Registration=1, Send=1, Claim=1 (3 total across lifecycle)
+  // AUTO via TEE: Upload chunks, process deposit, verify claim
+
+  // Initialize Pool Registry - Create TeePublicRegistry + delegate
+  // PER 1, Commit 1: User signs once
+  INIT_POOL_REGISTRY: 0x30,
+
+  // Upload Registry Chunk - Upload X-Wing pubkey chunk
+  // PER 1, Commit 2: Auto-commit via Magic Actions (no user signature)
+  UPLOAD_REGISTRY_CHUNK: 0x31,
+
+  // Finalize Pool Registry - Mark registration complete
+  // Called automatically when upload completes (no user signature)
+  FINALIZE_POOL_REGISTRY: 0x32,
+
+  // Create Pool Deposit - Sender creates deposit request
+  // PER 2, Commit 1: Sender signs once with recipient wallet
+  CREATE_POOL_DEPOSIT: 0x33,
+
+  // Process Pool Deposit - TEE encapsulates + moves funds
+  // PER 2, Commit 2: Auto-commit (no user signature)
+  PROCESS_POOL_DEPOSIT: 0x34,
+
+  // Claim Pool Deposit - TEE decapsulates + auto-withdraw
+  // Receiver signs once, TEE handles everything
+  CLAIM_POOL_DEPOSIT: 0x35,
 };
 
 // DeFi instruction discriminators
@@ -425,3 +459,39 @@ export const TEE_VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZM
 // MagicBlock Magic Context (for commit/undelegate CPIs)
 export const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 export const MAGIC_PROGRAM = new PublicKey("Magic11111111111111111111111111111111111111");
+
+// ═══════════════════════════════════════════════════════════════════════
+// POOL REGISTRY PDA DERIVATIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// TeePublicRegistry PDA - stores X-Wing PUBLIC key for encapsulation
+// PDA: ["tee-pubkey", owner]
+export function deriveTeePublicRegistryPda(owner: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("tee-pubkey"), owner.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// TeeSecretStore PDA - stores encrypted X-Wing SECRET key
+// PDA: ["tee-secret", owner]
+export function deriveTeeSecretStorePda(owner: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("tee-secret"), owner.toBuffer()],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Pool Deposit Request PDA - sender's deposit waiting for TEE processing
+// PDA: ["pool-deposit", nonce]
+export function derivePoolDepositPda(nonce: Uint8Array): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("pool-deposit"), Buffer.from(nonce)],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Pool Registry account sizes (for rent calculation)
+export const TEE_PUBLIC_REGISTRY_SIZE = 1296;  // X-Wing pubkey (1216) + metadata
+export const TEE_SECRET_STORE_SIZE = 2498;     // Encrypted X-Wing secret key
+export const POOL_DEPOSIT_SIZE = 162;          // Deposit request metadata

@@ -84,6 +84,7 @@ export interface UseWaveSendReturn {
   // State
   isInitialized: boolean
   isRegistered: boolean
+  isPoolRegistered: boolean  // Pool Registry status
   isLoading: boolean
   isSending: boolean
   error: string | null
@@ -100,6 +101,11 @@ export interface UseWaveSendReturn {
   checkRecipientRegistered: (address: string) => Promise<boolean>
   claimByVault: (vaultAddress: string, stealthPubkey: Uint8Array) => Promise<{ success: boolean; signature?: string; error?: string }>
 
+  // Pool Registry Methods (3-signature flow)
+  registerPoolRegistry: () => Promise<boolean>
+  sendViaPool: (recipientAddress: string, amount: string) => Promise<SendResult>
+  checkPoolRegistered: (address: string) => Promise<boolean>
+
   // Utilities
   clearError: () => void
 }
@@ -110,6 +116,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
   const [isInitialized, setIsInitialized] = useState(false)
   const [isRegistered, setIsRegistered] = useState(false)
+  const [isPoolRegistered, setIsPoolRegistered] = useState(false)  // Pool Registry status
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -168,13 +175,22 @@ export function useWaveSend(): UseWaveSendReturn {
         setIsInitialized(true)
       }
 
-      // Check registration status
+      // Check registration status (legacy registry)
       try {
         const registry = await client.getRegistry(publicKey)
         setIsRegistered(registry !== null && registry.isFinalized)
       } catch (err) {
         console.error('Error checking registration:', err)
         setIsRegistered(false)
+      }
+
+      // Check Pool Registry status (new 3-signature flow)
+      try {
+        const poolRegistered = await client.isPoolRegistryFinalized(publicKey)
+        setIsPoolRegistered(poolRegistered)
+      } catch (err) {
+        console.error('Error checking pool registration:', err)
+        setIsPoolRegistered(false)
       }
     }
 
@@ -420,9 +436,131 @@ export function useWaveSend(): UseWaveSendReturn {
     [walletAdapter, client]
   )
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POOL REGISTRY METHODS - 3-Signature Post-Quantum Privacy Flow
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Register for Pool Registry (creates TeePublicRegistry + TeeSecretStore)
+  // Requires stealth keys with X-Wing to be initialized first
+  const registerPoolRegistry = useCallback(
+    async (): Promise<boolean> => {
+      if (!walletAdapter || !stealthKeys) {
+        setError('Please initialize stealth keys first')
+        return false
+      }
+
+      if (!stealthKeys.xwingKeys) {
+        setError('X-Wing keys required for Pool Registry')
+        return false
+      }
+
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        console.log('[WaveSend] Registering for Pool Registry...')
+        const result = await client.registerPoolRegistry(
+          walletAdapter,
+          stealthKeys,
+          (msg, step, total) => {
+            setRegistrationProgress({
+              step: 'uploading' as RegistrationStep,
+              currentTx: step,
+              totalTx: total,
+              message: msg,
+            })
+          }
+        )
+
+        if (result.success) {
+          setIsPoolRegistered(true)
+          console.log('[WaveSend] Pool Registry registration successful')
+        } else {
+          setError(result.error || 'Pool Registry registration failed')
+        }
+
+        return result.success
+      } catch (err) {
+        console.error('[WaveSend] Pool Registry registration error:', err)
+        setError(err instanceof Error ? err.message : 'Registration failed')
+        return false
+      } finally {
+        setIsLoading(false)
+        setRegistrationProgress(null)
+      }
+    },
+    [walletAdapter, stealthKeys, client]
+  )
+
+  // Send via Pool Registry (single signature, TEE encapsulation)
+  const sendViaPool = useCallback(
+    async (recipientAddress: string, amount: string): Promise<SendResult> => {
+      if (!walletAdapter) {
+        return { success: false, error: 'Wallet not connected' }
+      }
+
+      let recipientPubkey: PublicKey
+      try {
+        recipientPubkey = new PublicKey(recipientAddress)
+      } catch {
+        return { success: false, error: 'Invalid recipient address' }
+      }
+
+      const lamports = BigInt(Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL))
+      if (lamports <= 0) {
+        return { success: false, error: 'Invalid amount' }
+      }
+
+      setIsSending(true)
+      setError(null)
+
+      try {
+        console.log('[WaveSend] Sending via Pool Registry...')
+        const result = await client.sendViaPoolDeposit(
+          walletAdapter,
+          recipientPubkey,
+          lamports,
+          (msg, step, total) => {
+            console.log(`[WaveSend] ${step}/${total}: ${msg}`)
+          }
+        )
+
+        if (!result.success) {
+          setError(result.error || 'Send failed')
+        } else {
+          console.log('[WaveSend] Pool deposit created')
+        }
+
+        return result
+      } catch (err) {
+        console.error('[WaveSend] Pool send error:', err)
+        const message = err instanceof Error ? err.message : 'Send failed'
+        setError(message)
+        return { success: false, error: message }
+      } finally {
+        setIsSending(false)
+      }
+    },
+    [walletAdapter, client]
+  )
+
+  // Check if recipient has Pool Registry (can receive Pool deposits)
+  const checkPoolRegistered = useCallback(
+    async (address: string): Promise<boolean> => {
+      try {
+        const pubkey = new PublicKey(address)
+        return await client.isPoolRegistryFinalized(pubkey)
+      } catch {
+        return false
+      }
+    },
+    [client]
+  )
+
   return {
     isInitialized,
     isRegistered,
+    isPoolRegistered,
     isLoading,
     isSending,
     error,
@@ -432,6 +570,10 @@ export function useWaveSend(): UseWaveSendReturn {
     send,
     checkRecipientRegistered,
     claimByVault,
+    // Pool Registry methods
+    registerPoolRegistry,
+    sendViaPool,
+    checkPoolRegistered,
     clearError,
   }
 }

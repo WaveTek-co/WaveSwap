@@ -58,6 +58,11 @@ import {
   NATIVE_SOL_MINT,
   RELAYER_CONFIG,
   MAGICBLOCK_PER,
+  // Pool Registry PDA derivations (3-signature flow)
+  deriveTeePublicRegistryPda,
+  deriveTeeSecretStorePda,
+  derivePoolDepositPda,
+  MASTER_AUTHORITY,
 } from "./config";
 import { ComputeBudgetProgram } from "@solana/web3.js";
 // Use Web Crypto API for random bytes (browser-compatible)
@@ -2709,6 +2714,291 @@ export class WaveStealthClient {
       return {
         success: false,
         error: error instanceof Error ? error.message : "V4 send failed",
+      };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POOL REGISTRY - 3-Signature Post-Quantum Privacy Flow
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // REGISTRATION (1 signature): User creates TeePublicRegistry + TeeSecretStore
+  // SEND (1 signature): Sender creates pool deposit, TEE auto-encapsulates
+  // CLAIM (1 signature): Receiver claims, TEE auto-decapsulates + withdraws
+  //
+  // Total: 3 signatures across entire lifecycle!
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Check if user has Pool Registry (TeePublicRegistry)
+  async hasPoolRegistry(owner: PublicKey): Promise<boolean> {
+    const [registryPda] = deriveTeePublicRegistryPda(owner);
+    const info = await this.connection.getAccountInfo(registryPda);
+    if (!info || info.data.length < 9) return false;
+    // Check discriminator "TEEPUBKY"
+    const disc = info.data.slice(0, 8).toString();
+    return disc === 'TEEPUBKY';
+  }
+
+  // Check if user's Pool Registry is finalized (ready to receive)
+  async isPoolRegistryFinalized(owner: PublicKey): Promise<boolean> {
+    const [registryPda] = deriveTeePublicRegistryPda(owner);
+    const info = await this.connection.getAccountInfo(registryPda);
+    if (!info || info.data.length < 1296) return false;
+    // Layout: disc(8) + bump(1) + owner(32) + xwing_pubkey(1216) + upload_offset(2) + is_finalized(1)
+    // is_finalized at offset 1259 (8+1+32+1216+2)
+    return info.data[1259] === 1;
+  }
+
+  // POOL REGISTRY REGISTRATION
+  // Creates TeePublicRegistry (X-Wing PUBLIC key storage)
+  // User signs ONCE, TEE auto-uploads remaining pubkey chunks via Magic Actions
+  // Note: TeeSecretStore (encrypted SECRET key) is created separately
+  async registerPoolRegistry(
+    wallet: WalletAdapter,
+    keys: StealthKeyPair,
+    onProgress?: (message: string, step: number, total: number) => void
+  ): Promise<TransactionResult> {
+    console.log('[PoolRegistry] Starting registration...');
+    const reportProgress = (msg: string, step: number, total: number) => {
+      console.log(`[PoolRegistry] ${step}/${total}: ${msg}`);
+      onProgress?.(msg, step, total);
+    };
+
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    if (!keys.xwingKeys) {
+      return { success: false, error: 'X-Wing keys required for Pool Registry' };
+    }
+
+    // Check if already registered
+    if (await this.hasPoolRegistry(wallet.publicKey)) {
+      console.log('[PoolRegistry] Already registered');
+      return { success: false, error: 'Already registered' };
+    }
+
+    reportProgress('Creating Pool Registry accounts...', 1, 3);
+
+    try {
+      const [registryPda, registryBump] = deriveTeePublicRegistryPda(wallet.publicKey);
+
+      // Combine ML-KEM and X25519 pubkeys (1184 + 32 = 1216 bytes)
+      const xwingPubkeyFull = new Uint8Array(1216);
+      xwingPubkeyFull.set(keys.xwingKeys.publicKey.mlkem, 0);
+      xwingPubkeyFull.set(keys.xwingKeys.publicKey.x25519, 1184);
+
+      // First chunk (fits in one TX with account creation)
+      const FIRST_CHUNK_SIZE = 800;
+      const firstChunk = xwingPubkeyFull.slice(0, FIRST_CHUNK_SIZE);
+
+      // Data: discriminator(1) + bump(1) + first_chunk
+      // On-chain expects: bump(1) + first_chunk (after discriminator stripped by lib.rs)
+      const initData = Buffer.alloc(2 + firstChunk.length);
+      initData[0] = StealthDiscriminators.INIT_POOL_REGISTRY;
+      initData[1] = registryBump;
+      Buffer.from(firstChunk).copy(initData, 2);
+
+      const tx = new Transaction();
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+      tx.add(new TransactionInstruction({
+        // accounts: 0.[signer,writable] owner, 1.[writable] registry, 2.[] system
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: registryPda, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: initData,
+      }));
+
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+      reportProgress('Please approve the transaction...', 2, 3);
+
+      const signedTx = await wallet.signTransaction(tx);
+      const sig = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+      });
+
+      await confirmTransactionPolling(this.connection, sig, 30, 2000);
+
+      reportProgress('Registration complete! TEE will upload remaining key data.', 3, 3);
+
+      console.log('[PoolRegistry] Registration successful');
+      console.log('[PoolRegistry] TEE will auto-upload remaining chunks via Magic Actions');
+
+      return { success: true, signature: sig };
+
+    } catch (error) {
+      console.error('[PoolRegistry] Registration error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Registration failed',
+      };
+    }
+  }
+
+  // POOL REGISTRY SEND
+  // Sender creates pool deposit with recipient wallet
+  // TEE auto-encapsulates using recipient's TeePublicRegistry
+  async sendViaPoolDeposit(
+    wallet: WalletAdapter,
+    recipientWallet: PublicKey,
+    amount: bigint,
+    onProgress?: (message: string, step: number, total: number) => void
+  ): Promise<SendResult> {
+    console.log('[PoolRegistry] Starting send via pool deposit...');
+    const reportProgress = (msg: string, step: number, total: number) => {
+      console.log(`[PoolRegistry] ${step}/${total}: ${msg}`);
+      onProgress?.(msg, step, total);
+    };
+
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    // Check recipient is registered
+    const recipientRegistered = await this.isPoolRegistryFinalized(recipientWallet);
+    if (!recipientRegistered) {
+      return { success: false, error: 'Recipient not registered for Pool Registry payments' };
+    }
+
+    reportProgress('Creating pool deposit...', 1, 3);
+
+    try {
+      // Generate random nonce
+      const nonce = new Uint8Array(32);
+      crypto.getRandomValues(nonce);
+
+      const [depositPda, depositBump] = derivePoolDepositPda(nonce);
+
+      // Data: discriminator(1) + bump(1) + nonce(32) + amount(8) = 42 bytes
+      const data = Buffer.alloc(42);
+      data[0] = StealthDiscriminators.CREATE_POOL_DEPOSIT;
+      data[1] = depositBump;
+      Buffer.from(nonce).copy(data, 2);
+      data.writeBigUInt64LE(amount, 34);
+
+      const tx = new Transaction();
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+      tx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: depositPda, isSigner: false, isWritable: true },
+          { pubkey: recipientWallet, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      }));
+
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+      reportProgress('Please approve the transaction...', 2, 3);
+
+      const signedTx = await wallet.signTransaction(tx);
+      const sig = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+      });
+
+      await confirmTransactionPolling(this.connection, sig, 30, 2000);
+
+      reportProgress('Deposit created! TEE will process and notify recipient.', 3, 3);
+
+      console.log('[PoolRegistry] Pool deposit created');
+      console.log('[PoolRegistry] TEE will auto-process via PROCESS_POOL_DEPOSIT');
+
+      return {
+        success: true,
+        signature: sig,
+        nonce: Buffer.from(nonce).toString('hex'),
+        isV4: true,
+      };
+
+    } catch (error) {
+      console.error('[PoolRegistry] Send error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Send failed',
+      };
+    }
+  }
+
+  // POOL REGISTRY CLAIM
+  // Receiver claims, TEE decapsulates + auto-withdraws
+  // Scanner provides stealth_pubkey + sharedSecret from X-Wing decapsulation
+  async claimPoolDeposit(
+    wallet: WalletAdapter,
+    stealthPubkey: Uint8Array,
+    sharedSecret: Uint8Array,
+    onProgress?: (message: string, step: number, total: number) => void
+  ): Promise<TransactionResult> {
+    console.log('[PoolRegistry] Starting claim...');
+    const reportProgress = (msg: string, step: number, total: number) => {
+      console.log(`[PoolRegistry] ${step}/${total}: ${msg}`);
+      onProgress?.(msg, step, total);
+    };
+
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    reportProgress('Claiming via TEE...', 1, 3);
+
+    try {
+      const [outputEscrowPda] = deriveOutputEscrowPda(stealthPubkey);
+      const [xwingCtPda] = deriveXWingCiphertextPda(outputEscrowPda);
+      const [secretStorePda] = deriveTeeSecretStorePda(wallet.publicKey);
+
+      // Data: discriminator(1) + stealth_pubkey(32) + shared_secret(32) = 65 bytes
+      const data = Buffer.alloc(65);
+      data[0] = StealthDiscriminators.CLAIM_POOL_DEPOSIT;
+      Buffer.from(stealthPubkey).copy(data, 1);
+      Buffer.from(sharedSecret).copy(data, 33);
+
+      const tx = new Transaction();
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
+      tx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+          { pubkey: outputEscrowPda, isSigner: false, isWritable: true },
+          { pubkey: secretStorePda, isSigner: false, isWritable: false },
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true },
+          { pubkey: wallet.publicKey, isSigner: false, isWritable: true }, // destination
+          { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data,
+      }));
+
+      // Send to PER (TEE execution)
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.perConnection.getLatestBlockhash()).blockhash;
+
+      reportProgress('Please approve the claim...', 2, 3);
+
+      const signedTx = await wallet.signTransaction(tx);
+      const sig = await this.perConnection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+      });
+
+      await confirmTransactionPolling(this.perConnection, sig, 30, 2000);
+
+      reportProgress('Claim complete! Funds transferred to your wallet.', 3, 3);
+
+      console.log('[PoolRegistry] Claim successful');
+
+      return { success: true, signature: sig };
+
+    } catch (error) {
+      console.error('[PoolRegistry] Claim error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Claim failed',
       };
     }
   }

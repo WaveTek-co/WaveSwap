@@ -85,6 +85,13 @@ export {
   TEE_VALIDATOR,
   MAGIC_CONTEXT,
   MAGIC_PROGRAM,
+  // Pool Registry PDA derivations (3-signature flow)
+  deriveTeePublicRegistryPda,
+  deriveTeeSecretStorePda,
+  derivePoolDepositPda,
+  TEE_PUBLIC_REGISTRY_SIZE,
+  TEE_SECRET_STORE_SIZE,
+  POOL_DEPOSIT_SIZE,
 } from "./config";
 
 export type {
