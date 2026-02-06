@@ -1,14 +1,26 @@
-# WAVETEK Kora Dockerfile - Self-contained with embedded config
+# WAVETEK Kora Dockerfile
 FROM ghcr.io/solana-foundation/kora:latest
 
-# Create config directory
 WORKDIR /app
 
-# Embed kora.toml directly
-RUN echo '[validation]' > /app/kora.toml && \
+# Create kora.toml with all required fields
+RUN echo '[kora]' > /app/kora.toml && \
+    echo 'rate_limit = 1000' >> /app/kora.toml && \
+    echo 'liveness = true' >> /app/kora.toml && \
+    echo '' >> /app/kora.toml && \
+    echo '[kora.enabled_methods]' >> /app/kora.toml && \
+    echo 'sign_and_send_transaction = true' >> /app/kora.toml && \
+    echo 'sign_transaction = true' >> /app/kora.toml && \
+    echo 'sign_all_transactions = true' >> /app/kora.toml && \
+    echo 'get_payer_signer = true' >> /app/kora.toml && \
+    echo 'get_blockhash = true' >> /app/kora.toml && \
+    echo 'estimate_transaction_fee = true' >> /app/kora.toml && \
+    echo 'get_config = true' >> /app/kora.toml && \
+    echo 'transfer_transaction = true' >> /app/kora.toml && \
+    echo '' >> /app/kora.toml && \
+    echo '[validation]' >> /app/kora.toml && \
     echo 'max_allowed_lamports = 10000000' >> /app/kora.toml && \
     echo 'max_signatures = 10' >> /app/kora.toml && \
-    echo 'price_source = "Mock"' >> /app/kora.toml && \
     echo 'allowed_programs = [' >> /app/kora.toml && \
     echo '    "11111111111111111111111111111111",' >> /app/kora.toml && \
     echo '    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",' >> /app/kora.toml && \
@@ -21,31 +33,20 @@ RUN echo '[validation]' > /app/kora.toml && \
     echo 'allowed_spl_paid_tokens = []' >> /app/kora.toml && \
     echo 'disallowed_accounts = []' >> /app/kora.toml && \
     echo '' >> /app/kora.toml && \
-    echo '[rpc]' >> /app/kora.toml && \
-    echo 'solana_rpc_url = "https://api.devnet.solana.com"' >> /app/kora.toml && \
-    echo 'commitment = "confirmed"' >> /app/kora.toml && \
-    echo '' >> /app/kora.toml && \
-    echo '[server]' >> /app/kora.toml && \
-    echo 'host = "0.0.0.0"' >> /app/kora.toml && \
-    echo 'port = 8080' >> /app/kora.toml && \
-    echo 'cors_origins = ["https://app.waveswap.live"]' >> /app/kora.toml && \
-    echo '' >> /app/kora.toml && \
-    echo '[logging]' >> /app/kora.toml && \
-    echo 'level = "info"' >> /app/kora.toml
+    echo '[metrics]' >> /app/kora.toml && \
+    echo 'enabled = false' >> /app/kora.toml
 
-# Embed signers.toml
-RUN echo '[signers]' > /app/signers.toml && \
+# Create signers.toml
+RUN echo '[signer_pool]' > /app/signers.toml && \
+    echo 'strategy = "round_robin"' >> /app/signers.toml && \
     echo '' >> /app/signers.toml && \
-    echo '[[signers.wallets]]' >> /app/signers.toml && \
+    echo '[[signers]]' >> /app/signers.toml && \
     echo 'name = "wavetek-fee-payer"' >> /app/signers.toml && \
-    echo 'keypair_env = "KORA_FEE_PAYER_KEYPAIR"' >> /app/signers.toml && \
-    echo 'max_lamports_per_tx = 10000000' >> /app/signers.toml && \
-    echo 'daily_limit = 100000000000' >> /app/signers.toml && \
-    echo 'enabled = true' >> /app/signers.toml && \
-    echo 'priority = 1' >> /app/signers.toml
+    echo 'type = "memory"' >> /app/signers.toml && \
+    echo 'private_key_env = "KORA_PRIVATE_KEY"' >> /app/signers.toml && \
+    echo 'weight = 1' >> /app/signers.toml
 
-# Expose port
 EXPOSE 8080
 
-# Start Kora with embedded config
-CMD ["rpc", "start", "--config", "/app/kora.toml", "--signers-config", "/app/signers.toml"]
+ENTRYPOINT ["kora"]
+CMD ["--config", "/app/kora.toml", "rpc", "start", "--signers-config", "/app/signers.toml"]
