@@ -3,7 +3,7 @@ FROM ghcr.io/solana-foundation/kora:latest
 
 WORKDIR /app
 
-# Create complete kora.toml based on official config
+# Create complete kora.toml
 RUN cat > /app/kora.toml << 'KORACONFIG'
 [kora]
 rate_limit = 1000
@@ -41,7 +41,9 @@ allowed_programs = [
     "4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX",
     "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
 ]
-allowed_tokens = []
+allowed_tokens = [
+    "So11111111111111111111111111111111111111112",
+]
 allowed_spl_paid_tokens = []
 disallowed_accounts = []
 
@@ -49,43 +51,43 @@ disallowed_accounts = []
 
 [validation.fee_payer_policy.system]
 allow_transfer = true
-allow_assign = true
+allow_assign = false
 allow_create_account = true
-allow_allocate = true
+allow_allocate = false
 
 [validation.fee_payer_policy.system.nonce]
-allow_initialize = true
-allow_advance = true
-allow_authorize = true
-allow_withdraw = true
+allow_initialize = false
+allow_advance = false
+allow_authorize = false
+allow_withdraw = false
 
 [validation.fee_payer_policy.spl_token]
-allow_transfer = true
-allow_burn = true
-allow_close_account = true
-allow_approve = true
-allow_revoke = true
-allow_set_authority = true
-allow_mint_to = true
-allow_initialize_mint = true
-allow_initialize_account = true
-allow_initialize_multisig = true
-allow_freeze_account = true
-allow_thaw_account = true
+allow_transfer = false
+allow_burn = false
+allow_close_account = false
+allow_approve = false
+allow_revoke = false
+allow_set_authority = false
+allow_mint_to = false
+allow_initialize_mint = false
+allow_initialize_account = false
+allow_initialize_multisig = false
+allow_freeze_account = false
+allow_thaw_account = false
 
 [validation.fee_payer_policy.token_2022]
-allow_transfer = true
-allow_burn = true
-allow_close_account = true
-allow_approve = true
-allow_revoke = true
-allow_set_authority = true
-allow_mint_to = true
-allow_initialize_mint = true
-allow_initialize_account = true
-allow_initialize_multisig = true
-allow_freeze_account = true
-allow_thaw_account = true
+allow_transfer = false
+allow_burn = false
+allow_close_account = false
+allow_approve = false
+allow_revoke = false
+allow_set_authority = false
+allow_mint_to = false
+allow_initialize_mint = false
+allow_initialize_account = false
+allow_initialize_multisig = false
+allow_freeze_account = false
+allow_thaw_account = false
 
 [validation.price]
 type = "free"
