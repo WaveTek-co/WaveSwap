@@ -2233,10 +2233,12 @@ export class WaveStealthClient {
   // TX1 (L1): CREATE_V4_DEPOSIT - Create deposit record with stealth metadata
   // TX2 (L1): UPLOAD_V4_CIPHERTEXT - Upload X-Wing ciphertext in chunks
   // TX3 (L1): COMPLETE_V4_DEPOSIT - Create INPUT_ESCROW + delegate to PER
-  // TX4 (PER): INPUT_TO_POOL_V4 - TEE moves funds: INPUT → POOL (sender NOT in tx!)
-  // TX5 (PER): POOL_TO_ESCROW_V4 - TEE creates OUTPUT escrow from POOL
-  // TX6 (PER): CLAIM_ESCROW_V4 - TEE verifies, triggers undelegation
-  // TX7 (L1): WITHDRAW_FROM_ESCROW - Receiver withdraws
+  // [AUTOMATIC - Magic Actions / TEE, no user signature]:
+  // TX5 (PER): INPUT_TO_POOL_V4 - Batched every 1s, all inputs → pool
+  // TX6 (PER): POOL_TO_ESCROW_V4 - Parallel PER chains, pool → each output
+  // [RECEIVER]:
+  // TX7 (PER): CLAIM_ESCROW_V4 - TEE verifies, triggers undelegation
+  // TX8 (L1): WITHDRAW_FROM_OUTPUT_ESCROW - Receiver withdraws
   //
   // PRIVACY GUARANTEE:
   // - Sender's wallet only appears in TX1-TX3 (deposit phase)
@@ -2265,8 +2267,7 @@ export class WaveStealthClient {
 
     // WAVETEK requires X-Wing keys for encrypted destination
     if (!this.stealthKeys?.xwingKeys) {
-      console.warn('[WaveStealthClient] WAVETEK requires X-Wing keys, falling back to V3');
-      return this.waveSendViaPerMixerPoolV3(wallet, params);
+      return { success: false, error: "X-Wing keys required for WAVETEK privacy flow" };
     }
 
 
@@ -2328,9 +2329,14 @@ export class WaveStealthClient {
 
     try {
       // ══════════════════════════════════════════════════════════════════════
-      // STEP 1: CREATE_V4_DEPOSIT
+      // BUILD ALL L1 TRANSACTIONS (signed once as "Send Privately")
+      // Sender signs ONCE via signAllTransactions - single wallet approval
       // ══════════════════════════════════════════════════════════════════════
-      reportProgress('Creating deposit record', 1, 4);
+      reportProgress('Preparing transactions...', 1, 2);
+
+      const { blockhash } = await this.connection.getLatestBlockhash();
+
+      // ── TX 1: CREATE_V4_DEPOSIT ──
 
       const createData = Buffer.alloc(155);
       let offset = 0;
@@ -2359,23 +2365,11 @@ export class WaveStealthClient {
       }));
 
       createTx.feePayer = wallet.publicKey;
-      createTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-      const signedCreateTx = await wallet.signTransaction(createTx);
-      const createSig = await this.connection.sendRawTransaction(signedCreateTx.serialize(), {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      await confirmTransactionPolling(this.connection, createSig, 20, 2000);
+      createTx.recentBlockhash = blockhash;
 
-      // ══════════════════════════════════════════════════════════════════════
-      // STEP 2: UPLOAD_V4_CIPHERTEXT (chunk the 1120-byte X-Wing ciphertext)
-      // Build all chunk TXs, sign once with signAllTransactions, send sequentially
-      // ══════════════════════════════════════════════════════════════════════
-      reportProgress('Uploading X-Wing ciphertext', 2, 4);
-
+      // ── TX 2-3: UPLOAD_V4_CIPHERTEXT (chunks) ──
       const CHUNK_SIZE = 800;
       const totalChunks = Math.ceil(xwingCiphertext.length / CHUNK_SIZE);
-      const { blockhash } = await this.connection.getLatestBlockhash();
 
       // Build all chunk transactions
       const uploadTxs: Transaction[] = [];
@@ -2408,23 +2402,7 @@ export class WaveStealthClient {
         uploadTxs.push(uploadTx);
       }
 
-      // Sign all chunk transactions with ONE user approval
-      const signedUploadTxs = await wallet.signAllTransactions(uploadTxs);
-
-      // Send sequentially, waiting for each confirmation
-      for (let i = 0; i < signedUploadTxs.length; i++) {
-        const uploadSig = await this.connection.sendRawTransaction(signedUploadTxs[i].serialize(), {
-          skipPreflight: true,
-          maxRetries: 3,
-        });
-        await confirmTransactionPolling(this.connection, uploadSig, 20, 2000);
-      }
-
-      // ══════════════════════════════════════════════════════════════════════
-      // STEP 3: COMPLETE_V4_DEPOSIT (creates input_escrow + delegates everything)
-      // TEE will create xwing_ct seeded by stealth_address (output) for privacy!
-      // ══════════════════════════════════════════════════════════════════════
-      reportProgress('Completing deposit and delegating to TEE', 3, 4);
+      // ── TX 4: COMPLETE_V4_DEPOSIT (creates input_escrow + delegates to PER) ──
 
       // data: disc(1) + nonce(32) + escrow_bump(1) + commit_freq_ms(4) + record_bump(1) = 39 bytes
       const completeData = Buffer.alloc(39);
@@ -2432,8 +2410,9 @@ export class WaveStealthClient {
       completeData[cOffset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT;
       Buffer.from(nonce).copy(completeData, cOffset); cOffset += 32;
       completeData[cOffset++] = escrowBump;
-      // Commit frequency: 10000ms = 10 seconds
-      const commitFreq = 10000;
+      // Commit frequency: 1000ms = 1 commit/second
+      // All deposits within 1s batched, Magic Actions processes in TEE, settled next commit
+      const commitFreq = 1000;
       completeData.writeUInt32LE(commitFreq, cOffset); cOffset += 4;
       completeData[cOffset++] = recordBump;
 
@@ -2484,23 +2463,9 @@ export class WaveStealthClient {
       }));
 
       completeTx.feePayer = wallet.publicKey;
-      completeTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-      const signedCompleteTx = await wallet.signTransaction(completeTx);
-      const completeSig = await this.connection.sendRawTransaction(signedCompleteTx.serialize(), {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
+      completeTx.recentBlockhash = blockhash;
 
-      // ══════════════════════════════════════════════════════════════════════
-      // STEP 4: PREPARE_OUTPUT_V4 (on L1 - creates OUTPUT_ESCROW + delegates)
-      // ══════════════════════════════════════════════════════════════════════
-      // PRIVACY: This creates OUTPUT_ESCROW derived from stealth_pubkey (NOT nonce!)
-      // In production, a RELAYER would do this step (no link to sender)
-      // For now, sender does it but the derivation still breaks the link
-      reportProgress('Preparing output escrow (L1)...', 4, 6);
-
-      console.log('[WaveStealthClient] Executing PREPARE_OUTPUT_V4 on L1...');
+      // ── TX 5: PREPARE_OUTPUT_V4 (creates OUTPUT_ESCROW + XWING_CT + delegates) ──
 
       // Derive output escrow PDA from stealth pubkey
       const [outputEscrowPda, outputEscrowBump] = deriveOutputEscrowPda(stealthPubkey);
@@ -2523,7 +2488,7 @@ export class WaveStealthClient {
       Buffer.from(stealthPubkey).copy(prepareOutputData, poOffset); poOffset += 32;
       prepareOutputData[poOffset++] = outputEscrowBump;
       prepareOutputData[poOffset++] = xwingCtBump;
-      prepareOutputData.writeUInt32LE(5000, poOffset); // 5 second commit frequency
+      prepareOutputData.writeUInt32LE(1000, poOffset); // 1000ms = 1 commit/sec
 
       const prepareOutputTx = new Transaction();
       prepareOutputTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }));
@@ -2562,118 +2527,91 @@ export class WaveStealthClient {
       }));
 
       prepareOutputTx.feePayer = wallet.publicKey;
-      prepareOutputTx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-      const signedPrepareOutputTx = await wallet.signTransaction(prepareOutputTx);
-      const prepareOutputSig = await this.connection.sendRawTransaction(signedPrepareOutputTx.serialize(), {
-        skipPreflight: true,
-        maxRetries: 3,
+      prepareOutputTx.recentBlockhash = blockhash;
+
+      // ══════════════════════════════════════════════════════════════════════
+      // SINGLE WALLET APPROVAL: "Send Privately"
+      // All L1 transactions signed at once - sender clicks approve ONCE
+      // ══════════════════════════════════════════════════════════════════════
+      reportProgress('Sign to send privately', 1, 2);
+      const allTxs = [createTx, ...uploadTxs, completeTx, prepareOutputTx];
+      const signedTxs = await wallet.signAllTransactions(allTxs);
+
+      // ══════════════════════════════════════════════════════════════════════
+      // BROADCAST SIGNED TRANSACTIONS SEQUENTIALLY
+      // ══════════════════════════════════════════════════════════════════════
+      reportProgress('Broadcasting transactions...', 2, 2);
+
+      // TX 1: CREATE_V4_DEPOSIT
+      const createSig = await this.connection.sendRawTransaction(signedTxs[0].serialize(), {
+        skipPreflight: true, maxRetries: 3,
+      });
+      await confirmTransactionPolling(this.connection, createSig, 20, 2000);
+
+      // TX 2-3: UPLOAD_V4_CIPHERTEXT chunks
+      for (let i = 0; i < uploadTxs.length; i++) {
+        const uploadSig = await this.connection.sendRawTransaction(signedTxs[1 + i].serialize(), {
+          skipPreflight: true, maxRetries: 3,
+        });
+        await confirmTransactionPolling(this.connection, uploadSig, 20, 2000);
+      }
+
+      // TX 4: COMPLETE_V4_DEPOSIT
+      const completeSig = await this.connection.sendRawTransaction(signedTxs[1 + uploadTxs.length].serialize(), {
+        skipPreflight: true, maxRetries: 3,
+      });
+      await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
+
+      // TX 5: PREPARE_OUTPUT_V4
+      const prepareOutputSig = await this.connection.sendRawTransaction(signedTxs[2 + uploadTxs.length].serialize(), {
+        skipPreflight: true, maxRetries: 3,
       });
       await confirmTransactionPolling(this.connection, prepareOutputSig, 30, 2000);
-      console.log('[WaveStealthClient] PREPARE_OUTPUT_V4 confirmed on L1');
-
-      // Wait for delegation to propagate to PER
-      console.log('[WaveStealthClient] Waiting for OUTPUT_ESCROW to appear on PER...');
-      await new Promise(resolve => setTimeout(resolve, 8000));
 
       // ══════════════════════════════════════════════════════════════════════
-      // STEP 5: INPUT_TO_POOL_V4 (on MagicBlock PER)
+      // SENDER DONE - Magic Actions processes PERs inside TEE
       // ══════════════════════════════════════════════════════════════════════
-      // Send transaction to PER to move funds: INPUT_ESCROW → POOL
-      reportProgress('Moving funds to mixer pool (PER)...', 5, 6);
+      //
+      // Every 1s commit cycle, Magic Actions batches ALL deposits in the mixer pool:
+      // 1. INPUT_TO_POOL_V4 (0x2B): All INPUT_ESCROWs -> POOL (first PER, batched)
+      // 2. POOL_TO_ESCROW_V4 (0x26): POOL -> each OUTPUT_ESCROW (second PER)
+      //
+      // Sender's wallet is NOT involved in PER transactions.
+      // Magic Actions / TEE authority signs inside PER. Permissionless crank.
+      // Pool is always in the middle - no on-chain sender-receiver link.
+      //
+      // Settlement: After PER completes, state commits back to Solana L1.
+      // Escrows funded at stealth addresses with ciphertext + view tag announcements.
+      // Receiver scans announcements, finds payments, claims.
+      //
+      reportProgress('Waiting for Magic Actions to process deposit...', 2, 2);
 
-      console.log('[WaveStealthClient] Executing INPUT_TO_POOL on MagicBlock PER...');
+      console.log('[WaveStealthClient] Polling L1 for OUTPUT_ESCROW settlement (Magic Actions PER)...');
+      const outputEscrowFunded = await this.waitForOutputEscrowFunded(
+        stealthPubkey,
+        60000 // 60s timeout
+      );
 
-      // data: disc(1) + nonce(32) + escrow_bump(1) = 34 bytes
-      const inputToPoolData = Buffer.alloc(34);
-      let i2pOffset = 0;
-      inputToPoolData[i2pOffset++] = StealthDiscriminators.INPUT_TO_POOL_V4;
-      Buffer.from(nonce).copy(inputToPoolData, i2pOffset); i2pOffset += 32;
-      inputToPoolData[i2pOffset++] = escrowBump;
-
-      const inputToPoolTx = new Transaction();
-      inputToPoolTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
-      inputToPoolTx.add(new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },   // authority
-          { pubkey: escrowPda, isSigner: false, isWritable: true },         // input_escrow
-          { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // deposit_record
-          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },   // pool
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data: inputToPoolData,
-      }));
-
-      inputToPoolTx.feePayer = wallet.publicKey;
-      inputToPoolTx.recentBlockhash = (await this.perConnection.getLatestBlockhash()).blockhash;
-      const signedInputToPoolTx = await wallet.signTransaction(inputToPoolTx);
-      const inputToPoolSig = await this.perConnection.sendRawTransaction(signedInputToPoolTx.serialize(), {
-        skipPreflight: true,
-      });
-
-      // Wait for confirmation on PER
-      await confirmTransactionPolling(this.perConnection, inputToPoolSig, 30, 2000);
-      console.log('[WaveStealthClient] INPUT_TO_POOL confirmed on PER');
-
-      // ══════════════════════════════════════════════════════════════════════
-      // STEP 6: POOL_TO_ESCROW_V4 (on MagicBlock PER)
-      // ══════════════════════════════════════════════════════════════════════
-      // Send transaction to PER to move funds: POOL → OUTPUT_ESCROW
-      // The OUTPUT_ESCROW was created and delegated in STEP 4 (PREPARE_OUTPUT_V4)
-      reportProgress('Transferring to output escrow (PER)...', 6, 6);
-
-      console.log('[WaveStealthClient] Executing POOL_TO_ESCROW on MagicBlock PER...');
-
-      // outputEscrowPda and xwingCtPda were derived in STEP 4
-
-      // data: disc(1) + pool_bump(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) = 36 bytes
-      const poolToEscrowData = Buffer.alloc(36);
-      let p2eOffset = 0;
-      poolToEscrowData[p2eOffset++] = StealthDiscriminators.POOL_TO_ESCROW_V4;
-      poolToEscrowData[p2eOffset++] = poolBump;
-      Buffer.from(nonce).copy(poolToEscrowData, p2eOffset); p2eOffset += 32;
-      poolToEscrowData[p2eOffset++] = outputEscrowBump;
-      poolToEscrowData[p2eOffset++] = xwingCtBump;
-
-      const poolToEscrowTx = new Transaction();
-      poolToEscrowTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 }));
-      poolToEscrowTx.add(new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true },   // tee_authority
-          { pubkey: perMixerPoolPda, isSigner: false, isWritable: true },   // pool
-          { pubkey: depositRecordPda, isSigner: false, isWritable: false }, // deposit_record
-          { pubkey: outputEscrowPda, isSigner: false, isWritable: true },   // output_escrow
-          { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // xwing_ciphertext
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        programId: PROGRAM_IDS.STEALTH,
-        data: poolToEscrowData,
-      }));
-
-      poolToEscrowTx.feePayer = wallet.publicKey;
-      poolToEscrowTx.recentBlockhash = (await this.perConnection.getLatestBlockhash()).blockhash;
-      const signedPoolToEscrowTx = await wallet.signTransaction(poolToEscrowTx);
-      const poolToEscrowSig = await this.perConnection.sendRawTransaction(signedPoolToEscrowTx.serialize(), {
-        skipPreflight: true,
-      });
-
-      // Wait for confirmation on PER
-      await confirmTransactionPolling(this.perConnection, poolToEscrowSig, 30, 2000);
-      console.log('[WaveStealthClient] POOL_TO_ESCROW confirmed on PER');
-
-      reportProgress('Send complete! Receiver can now scan & claim.', 6, 6);
+      if (outputEscrowFunded) {
+        console.log('[WaveStealthClient] OUTPUT_ESCROW settled on L1. Receiver can scan & claim.');
+        reportProgress('Send complete! Receiver can now scan & claim.', 2, 2);
+      } else {
+        console.log('[WaveStealthClient] Deposit delegated. Magic Actions processing in PER...');
+        reportProgress('Deposit delegated. Processing in PER...', 2, 2);
+      }
 
       return {
         success: true,
-        signature: poolToEscrowSig, // Return the final signature
+        signature: prepareOutputSig,
         stealthPubkey,
         ephemeralPubkey,
         viewTag,
         perDepositPda: depositRecordPda,
-        escrowPda: outputEscrowPda, // Return the OUTPUT escrow
+        escrowPda: outputEscrowPda,
         nonce: Buffer.from(nonce).toString('hex'),
         sharedSecret,
         isV4: true,
-        delegated: false, // Fully processed, not just delegated
+        delegated: true, // Delegated to PER, mixer pool/TEE handles the rest
       } as SendResult;
 
     } catch (error) {
@@ -2683,6 +2621,30 @@ export class WaveStealthClient {
         error: error instanceof Error ? error.message : "V4 send failed",
       };
     }
+  }
+
+  // Poll L1 to verify Magic Actions funded the OUTPUT_ESCROW
+  private async waitForOutputEscrowFunded(
+    stealthPubkey: Uint8Array,
+    timeoutMs: number = 30000
+  ): Promise<boolean> {
+    const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const info = await this.connection.getAccountInfo(escrowPda);
+        if (info && info.data.length >= 91) {
+          const amount = Buffer.from(info.data.slice(41, 49)).readBigUInt64LE();
+          if (amount > 0n) {
+            return true; // TEE funded the OUTPUT_ESCROW via POOL_TO_ESCROW
+          }
+        }
+      } catch {
+        // Ignore transient RPC errors during polling
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    return false;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

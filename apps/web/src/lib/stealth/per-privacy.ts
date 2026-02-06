@@ -912,7 +912,7 @@ export class PERPrivacyClient {
   async completeV4Deposit(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
     nonce: Uint8Array,
-    commitFreqMs: number = 10000
+    commitFreqMs: number = 1000
   ): Promise<{
     success: boolean;
     error?: string;
@@ -989,7 +989,9 @@ export class PERPrivacyClient {
     }
   }
 
-  // TX1b (PER): Move funds from input escrow to pool
+  // @deprecated Use Magic Actions auto-processing instead (commit_freq_ms=1000).
+  // Manual PER submission causes InvalidWritableAccount because fee payer is not delegated.
+  // Magic Actions handles INPUT_TO_POOL and POOL_TO_ESCROW automatically inside TEE.
   async inputToPoolV4(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
     nonce: Uint8Array
@@ -1052,7 +1054,9 @@ export class PERPrivacyClient {
     }
   }
 
-  // TX2 (PER): Move funds from pool to escrow + initialize XWing CT
+  // @deprecated Use Magic Actions auto-processing instead (commit_freq_ms=1000).
+  // Manual PER submission causes InvalidWritableAccount because fee payer is not delegated.
+  // Magic Actions handles POOL_TO_ESCROW automatically inside TEE after INPUT_TO_POOL.
   async poolToEscrowV4(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
     nonce: Uint8Array,

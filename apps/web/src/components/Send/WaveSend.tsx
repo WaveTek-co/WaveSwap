@@ -514,6 +514,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                     <div className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
                       {(Number(deposit.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
                     </div>
+                    <div className="text-[10px] mt-0.5" style={{ color: theme.colors.textMuted }}>
+                      Powered by Kora @ Solana Foundation
+                    </div>
                   </div>
                   <button
                     onClick={async () => {
@@ -566,6 +569,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                     </div>
                     <div className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
                       {(Number(escrow.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                    </div>
+                    <div className="text-[10px] mt-0.5" style={{ color: theme.colors.textMuted }}>
+                      Powered by Kora @ Solana Foundation
                     </div>
                   </div>
                   {escrow.status === 'pending' ? (
@@ -636,6 +642,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                     </div>
                     <div className="text-lg font-bold" style={{ color: theme.colors.textPrimary }}>
                       {(Number(claim.amount) / LAMPORTS_PER_SOL).toFixed(4)} SOL
+                    </div>
+                    <div className="text-[10px] mt-0.5" style={{ color: theme.colors.textMuted }}>
+                      Powered by Kora @ Solana Foundation
                     </div>
                   </div>
                   {claim.status === 'pending' ? (
