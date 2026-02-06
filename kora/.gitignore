@@ -1,0 +1,19 @@
+# Kora Configuration
+# NEVER commit private keys!
+
+# Fee payer keypairs (contains private keys)
+fee-payer.json
+*-keypair.json
+*.keypair
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Docker volumes
+data/
+
+# Logs
+*.log
+logs/

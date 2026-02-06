@@ -1,0 +1,47 @@
+# WAVETEK Kora Signers Configuration
+#
+# This file configures the fee payer wallet(s) that Kora uses to pay
+# transaction fees on behalf of users.
+#
+# SECURITY WARNING:
+# - Never commit real private keys to version control
+# - Use environment variables or secure secret management in production
+# - Keep this wallet funded with SOL for fee payments
+
+[signers]
+# Default signer configuration
+# For production, use a dedicated fee payer wallet with limited funds
+
+[[signers.wallets]]
+# Signer name (for logging/identification)
+name = "wavetek-fee-payer"
+
+# Path to keypair file (relative to kora binary or absolute)
+# Generate with: solana-keygen new -o fee-payer.json
+keypair_path = "./fee-payer.json"
+
+# Alternative: Use environment variable for keypair
+# keypair_env = "KORA_FEE_PAYER_KEYPAIR"
+
+# Maximum lamports this signer can spend per transaction
+max_lamports_per_tx = 10000000
+
+# Daily spending limit in lamports (0 = unlimited)
+daily_limit = 100000000000  # 100 SOL
+
+# Whether this signer is active
+enabled = true
+
+# Priority (lower = higher priority for selection)
+priority = 1
+
+# --- PRODUCTION EXAMPLE ---
+# For production, you might want multiple signers for redundancy:
+#
+# [[signers.wallets]]
+# name = "backup-fee-payer"
+# keypair_path = "./backup-fee-payer.json"
+# max_lamports_per_tx = 5000000
+# daily_limit = 50000000000
+# enabled = true
+# priority = 2

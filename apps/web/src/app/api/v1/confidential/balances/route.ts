@@ -65,13 +65,16 @@ export async function GET(
     const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 
     if (!encifherKey) {
-      return NextResponse.json(
-        {
-          error: 'Missing Encifher SDK key',
-          details: 'ENCIFHER_SDK_KEY environment variable is required'
-        },
-        { status: 500 }
-      )
+      // Return empty balances instead of crashing - Encifher is optional
+      console.log('[Confidential Balance API] No Encifher SDK key configured, returning empty balances')
+      return NextResponse.json({
+        success: true,
+        userPublicKey,
+        confidentialBalances: [],
+        timestamp: new Date().toISOString(),
+        network: 'devnet',
+        note: 'Encifher confidential balances not configured'
+      }, { status: 200 })
     }
 
     console.log('[Confidential Balance API] Initializing Encifher SDK client')

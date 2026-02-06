@@ -1,0 +1,65 @@
+# WAVETEK Kora Configuration
+# Gasless transaction infrastructure for OceanVault privacy withdrawals
+#
+# Deploy this alongside your Kora server to enable receivers to withdraw
+# without needing SOL for transaction fees.
+
+[validation]
+# Maximum lamports Kora will pay per transaction (0.01 SOL = 10_000_000 lamports)
+max_allowed_lamports = 10000000
+
+# Maximum signatures allowed per transaction
+max_signatures = 10
+
+# Price source for token conversion ("Mock" for testing, "Jupiter" for production)
+price_source = "Mock"
+
+# Programs allowed to be called via Kora
+# IMPORTANT: Include the STEALTH_PROGRAM_ID for WAVETEK withdrawals
+allowed_programs = [
+    # Solana System Programs
+    "11111111111111111111111111111111",           # System Program
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", # Token Program
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", # Associated Token Program
+    "ComputeBudget111111111111111111111111111111",  # Compute Budget Program
+    "AddressLookupTab1e1111111111111111111111111", # Address Lookup Table
+
+    # WAVETEK Stealth Program (REQUIRED for privacy withdrawals)
+    "4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX",
+
+    # MagicBlock Delegation Program (for undelegation)
+    "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
+]
+
+# Tokens allowed for transfer (empty = SOL only)
+allowed_tokens = []
+
+# SPL tokens accepted as payment for fees (empty = SOL only)
+allowed_spl_paid_tokens = []
+
+# Accounts NOT allowed to interact with Kora (blacklist)
+disallowed_accounts = []
+
+[rpc]
+# Solana RPC endpoint (use your own for production)
+# Devnet
+solana_rpc_url = "https://api.devnet.solana.com"
+# Mainnet (uncomment for production)
+# solana_rpc_url = "https://api.mainnet-beta.solana.com"
+
+# Commitment level
+commitment = "confirmed"
+
+[server]
+# Server bind address
+host = "0.0.0.0"
+port = 8080
+
+# CORS settings for Vercel frontend
+cors_origins = [
+    "https://app.waveswap.live",
+]
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"

@@ -1,0 +1,35 @@
+# WAVETEK Kora Docker Compose
+# Quick local development setup for Kora gasless transactions
+
+version: '3.8'
+
+services:
+  kora:
+    image: ghcr.io/solana-foundation/kora:latest
+    container_name: wavetek-kora
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./kora.toml:/app/kora.toml:ro
+      - ./signers.toml:/app/signers.toml:ro
+      - ./fee-payer.json:/app/fee-payer.json:ro
+    environment:
+      - RUST_LOG=info
+      # For Jupiter pricing in production:
+      # - JUPITER_API_KEY=${JUPITER_API_KEY}
+    command: ["rpc", "start", "--signers-config", "/app/signers.toml"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+# Optional: Add monitoring
+#  prometheus:
+#    image: prom/prometheus:latest
+#    ports:
+#      - "9090:9090"
+#    volumes:
+#      - ./prometheus.yml:/etc/prometheus/prometheus.yml

@@ -6,9 +6,9 @@ WORKDIR /app
 # Create kora.toml with all required fields
 RUN echo '[kora]' > /app/kora.toml && \
     echo 'rate_limit = 1000' >> /app/kora.toml && \
-    echo 'liveness = true' >> /app/kora.toml && \
     echo '' >> /app/kora.toml && \
     echo '[kora.enabled_methods]' >> /app/kora.toml && \
+    echo 'liveness = true' >> /app/kora.toml && \
     echo 'sign_and_send_transaction = true' >> /app/kora.toml && \
     echo 'sign_transaction = true' >> /app/kora.toml && \
     echo 'sign_all_transactions = true' >> /app/kora.toml && \
