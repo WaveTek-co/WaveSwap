@@ -3,7 +3,7 @@ FROM ghcr.io/solana-foundation/kora:latest
 
 WORKDIR /app
 
-# Create kora.toml with all required fields
+# Create kora.toml with ALL required fields
 RUN echo '[kora]' > /app/kora.toml && \
     echo 'rate_limit = 1000' >> /app/kora.toml && \
     echo '' >> /app/kora.toml && \
@@ -17,6 +17,7 @@ RUN echo '[kora]' > /app/kora.toml && \
     echo 'estimate_transaction_fee = true' >> /app/kora.toml && \
     echo 'get_config = true' >> /app/kora.toml && \
     echo 'transfer_transaction = true' >> /app/kora.toml && \
+    echo 'get_supported_tokens = true' >> /app/kora.toml && \
     echo '' >> /app/kora.toml && \
     echo '[validation]' >> /app/kora.toml && \
     echo 'max_allowed_lamports = 10000000' >> /app/kora.toml && \
