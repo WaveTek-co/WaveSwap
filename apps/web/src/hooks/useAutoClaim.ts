@@ -117,8 +117,9 @@ const EXPECTED_ENCLAVE_MEASUREMENT = new Uint8Array([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ])
 
-// Scan interval (30 seconds)
+// Scan interval (30 seconds) and timeout (3 seconds max per scan)
 const SCAN_INTERVAL_MS = 30000
+const SCAN_TIMEOUT_MS = 3000
 
 // RPC endpoints
 // Use HTTP-only endpoints to avoid WebSocket issues
@@ -1477,7 +1478,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [signMessage, stealthKeys, publicKey])
 
-  // Main scan
+  // Main scan with 3-second timeout
   const runScan = useCallback(async () => {
     if (!publicKey || !connected || isScanningRef.current) return
 
@@ -1488,7 +1489,18 @@ export function useAutoClaim(): UseAutoClaimReturn {
     try {
       const keys = await ensureStealthKeys()
       if (keys) {
-        await scanForDeposits(keys)
+        // Wrap scan with timeout - max 3 seconds
+        const scanPromise = scanForDeposits(keys)
+        const timeoutPromise = new Promise<number>((_, reject) =>
+          setTimeout(() => reject(new Error('Scan timeout')), SCAN_TIMEOUT_MS)
+        )
+
+        try {
+          await Promise.race([scanPromise, timeoutPromise])
+        } catch (err) {
+          // Timeout or error - just continue, don't block
+          console.log('[WAVETEK] Scan completed or timed out')
+        }
         setLastScanTime(new Date())
       }
     } finally {
