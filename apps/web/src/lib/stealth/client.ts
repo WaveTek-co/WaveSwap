@@ -76,9 +76,10 @@ const randomBytes = (length: number): Uint8Array => {
 async function confirmTransactionPolling(
   connection: Connection,
   signature: string,
-  maxAttempts = 30,
-  intervalMs = 2000
+  maxAttempts = 15,
+  intervalMs = 1000
 ): Promise<boolean> {
+  // Fast polling: check every 500ms for first 5 attempts, then every 1s
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const status = await connection.getSignatureStatus(signature);
@@ -93,7 +94,9 @@ async function confirmTransactionPolling(
     } catch (e) {
       // Ignore polling errors, keep trying
     }
-    await new Promise(r => setTimeout(r, intervalMs));
+    // Fast polling for first 5 attempts (500ms), then slower (1000ms)
+    const delay = i < 5 ? 500 : intervalMs;
+    await new Promise(r => setTimeout(r, delay));
   }
   console.warn('[WAVETEK] Timeout - TX may still succeed');
   return true; // Optimistically return true on timeout
@@ -2546,27 +2549,27 @@ export class WaveStealthClient {
       const createSig = await this.connection.sendRawTransaction(signedTxs[0].serialize(), {
         skipPreflight: true, maxRetries: 3,
       });
-      await confirmTransactionPolling(this.connection, createSig, 20, 2000);
+      await confirmTransactionPolling(this.connection, createSig);
 
       // TX 2-3: UPLOAD_V4_CIPHERTEXT chunks
       for (let i = 0; i < uploadTxs.length; i++) {
         const uploadSig = await this.connection.sendRawTransaction(signedTxs[1 + i].serialize(), {
           skipPreflight: true, maxRetries: 3,
         });
-        await confirmTransactionPolling(this.connection, uploadSig, 20, 2000);
+        await confirmTransactionPolling(this.connection, uploadSig);
       }
 
       // TX 4: COMPLETE_V4_DEPOSIT
       const completeSig = await this.connection.sendRawTransaction(signedTxs[1 + uploadTxs.length].serialize(), {
         skipPreflight: true, maxRetries: 3,
       });
-      await confirmTransactionPolling(this.connection, completeSig, 30, 2000);
+      await confirmTransactionPolling(this.connection, completeSig);
 
       // TX 5: PREPARE_OUTPUT_V4
       const prepareOutputSig = await this.connection.sendRawTransaction(signedTxs[2 + uploadTxs.length].serialize(), {
         skipPreflight: true, maxRetries: 3,
       });
-      await confirmTransactionPolling(this.connection, prepareOutputSig, 30, 2000);
+      await confirmTransactionPolling(this.connection, prepareOutputSig);
 
       // ══════════════════════════════════════════════════════════════════════
       // SENDER DONE - Magic Actions processes PERs inside TEE

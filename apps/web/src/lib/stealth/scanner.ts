@@ -147,17 +147,14 @@ export function isEscrowForUs(
   try {
     // Step 1: X-Wing decapsulation
     const sharedSecret = xwingDecapsulate(keys.xwingKeys.secretKey, xwingCiphertext);
-    console.log('[WAVETEK] X-Wing decapsulation succeeded, verifying stealth pubkey...');
 
     // Step 2: Verify stealth pubkey derivation
     if (!verifyStealthPubkey(sharedSecret, stealthPubkey)) {
-      // Decapsulation succeeded but stealth pubkey doesn't match
-      console.log('[WAVETEK] Stealth pubkey mismatch - escrow not ours');
+      // Decapsulation succeeded but stealth pubkey doesn't match - this is normal
       return { isOurs: false };
     }
 
     // Step 3: SUCCESS - This escrow is ours!
-    console.log('[WAVETEK] MATCH - this escrow is OURS');
     return { isOurs: true, sharedSecret };
   } catch {
     // Decapsulation failed - escrow not ours (normal during scanning)
@@ -317,18 +314,14 @@ export async function scanForEscrowsV4(
 
       if (keys.xwingKeys) {
         const xwingCiphertext = await fetchXWingCiphertextFromPER(connection, perConnection, pubkey);
-        console.log('[WAVETEK] Escrow <ENCRYPTED> from', source, '- XWing CT:', xwingCiphertext ? 'FOUND' : 'NOT FOUND');
         if (xwingCiphertext) {
           const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
-          console.log('[WAVETEK] Escrow check result: <ENCRYPTED>');
           if (result.isOurs) {
             isOurs = true;
             sharedSecret = result.sharedSecret;
             oursCount++;
           }
         }
-      } else {
-        console.log('[WAVETEK] NO X-WING KEYS - cannot check escrow <ENCRYPTED>');
       }
 
       escrows.push({
