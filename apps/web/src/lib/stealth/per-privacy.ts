@@ -47,6 +47,7 @@ import {
   TEE_VALIDATOR,
   MAGIC_CONTEXT,
   MAGIC_PROGRAM,
+  KORA_CONFIG,
 } from "./config";
 import {
   StealthKeyPair,
@@ -1254,6 +1255,115 @@ export class PERPrivacyClient {
       return { success: true, signature };
     } catch (error: any) {
       console.error("[WAVETEK] WITHDRAW_FROM_ESCROW failed:", error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // TX4 (L1): KORA GASLESS Withdraw - receiver pays NOTHING
+  // Kora relayer signs and pays the transaction fee
+  async withdrawViaKora(
+    stealthPubkey: Uint8Array,
+    koraRpcUrl?: string
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    signature?: string;
+    destination?: PublicKey;
+    amount?: bigint;
+  }> {
+    const koraUrl = koraRpcUrl || KORA_CONFIG.RPC_URL;
+
+    try {
+      console.log("[KORA] Starting gasless withdraw...");
+
+      // 1. Read escrow to get verified_destination and amount
+      const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
+      const escrowAccount = await this.mainnetConnection.getAccountInfo(escrowPda);
+
+      if (!escrowAccount || escrowAccount.data.length < 91) {
+        return { success: false, error: "OUTPUT_ESCROW not found on L1" };
+      }
+
+      const data = escrowAccount.data;
+      const isVerified = data[81] === 1;
+      const isWithdrawn = data[82] === 1;
+      const amount = Buffer.from(data.slice(41, 49)).readBigUInt64LE();
+      const verifiedDestination = new PublicKey(data.slice(49, 81));
+
+      if (!isVerified) {
+        return { success: false, error: "OUTPUT_ESCROW not verified - CLAIM must complete first" };
+      }
+      if (isWithdrawn) {
+        return { success: false, error: "OUTPUT_ESCROW already withdrawn" };
+      }
+
+      // 2. Get Kora's fee payer
+      const payerResponse = await fetch(koraUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getPayerSigner", params: [] }),
+      });
+      const payerJson = await payerResponse.json() as { result?: { signer_address: string }, error?: { message: string } };
+      if (payerJson.error) throw new Error(payerJson.error.message);
+      const koraFeePayer = new PublicKey(payerJson.result!.signer_address);
+
+      // 3. Get blockhash from Kora
+      const blockhashResponse = await fetch(koraUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBlockhash", params: [] }),
+      });
+      const blockhashJson = await blockhashResponse.json() as { result?: { blockhash: string }, error?: { message: string } };
+      if (blockhashJson.error) throw new Error(blockhashJson.error.message);
+      const blockhash = blockhashJson.result!.blockhash;
+
+      // 4. Build withdraw instruction
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
+
+      const withdrawData = Buffer.alloc(33);
+      withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_OUTPUT_ESCROW;
+      Buffer.from(stealthPubkey).copy(withdrawData, 1);
+
+      const tx = new Transaction();
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+      tx.add(new TransactionInstruction({
+        keys: [
+          { pubkey: koraFeePayer, isSigner: true, isWritable: false },
+          { pubkey: escrowPda, isSigner: false, isWritable: true },
+          { pubkey: verifiedDestination, isSigner: false, isWritable: true },
+          { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          { pubkey: xwingCtPda, isSigner: false, isWritable: true },
+        ],
+        programId: PROGRAM_IDS.STEALTH,
+        data: withdrawData,
+      }));
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = koraFeePayer;
+
+      // 5. Send to Kora - it signs and broadcasts
+      const txBase64 = Buffer.from(tx.serialize({ requireAllSignatures: false })).toString('base64');
+      const signResponse = await fetch(koraUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "signAndSendTransaction", params: [txBase64] }),
+      });
+      const signJson = await signResponse.json() as { result?: { signed_transaction: string }, error?: { message: string } };
+      if (signJson.error) throw new Error(signJson.error.message);
+
+      // 6. Extract signature
+      const signedTxBytes = Buffer.from(signJson.result!.signed_transaction, 'base64');
+      const signatureBytes = signedTxBytes.slice(1, 65);
+      const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      let signature = '';
+      let num = BigInt(0);
+      for (const byte of signatureBytes) num = num * BigInt(256) + BigInt(byte);
+      while (num > 0) { signature = bs58Chars[Number(num % BigInt(58))] + signature; num = num / BigInt(58); }
+
+      console.log("[KORA] Gasless withdraw success");
+      return { success: true, signature, destination: verifiedDestination, amount };
+    } catch (error: any) {
+      console.error("[KORA] Gasless withdraw failed:", error);
       return { success: false, error: error.message };
     }
   }

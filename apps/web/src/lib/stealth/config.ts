@@ -126,6 +126,15 @@ export const RELAYER_CONFIG = {
   DEVNET_PUBKEY: process.env.NEXT_PUBLIC_RELAYER_PUBKEY || null,
 };
 
+// Kora gasless transaction configuration (Solana Foundation)
+// Kora pays L1 transaction fees so receivers pay NOTHING
+export const KORA_CONFIG = {
+  // Kora RPC endpoint - REQUIRED for gasless withdrawals
+  RPC_URL: process.env.NEXT_PUBLIC_KORA_RPC_URL || "https://genuine-vibrancy-production.up.railway.app",
+  // Enable/disable gasless withdrawals
+  ENABLED: process.env.NEXT_PUBLIC_KORA_ENABLED !== "false",
+};
+
 // MagicBlock PER (Private Ephemeral Rollup) configuration
 export const MAGICBLOCK_PER = {
   // TEE endpoint for authentication and execution

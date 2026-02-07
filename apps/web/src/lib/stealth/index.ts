@@ -52,6 +52,7 @@ export {
   DEFAULT_SLIPPAGE_BPS,
   MAX_CHUNK_SIZE,
   RELAYER_CONFIG,
+  KORA_CONFIG,
   deriveRegistryPda,
   deriveAnnouncementPda,
   deriveAnnouncementPdaFromNonce,
