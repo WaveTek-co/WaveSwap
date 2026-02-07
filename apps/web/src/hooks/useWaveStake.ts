@@ -221,15 +221,8 @@ export function useWaveStake() {
       console.log('[WAVETEK] Transaction prepared: <ENCRYPTED>')
       console.log('[WAVETEK] Transaction instructions: <ENCRYPTED>')
       console.log('[WAVETEK] Fee payer: <ENCRYPTED>')
-      transaction.instructions.forEach((ix, i) => {
-        console.log('[WAVETEK] Instruction: <ENCRYPTED>' // {
-          programId: ix.programId.toString(),
-          keys: ix.keys.map(k => ({
-            pubkey: k.pubkey?.toString() || 'UNDEFINED',
-            isSigner: k.isSigner,
-            isWritable: k.isWritable
-          }))
-        })
+      transaction.instructions.forEach(() => {
+        console.log('[WAVETEK] Instruction: <ENCRYPTED>')
       })
 
       console.log('[WAVETEK] Signing transaction...')
