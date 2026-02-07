@@ -111,7 +111,7 @@ export interface UseWaveSendReturn {
 }
 
 export function useWaveSend(): UseWaveSendReturn {
-  const { publicKey, signMessage, signTransaction, connected } = useWallet()
+  const { publicKey, signMessage, signTransaction, signAllTransactions, connected } = useWallet()
   const { connection } = useConnection()
 
   const [isInitialized, setIsInitialized] = useState(false)
@@ -138,22 +138,17 @@ export function useWaveSend(): UseWaveSendReturn {
   }, [devnetConnection])
 
   // Create wallet adapter object for SDK
+  // CRITICAL: Use the REAL signAllTransactions from wallet adapter
+  // This enables SINGLE wallet popup for all transactions
   const walletAdapter = useMemo(() => {
-    if (!publicKey || !signTransaction || !signMessage) return null
+    if (!publicKey || !signTransaction || !signMessage || !signAllTransactions) return null
     return {
       publicKey,
       signTransaction,
-      signAllTransactions: async (txs: any[]) => {
-        // Sign each transaction individually
-        const signed = []
-        for (const tx of txs) {
-          signed.push(await signTransaction(tx))
-        }
-        return signed
-      },
+      signAllTransactions, // Use the REAL signAllTransactions - ONE popup for all TXs!
       signMessage,
     }
-  }, [publicKey, signTransaction, signMessage])
+  }, [publicKey, signTransaction, signAllTransactions, signMessage])
 
   // Auto-initialize from cache and check registration when wallet connects
   useEffect(() => {
