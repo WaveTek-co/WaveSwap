@@ -1142,27 +1142,30 @@ export class PERPrivacyClient {
 
       const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
-      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
+      // FIX: X-Wing CT is derived from OUTPUT_ESCROW, not deposit_record!
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
 
-      // data: disc(1) + nonce(32) + shared_secret(32) = 65 bytes
+      // data: disc(1) + stealth_pubkey(32) + shared_secret(32) = 65 bytes
+      // FIX: Use stealth_pubkey (not nonce) in instruction data
       const data = Buffer.alloc(65);
       let offset = 0;
       data[offset++] = StealthDiscriminators.CLAIM_ESCROW_V4;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
+      Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
       Buffer.from(sharedSecret).copy(data, offset);
 
       const tx = new Transaction()
         .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }))
         .add(new TransactionInstruction({
+          // CRITICAL: output_escrow and xwing_ct MUST be contiguous (indices 1-2)
+          // so they can be undelegated in a SINGLE call to commit_and_undelegate_accounts
           keys: [
-            { pubkey: wallet.publicKey, isSigner: true, isWritable: false },  // claimer
-            { pubkey: escrowPda, isSigner: false, isWritable: true },         // claim_escrow
-            { pubkey: destination, isSigner: false, isWritable: false },      // destination (READ ONLY on PER)
-            { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // master_authority
-            { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // xwing_ciphertext
-            { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },     // magic_context
-            { pubkey: MAGIC_PROGRAM, isSigner: false, isWritable: false },    // magic_program
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: false },  // 0: claimer
+            { pubkey: escrowPda, isSigner: false, isWritable: true },         // 1: output_escrow
+            { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // 2: xwing_ct (MUST BE CONTIGUOUS!)
+            { pubkey: destination, isSigner: false, isWritable: false },      // 3: destination
+            { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // 4: master_authority
+            { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },     // 5: magic_context
+            { pubkey: MAGIC_PROGRAM, isSigner: false, isWritable: false },    // 6: magic_program
           ],
           programId: PROGRAM_IDS.STEALTH,
           data,
