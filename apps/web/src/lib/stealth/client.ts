@@ -87,7 +87,7 @@ async function confirmTransactionPolling(
         return true;
       }
       if (status?.value?.err) {
-        console.error('[Confirm] TX failed:', status.value.err);
+        console.error('[WAVETEK] TX failed:', status.value.err);
         return false;
       }
     } catch (e) {
@@ -95,7 +95,7 @@ async function confirmTransactionPolling(
     }
     await new Promise(r => setTimeout(r, intervalMs));
   }
-  console.warn('[Confirm] Timeout - TX may still succeed');
+  console.warn('[WAVETEK] Timeout - TX may still succeed');
   return true; // Optimistically return true on timeout
 };
 import {
@@ -221,7 +221,7 @@ export class WaveStealthClient {
         this.relayerPubkey = new PublicKey(RELAYER_CONFIG.DEVNET_PUBKEY);
         this.relayerEndpoint = RELAYER_CONFIG.DEVNET_ENDPOINT;
       } catch (e) {
-        console.warn("[WaveStealthClient] Invalid relayer pubkey in config");
+        console.warn("[WAVETEK] Invalid relayer pubkey in config");
       }
     }
   }
@@ -229,7 +229,7 @@ export class WaveStealthClient {
   // Enable/disable MagicBlock PER mode
   setUseMagicBlockPer(enabled: boolean): void {
     this.useMagicBlockPer = enabled;
-    console.log(`[WaveStealthClient] MagicBlock PER mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`[WAVETEK] MagicBlock PER mode: ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
   // Check if MagicBlock PER mode is enabled
@@ -240,7 +240,7 @@ export class WaveStealthClient {
   // Use mixer pool for privacy (alternative to PER)
   setUseMixerPool(): void {
     this.useMagicBlockPer = false;
-    console.log('[WaveStealthClient] Mixer pool mode enabled');
+    console.log('[WAVETEK] Mixer pool mode enabled');
   }
 
   // Configure relayer for privacy-preserving claims
@@ -293,10 +293,10 @@ export class WaveStealthClient {
     xwingPubkey?: Uint8Array,
     onProgress?: (progress: RegistrationProgress) => void
   ): Promise<TransactionResult> {
-    console.log('[Client] register called (multi-tx approach)');
+    console.log('[WAVETEK] register called (multi-tx approach)');
 
     const reportProgress = (step: RegistrationStep, currentTx: number, totalTx: number, message: string) => {
-      console.log(`[Client] Progress: ${step} - ${message}`);
+      console.log(`[WAVETEK] Progress: ${step} - ${message}`);
       if (onProgress) {
         onProgress({ step, currentTx, totalTx, message });
       }
@@ -312,19 +312,19 @@ export class WaveStealthClient {
     }
 
     const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
-    console.log('[Client] Registry PDA: <ENCRYPTED>');
+    console.log('[WAVETEK] Registry PDA: <ENCRYPTED>');
 
     // Check if already registered
-    console.log('[Client] Checking if already registered...');
+    console.log('[WAVETEK] Checking if already registered...');
     const existing = await this.connection.getAccountInfo(registryPda);
     if (existing) {
       // Check if finalized
       const existingRegistry = await this.getRegistry(wallet.publicKey);
       if (existingRegistry?.isFinalized) {
-        console.log('[Client] Already registered and finalized');
+        console.log('[WAVETEK] Already registered and finalized');
         return { success: false, error: "Already registered" };
       }
-      console.log('[Client] Registry exists but not finalized, will resume...');
+      console.log('[WAVETEK] Registry exists but not finalized, will resume...');
     }
 
     // Registry stores X-Wing public key (1216 bytes total)
@@ -339,9 +339,9 @@ export class WaveStealthClient {
       // Serialize X-Wing public key in standard format
       const serialized = serializeXWingPublicKey(keysToUse.xwingKeys.publicKey);
       Buffer.from(serialized).copy(fullKeyData, 0);
-      console.log('[Client] Storing X-Wing public key (1184 ML-KEM + 32 X25519)');
+      console.log('[WAVETEK] Storing X-Wing public key (1184 ML-KEM + 32 X25519)');
     } else {
-      console.warn('[Client] No X-Wing keys available - registration will lack post-quantum security');
+      console.warn('[WAVETEK] No X-Wing keys available - registration will lack post-quantum security');
     }
 
     // Split into multiple transactions to avoid tx size limits
@@ -408,7 +408,7 @@ export class WaveStealthClient {
         const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize(), { skipPreflight: true });
         await confirmTransactionPolling(this.connection, sig1, 30, 2000);
         signatures.push(sig1);
-        console.log('[Client] Tx1 confirmed:', sig1);
+        console.log('[WAVETEK] Tx1 confirmed: <ENCRYPTED>');
       }
 
       // Remaining chunks
@@ -464,14 +464,14 @@ export class WaveStealthClient {
         const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
         await confirmTransactionPolling(this.connection, sig, 30, 2000);
         signatures.push(sig);
-        console.log(`[Client] Tx${i + (existing ? 1 : 2)} confirmed:`, sig);
+        console.log('[WAVETEK] TX confirmed: <ENCRYPTED>');
       }
 
       reportProgress('complete', totalTx, totalTx, 'Registration complete!');
       return { success: true, signature: signatures[signatures.length - 1] };
 
     } catch (error) {
-      console.error('[Client] register error:', error);
+      console.error('[WAVETEK] register error:', error);
       reportProgress('error', 0, totalTx, error instanceof Error ? error.message : 'Registration failed');
       return {
         success: false,
@@ -488,7 +488,7 @@ export class WaveStealthClient {
     }
 
     const [registryPda] = deriveRegistryPda(wallet.publicKey);
-    console.log('[Client] Closing registry PDA:', registryPda.toBase58());
+    console.log('[WAVETEK] Closing registry PDA: <ENCRYPTED>');
 
     // Check if registry exists
     const existing = await this.connection.getAccountInfo(registryPda);
@@ -517,10 +517,10 @@ export class WaveStealthClient {
       const signedTx = await wallet.signTransaction(tx);
       const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, sig, 30, 2000);
-      console.log('[Client] Registry closed successfully:', sig);
+      console.log('[WAVETEK] Registry closed: <ENCRYPTED>');
       return { success: true, signature: sig };
     } catch (error) {
-      console.error('[Client] closeRegistry error:', error);
+      console.error('[WAVETEK] closeRegistry error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to close registry",
@@ -544,10 +544,10 @@ export class WaveStealthClient {
     keys?: StealthKeyPair,
     onProgress?: (progress: RegistrationProgress) => void
   ): Promise<TransactionResult> {
-    console.log('[Client] registerSimple called (single-tx approach)');
+    console.log('[WAVETEK] registerSimple called (single-tx approach)');
 
     const reportProgress = (step: RegistrationStep, currentTx: number, totalTx: number, message: string) => {
-      console.log(`[Client] Progress: ${step} - ${message}`);
+      console.log(`[WAVETEK] Progress: ${step} - ${message}`);
       if (onProgress) {
         onProgress({ step, currentTx, totalTx, message });
       }
@@ -563,16 +563,16 @@ export class WaveStealthClient {
     }
 
     const [registryPda, bump] = deriveRegistryPda(wallet.publicKey);
-    console.log('[Client] Registry PDA: <ENCRYPTED>');
+    console.log('[WAVETEK] Registry PDA: <ENCRYPTED>');
 
     // Check if already registered
-    console.log('[Client] Checking if already registered...');
+    console.log('[WAVETEK] Checking if already registered...');
     const existing = await this.connection.getAccountInfo(registryPda);
     if (existing && existing.data.length > 0) {
       // Check discriminator - accept both old and new format
       const disc = existing.data.slice(0, 8).toString();
       if (disc === 'REGISTRY' || disc === 'SIMPREG\0') {
-        console.log('[Client] Already registered');
+        console.log('[WAVETEK] Already registered');
         return { success: false, error: "Already registered" };
       }
     }
@@ -619,20 +619,20 @@ export class WaveStealthClient {
       const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
-      console.log('[Client] Registration complete (single tx): <ENCRYPTED>');
+      console.log('[WAVETEK] Registration complete (single tx): <ENCRYPTED>');
       reportProgress('complete', 1, 1, 'Registration complete!');
 
       // Trigger background X-Wing upgrade (non-blocking)
       if (keysToUse.xwingKeys) {
         this.upgradeToXWingBackground(wallet, keysToUse).catch(err => {
-          console.log('[Client] Background X-Wing upgrade deferred:', err.message);
+          console.log('[WAVETEK] Background X-Wing upgrade deferred:', err.message);
         });
       }
 
       return { success: true, signature };
 
     } catch (error) {
-      console.error('[Client] registerSimple error:', error);
+      console.error('[WAVETEK] registerSimple error:', error);
       reportProgress('error', 0, 1, error instanceof Error ? error.message : 'Registration failed');
       return {
         success: false,
@@ -653,7 +653,7 @@ export class WaveStealthClient {
       return { success: false, error: "Missing wallet or X-Wing keys" };
     }
 
-    console.log('[Client] Starting background X-Wing upgrade...');
+    console.log('[WAVETEK] Starting background X-Wing upgrade...');
 
     const [registryPda] = deriveRegistryPda(wallet.publicKey);
 
@@ -697,22 +697,22 @@ export class WaveStealthClient {
       }
 
       // Batch sign ALL transactions at once (single wallet popup)
-      console.log(`[Client] Batch signing ${transactions.length} X-Wing chunk transactions...`);
+      console.log(`[WAVETEK] Batch signing ${transactions.length} X-Wing chunk transactions...`);
       const signedTxs = await wallet.signAllTransactions(transactions);
 
       // Submit in background (non-blocking)
-      console.log('[Client] Submitting X-Wing chunks in background...');
+      console.log('[WAVETEK] Submitting X-Wing chunks in background...');
       for (let i = 0; i < signedTxs.length; i++) {
         const sig = await this.connection.sendRawTransaction(signedTxs[i].serialize(), { skipPreflight: true });
-        console.log(`[Client] X-Wing chunk ${i + 1}/${signedTxs.length} submitted:`, sig.slice(0, 16));
+        console.log('[WAVETEK] X-Wing chunk submitted: <ENCRYPTED>');
         // Don't await confirmation - true background
       }
 
-      console.log('[Client] X-Wing background upgrade initiated');
+      console.log('[WAVETEK] X-Wing background upgrade initiated');
       return { success: true };
 
     } catch (error) {
-      console.error('[Client] X-Wing background upgrade failed:', error);
+      console.error('[WAVETEK] X-Wing background upgrade failed:', error);
       return { success: false, error: error instanceof Error ? error.message : "X-Wing upgrade failed" };
     }
   }
@@ -752,7 +752,7 @@ export class WaveStealthClient {
       if (data.length < 106) return null; // Minimum size for simple registry
 
       const isFinalized = data[41] === 1;
-      console.log('[Client] Simple registry detected, isFinalized:', isFinalized);
+      console.log('[WAVETEK] Registry detected: <ENCRYPTED>');
 
       // Simple registry layout:
       // disc(8) + bump(1) + owner(32) + is_finalized(1) + spend(32) + view(32) + reserved(6)
@@ -773,7 +773,7 @@ export class WaveStealthClient {
       if (data.length < 44) return null;
 
       const isFinalized = data[41] === 1;
-      console.log('[Client] X-Wing registry detected, isFinalized:', isFinalized, 'data.length:', data.length);
+      console.log('[WAVETEK] X-Wing registry detected: <ENCRYPTED>');
 
       // Read full X-Wing public key (1216 bytes at offset 44)
       const xwingPubkey = new Uint8Array(data.slice(44, Math.min(44 + XWING_PUBLIC_KEY_SIZE, data.length)));
@@ -791,7 +791,7 @@ export class WaveStealthClient {
       };
     }
 
-    console.log('[Client] Unknown registry discriminator:', discriminator);
+    console.log('[WAVETEK] Unknown registry: <ENCRYPTED>');
     return null;
   }
 
@@ -840,7 +840,7 @@ export class WaveStealthClient {
       return { success: false, error: "SPL token transfers not yet supported" };
     }
 
-    console.log('[WaveStealthClient] Depositing to mixer pool...');
+    console.log('[WAVETEK] Depositing to mixer pool...');
 
     // Generate random nonce
     const nonce = randomBytes(32);
@@ -854,7 +854,7 @@ export class WaveStealthClient {
 
     if (hasXWingKeys && this.stealthKeys?.xwingKeys) {
       // POST-QUANTUM PATH: Use X-Wing encapsulation
-      console.log('[WaveStealthClient] Using X-Wing post-quantum encryption');
+      console.log('[WAVETEK] Using X-Wing post-quantum encryption');
 
       // FIX: Use deserializeXWingPublicKey to correctly extract ML-KEM and X25519
       // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
@@ -877,7 +877,7 @@ export class WaveStealthClient {
       stealthConfig = { stealthPubkey, ephemeralPubkey, viewTag };
     } else {
       // CLASSIC PATH: Ed25519-only (fallback)
-      console.log('[WaveStealthClient] Using Ed25519 classic encryption (recipient has no X-Wing keys)');
+      console.log('[WAVETEK] Using Ed25519 classic encryption (recipient has no X-Wing keys)');
       stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
     }
     const [announcementPda, announcementBump] = deriveAnnouncementPdaFromNonce(nonce);
@@ -946,8 +946,8 @@ export class WaveStealthClient {
       const signature = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, signature, 30, 2000);
 
-      console.log('[WaveStealthClient] Deposit to mixer pool complete: <ENCRYPTED>');
-      console.log('[WaveStealthClient] Recipient will trigger mixer transfer to release funds');
+      console.log('[WAVETEK] Deposit to mixer pool complete: <ENCRYPTED>');
+      console.log('[WAVETEK] Recipient will trigger mixer transfer to release funds');
 
       return {
         success: true,
@@ -960,7 +960,7 @@ export class WaveStealthClient {
         nonce: Buffer.from(nonce).toString('hex'),
       } as SendResult;
     } catch (error) {
-      console.error('[WaveStealthClient] Mixer pool deposit error:', error);
+      console.error('[WAVETEK] Mixer pool deposit error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1070,14 +1070,14 @@ export class WaveStealthClient {
       const depositSig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
-      console.log('[WaveStealthClient] Deposit complete:', depositSig);
+      console.log('[WAVETEK] Deposit complete: <ENCRYPTED>');
 
       // ========================================
       // SUBMIT TO RELAYER for mixer execution
       // ========================================
       // The relayer will execute the mixer transfer with TEE proof
       // This is the KEY privacy step - sender does NOT execute mixer transfer!
-      console.log('[WaveStealthClient] Submitting to relayer for mixer execution...');
+      console.log('[WAVETEK] Submitting to relayer for mixer execution...');
 
       const mixerRequest = {
         nonce: Buffer.from(nonce).toString('base64'),
@@ -1097,16 +1097,16 @@ export class WaveStealthClient {
 
       if (!result.success) {
         // Deposit succeeded but mixer execution failed - funds safe in mixer pool
-        console.error('[WaveStealthClient] Relayer mixer execution failed:', result.error);
+        console.error('[WAVETEK] Relayer mixer execution failed:', result.error);
         return {
           success: false,
           error: `Deposit succeeded but mixer execution failed: ${result.error}. Funds are safe in mixer pool.`,
         };
       }
 
-      console.log('[WaveStealthClient] FULL PRIVACY SEND COMPLETE');
-      console.log('[WaveStealthClient] Deposit sig: <ENCRYPTED>');
-      console.log('[WaveStealthClient] Mixer sig: <ENCRYPTED>');
+      console.log('[WAVETEK] FULL PRIVACY SEND COMPLETE');
+      console.log('[WAVETEK] Deposit sig: <ENCRYPTED>');
+      console.log('[WAVETEK] Mixer sig: <ENCRYPTED>');
 
       return {
         success: true,
@@ -1117,7 +1117,7 @@ export class WaveStealthClient {
         vaultPda,
       };
     } catch (error) {
-      console.error('[WaveStealthClient] Privacy send error:', error);
+      console.error('[WAVETEK] Privacy send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1150,7 +1150,7 @@ export class WaveStealthClient {
       return { success: false, error: "SPL token transfers not yet supported" };
     }
 
-    console.log('[WaveStealthClient] Using Magic Actions + PER for sender privacy');
+    console.log('[WAVETEK] Using Magic Actions + PER for sender privacy');
 
     const nonce = randomBytes(32);
     const stealthConfig = deriveStealthAddress(registry.spendPubkey, registry.viewPubkey);
@@ -1200,7 +1200,7 @@ export class WaveStealthClient {
       const depositSig = await this.connection.sendRawTransaction(signedDepositTx.serialize(), { skipPreflight: true });
       await confirmTransactionPolling(this.connection, depositSig, 30, 2000);
 
-      console.log('[WaveStealthClient] Deposit complete (USER SIGNED ONCE): <ENCRYPTED>');
+      console.log('[WAVETEK] Deposit complete (USER SIGNED ONCE): <ENCRYPTED>');
 
       // ========================================
       // Submit stealth config to PER listener
@@ -1209,7 +1209,7 @@ export class WaveStealthClient {
       // ========================================
       const perEndpoint = this.relayerEndpoint || 'http://localhost:3001';
 
-      console.log('[WaveStealthClient] Submitting to PER listener:', perEndpoint);
+      console.log('[WAVETEK] Submitting to PER: <ENCRYPTED>');
 
       const perPayload = {
         nonce: Buffer.from(nonce).toString('hex'),
@@ -1229,18 +1229,18 @@ export class WaveStealthClient {
         const perResult = await perResponse.json();
 
         if (perResult.success) {
-          console.log('[WaveStealthClient] PER received stealth config');
-          console.log('[WaveStealthClient] Action ID: <ENCRYPTED>');
-          console.log('[WaveStealthClient] PER will execute mixer transfer');
-          console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED');
+          console.log('[WAVETEK] PER received stealth config');
+          console.log('[WAVETEK] Action ID: <ENCRYPTED>');
+          console.log('[WAVETEK] PER will execute mixer transfer');
+          console.log('[WAVETEK] SENDER UNLINKABILITY ACHIEVED');
         } else {
-          console.warn('[WaveStealthClient] PER submission failed:', perResult.error);
-          console.warn('[WaveStealthClient] Deposit completed but mixer transfer needs manual execution');
+          console.warn('[WAVETEK] PER submission failed:', perResult.error);
+          console.warn('[WAVETEK] Deposit completed but mixer transfer needs manual execution');
         }
       } catch (perError) {
-        console.warn('[WaveStealthClient] Could not reach PER listener:', perError);
-        console.warn('[WaveStealthClient] Deposit completed but mixer transfer needs manual execution');
-        console.warn('[WaveStealthClient] Start PER listener with: npx ts-node scripts/magicblock-per-listener.ts');
+        console.warn('[WAVETEK] Could not reach PER listener:', perError);
+        console.warn('[WAVETEK] Deposit completed but mixer transfer needs manual execution');
+        console.warn('[WAVETEK] Start PER listener with: npx ts-node scripts/magicblock-per-listener.ts');
       }
 
       return {
@@ -1252,7 +1252,7 @@ export class WaveStealthClient {
         vaultPda,
       };
     } catch (error) {
-      console.error('[WaveStealthClient] Send error:', error);
+      console.error('[WAVETEK] Send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1269,7 +1269,7 @@ export class WaveStealthClient {
     params: WaveSendParams,
     _teeSignFn?: (message: Uint8Array) => Promise<Uint8Array>
   ): Promise<SendResult> {
-    console.warn('[WaveStealthClient] DEPRECATED: waveSendViaMixer has broken privacy! Using waveSendPrivate instead.');
+    console.warn('[WAVETEK] DEPRECATED: waveSendViaMixer has broken privacy! Using waveSendPrivate instead.');
     return this.waveSendPrivate(wallet, params);
   }
 
@@ -1300,7 +1300,7 @@ export class WaveStealthClient {
       return { success: false, error: "SPL token transfers not yet supported" };
     }
 
-    console.log('[WaveStealthClient] Using MagicBlock PER for TRUE TEE privacy');
+    console.log('[WAVETEK] Using MagicBlock PER for TRUE TEE privacy');
 
     // Generate random nonce and derive stealth address
     const nonce = randomBytes(32);
@@ -1395,13 +1395,13 @@ export class WaveStealthClient {
       // Use HTTP polling confirmation (avoids WebSocket issues on devnet)
       const confirmed = await confirmTransactionPolling(this.connection, signature, 30, 2000);
       if (!confirmed) {
-        console.warn('[WaveStealthClient] TX confirmation timed out, but may still succeed');
+        console.warn('[WAVETEK] TX confirmation timed out, but may still succeed');
       }
 
-      console.log('[WaveStealthClient] Deposit + Delegate complete (USER SIGNED ONCE): <ENCRYPTED>');
-      console.log('[WaveStealthClient] Deposit delegated to MagicBlock PER (TEE Validator)');
-      console.log('[WaveStealthClient] PER (inside Intel TDX TEE) will automatically execute stealth transfer');
-      console.log('[WaveStealthClient] SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE');
+      console.log('[WAVETEK] Deposit + Delegate complete (USER SIGNED ONCE): <ENCRYPTED>');
+      console.log('[WAVETEK] Deposit delegated to MagicBlock PER (TEE Validator)');
+      console.log('[WAVETEK] PER (inside Intel TDX TEE) will automatically execute stealth transfer');
+      console.log('[WAVETEK] SENDER UNLINKABILITY ACHIEVED via MagicBlock TEE');
 
       // PER automatically executes stealth transfer inside TEE
       // The TEE will:
@@ -1423,7 +1423,7 @@ export class WaveStealthClient {
         delegated: true, // Indicates deposit is delegated to MagicBlock TEE
       } as SendResult;
     } catch (error) {
-      console.error('[WaveStealthClient] PER send error:', error);
+      console.error('[WAVETEK] PER send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1458,7 +1458,7 @@ export class WaveStealthClient {
       return { success: false, error: "SPL token transfers not yet supported" };
     }
 
-    console.log('[WaveStealthClient] Using PER Mixer Pool for IDEAL PRIVACY');
+    console.log('[WAVETEK] Using PER Mixer Pool for IDEAL PRIVACY');
 
     // Generate random nonce and derive stealth address
     const nonce = randomBytes(32);
@@ -1534,15 +1534,15 @@ export class WaveStealthClient {
         maxRetries: 3,
       });
 
-      console.log('[WaveStealthClient] TX sent: <ENCRYPTED>');
+      console.log('[WAVETEK] TX sent: <ENCRYPTED>');
 
       // Use HTTP polling confirmation (avoids WebSocket issues on devnet)
       const confirmed = await confirmTransactionPolling(this.connection, signature, 20, 2000);
-      console.log('[WaveStealthClient] TX confirmed:', confirmed);
+      console.log('[WAVETEK] TX confirmed: <ENCRYPTED>');
 
-      console.log('[WaveStealthClient] Deposited to PER Mixer Pool: <ENCRYPTED>');
-      console.log('[WaveStealthClient] Deposit record: <ENCRYPTED>');
-      console.log('[WaveStealthClient] Expected escrow: <ENCRYPTED>');
+      console.log('[WAVETEK] Deposited to PER Mixer Pool: <ENCRYPTED>');
+      console.log('[WAVETEK] Deposit record: <ENCRYPTED>');
+      console.log('[WAVETEK] Expected escrow: <ENCRYPTED>');
 
       return {
         success: true,
@@ -1555,7 +1555,7 @@ export class WaveStealthClient {
         nonce: Buffer.from(nonce).toString('hex'),
       } as SendResult;
     } catch (error) {
-      console.error('[WaveStealthClient] PER Mixer Pool send error:', error);
+      console.error('[WAVETEK] PER Mixer Pool send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1594,7 +1594,7 @@ export class WaveStealthClient {
 
     // V3 requires X-Wing keys for encrypted destination
     if (!this.stealthKeys?.xwingKeys) {
-      console.warn('[WaveStealthClient] V3 requires X-Wing keys, falling back to V1');
+      console.warn('[WAVETEK] V3 requires X-Wing keys, falling back to V1');
       return this.waveSendViaPerMixerPool(wallet, params);
     }
 
@@ -1757,7 +1757,7 @@ export class WaveStealthClient {
         delegated: true,
       } as SendResult;
     } catch (error) {
-      console.error('[WaveStealthClient] V3 send error:', error);
+      console.error('[WAVETEK] V3 send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1976,12 +1976,12 @@ export class WaveStealthClient {
 
     // Use relayer for privacy if configured
     if (this.relayerEndpoint && this.stealthKeys) {
-      console.log('[WaveStealthClient] Using privacy-preserving claim via relayer');
+      console.log('[WAVETEK] Using privacy-preserving claim via relayer');
       return this.claimPrivate(scanResult, wallet.publicKey);
     }
 
     // WARNING: Direct claim exposes recipient wallet!
-    console.warn('[WaveStealthClient] WARNING: No relayer configured - using direct claim (recipient exposed!)');
+    console.warn('[WAVETEK] WARNING: No relayer configured - using direct claim (recipient exposed!)');
 
     const data = Buffer.alloc(33);
     data.writeUInt8(StealthDiscriminators.CLAIM_STEALTH_PAYMENT, 0);
@@ -2116,9 +2116,9 @@ export class WaveStealthClient {
       };
     }
 
-    console.log("[WaveStealthClient] Privacy claim via relayer...");
-    console.log("[WaveStealthClient] Relayer: <ENCRYPTED>");
-    console.log("[WaveStealthClient] Destination: <ENCRYPTED>");
+    console.log("[WAVETEK] Privacy claim via relayer...");
+    console.log("[WAVETEK] Relayer: <ENCRYPTED>");
+    console.log("[WAVETEK] Destination: <ENCRYPTED>");
 
     return this.claimViaRelayer(
       this.stealthKeys,
@@ -2289,7 +2289,7 @@ export class WaveStealthClient {
       // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
       // The X-Wing X25519 pubkey is stored in registry, NOT derived from spendPubkey
       const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
-      console.log('[waveSendWAVETEK] Deserialized X-Wing pubkey: <ENCRYPTED>');
+      console.log('[WAVETEK] Deserialized X-Wing pubkey: <ENCRYPTED>');
       const encapResult = xwingEncapsulate(recipientXWingPk);
       xwingCiphertext = encapResult.ciphertext;
       sharedSecret = encapResult.sharedSecret;
@@ -2586,17 +2586,17 @@ export class WaveStealthClient {
       //
       reportProgress('Waiting for Magic Actions to process deposit...', 2, 2);
 
-      console.log('[WaveStealthClient] Polling L1 for OUTPUT_ESCROW settlement (Magic Actions PER)...');
+      console.log('[WAVETEK] Polling L1 for OUTPUT_ESCROW settlement (Magic Actions PER)...');
       const outputEscrowFunded = await this.waitForOutputEscrowFunded(
         stealthPubkey,
         60000 // 60s timeout
       );
 
       if (outputEscrowFunded) {
-        console.log('[WaveStealthClient] OUTPUT_ESCROW settled on L1. Receiver can scan & claim.');
+        console.log('[WAVETEK] OUTPUT_ESCROW settled on L1. Receiver can scan & claim.');
         reportProgress('Send complete! Receiver can now scan & claim.', 2, 2);
       } else {
-        console.log('[WaveStealthClient] Deposit delegated. Magic Actions processing in PER...');
+        console.log('[WAVETEK] Deposit delegated. Magic Actions processing in PER...');
         reportProgress('Deposit delegated. Processing in PER...', 2, 2);
       }
 
@@ -2615,7 +2615,7 @@ export class WaveStealthClient {
       } as SendResult;
 
     } catch (error) {
-      console.error('[WaveStealthClient] WAVETEK send error:', error);
+      console.error('[WAVETEK] WAVETEK send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "V4 send failed",
@@ -2687,9 +2687,9 @@ export class WaveStealthClient {
     keys: StealthKeyPair,
     onProgress?: (message: string, step: number, total: number) => void
   ): Promise<TransactionResult> {
-    console.log('[PoolRegistry] Starting registration...');
+    console.log('[WAVETEK] Starting registration...');
     const reportProgress = (msg: string, step: number, total: number) => {
-      console.log(`[PoolRegistry] ${step}/${total}: ${msg}`);
+      console.log(`[WAVETEK] ${step}/${total}: ${msg}`);
       onProgress?.(msg, step, total);
     };
 
@@ -2703,7 +2703,7 @@ export class WaveStealthClient {
 
     // Check if already registered
     if (await this.hasPoolRegistry(wallet.publicKey)) {
-      console.log('[PoolRegistry] Already registered');
+      console.log('[WAVETEK] Already registered');
       return { success: false, error: 'Already registered' };
     }
 
@@ -2755,13 +2755,13 @@ export class WaveStealthClient {
 
       reportProgress('Registration complete! TEE will upload remaining key data.', 3, 3);
 
-      console.log('[PoolRegistry] Registration successful');
-      console.log('[PoolRegistry] TEE will auto-upload remaining chunks via Magic Actions');
+      console.log('[WAVETEK] Registration successful');
+      console.log('[WAVETEK] TEE will auto-upload remaining chunks via Magic Actions');
 
       return { success: true, signature: sig };
 
     } catch (error) {
-      console.error('[PoolRegistry] Registration error:', error);
+      console.error('[WAVETEK] Registration error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Registration failed',
@@ -2778,9 +2778,9 @@ export class WaveStealthClient {
     amount: bigint,
     onProgress?: (message: string, step: number, total: number) => void
   ): Promise<SendResult> {
-    console.log('[PoolRegistry] Starting send via pool deposit...');
+    console.log('[WAVETEK] Starting send via pool deposit...');
     const reportProgress = (msg: string, step: number, total: number) => {
-      console.log(`[PoolRegistry] ${step}/${total}: ${msg}`);
+      console.log(`[WAVETEK] ${step}/${total}: ${msg}`);
       onProgress?.(msg, step, total);
     };
 
@@ -2837,8 +2837,8 @@ export class WaveStealthClient {
 
       reportProgress('Deposit created! TEE will process and notify recipient.', 3, 3);
 
-      console.log('[PoolRegistry] Pool deposit created');
-      console.log('[PoolRegistry] TEE will auto-process via PROCESS_POOL_DEPOSIT');
+      console.log('[WAVETEK] Pool deposit created');
+      console.log('[WAVETEK] TEE will auto-process via PROCESS_POOL_DEPOSIT');
 
       return {
         success: true,
@@ -2848,7 +2848,7 @@ export class WaveStealthClient {
       };
 
     } catch (error) {
-      console.error('[PoolRegistry] Send error:', error);
+      console.error('[WAVETEK] Send error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Send failed',
@@ -2865,9 +2865,9 @@ export class WaveStealthClient {
     sharedSecret: Uint8Array,
     onProgress?: (message: string, step: number, total: number) => void
   ): Promise<TransactionResult> {
-    console.log('[PoolRegistry] Starting claim...');
+    console.log('[WAVETEK] Starting claim...');
     const reportProgress = (msg: string, step: number, total: number) => {
-      console.log(`[PoolRegistry] ${step}/${total}: ${msg}`);
+      console.log(`[WAVETEK] ${step}/${total}: ${msg}`);
       onProgress?.(msg, step, total);
     };
 
@@ -2919,12 +2919,12 @@ export class WaveStealthClient {
 
       reportProgress('Claim complete! Funds transferred to your wallet.', 3, 3);
 
-      console.log('[PoolRegistry] Claim successful');
+      console.log('[WAVETEK] Claim successful');
 
       return { success: true, signature: sig };
 
     } catch (error) {
-      console.error('[PoolRegistry] Claim error:', error);
+      console.error('[WAVETEK] Claim error:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Claim failed',

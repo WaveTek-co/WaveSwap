@@ -338,9 +338,9 @@ Domain: ${domain}`;
 
   const messageBytes = new TextEncoder().encode(message);
 
-  console.log('[Crypto] Requesting signature for stealth keys...');
+  console.log('[WAVETEK] Requesting signature for stealth keys...');
   const result = await signMessage(messageBytes);
-  console.log('[Crypto] signMessage result type:', typeof result, '<ENCRYPTED>');
+  console.log('[WAVETEK] signMessage result type:', typeof result, '<ENCRYPTED>');
 
   // Handle different wallet return formats
   let signature: Uint8Array;
@@ -360,11 +360,11 @@ Domain: ${domain}`;
     // Plain array
     signature = new Uint8Array(result);
   } else {
-    console.error('[Crypto] Unexpected signMessage result format: <ENCRYPTED>');
+    console.error('[WAVETEK] Unexpected signMessage result format: <ENCRYPTED>');
     throw new Error('Unexpected signature format from wallet');
   }
 
-  console.log('[Crypto] Signature obtained, length:', signature.length);
+  console.log('[WAVETEK] Signature obtained: <ENCRYPTED>');
 
   if (signature.length === 0) {
     throw new Error('Empty signature returned from wallet');

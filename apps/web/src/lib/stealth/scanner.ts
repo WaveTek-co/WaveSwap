@@ -134,30 +134,30 @@ export function isEscrowForUs(
 ): { isOurs: boolean; sharedSecret?: Uint8Array } {
   // Must have X-Wing keys
   if (!keys.xwingKeys) {
-    console.log('[isEscrowForUs] No X-Wing keys available');
+    console.log('[WAVETEK] No X-Wing keys available');
     return { isOurs: false };
   }
 
   // Validate ciphertext length
   if (xwingCiphertext.length !== XWING_CIPHERTEXT_LENGTH) {
-    console.warn(`[isEscrowForUs] Invalid ciphertext length: ${xwingCiphertext.length}, expected ${XWING_CIPHERTEXT_LENGTH}`);
+    console.warn('[WAVETEK] Invalid ciphertext length: <ENCRYPTED>');
     return { isOurs: false };
   }
 
   try {
     // Step 1: X-Wing decapsulation
     const sharedSecret = xwingDecapsulate(keys.xwingKeys.secretKey, xwingCiphertext);
-    console.log('[isEscrowForUs] X-Wing decapsulation succeeded, verifying stealth pubkey...');
+    console.log('[WAVETEK] X-Wing decapsulation succeeded, verifying stealth pubkey...');
 
     // Step 2: Verify stealth pubkey derivation
     if (!verifyStealthPubkey(sharedSecret, stealthPubkey)) {
       // Decapsulation succeeded but stealth pubkey doesn't match
-      console.log('[isEscrowForUs] Stealth pubkey mismatch - escrow not ours');
+      console.log('[WAVETEK] Stealth pubkey mismatch - escrow not ours');
       return { isOurs: false };
     }
 
     // Step 3: SUCCESS - This escrow is ours!
-    console.log('[isEscrowForUs] MATCH - this escrow is OURS');
+    console.log('[WAVETEK] MATCH - this escrow is OURS');
     return { isOurs: true, sharedSecret };
   } catch {
     // Decapsulation failed - escrow not ours (normal during scanning)
@@ -238,7 +238,7 @@ export async function scanForEscrowsV4(
 ): Promise<DetectedEscrowV4[]> {
   const escrows: DetectedEscrowV4[] = [];
 
-  console.log('[WAVETEK Scanner] Starting scan, hasXWingKeys:', !!keys.xwingKeys);
+  console.log('[WAVETEK] Starting scan, hasXWingKeys:', !!keys.xwingKeys);
 
   try {
     // Create MagicBlock PER connection for delegated accounts
@@ -253,7 +253,7 @@ export async function scanForEscrowsV4(
       perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }).catch(() => []),
     ]);
 
-    console.log('[WAVETEK Scanner] Found accounts - L1 stealth:', l1StealthAccounts.length, 'L1 delegated:', l1DelegatedAccounts.length, 'PER:', perAccounts.length);
+    console.log('[WAVETEK] Found accounts: <ENCRYPTED>');
 
     // Deduplicate by pubkey - PREFER PER over L1-delegation (PER has latest state with actual funds)
     const seenPubkeys = new Set<string>();
@@ -317,10 +317,10 @@ export async function scanForEscrowsV4(
 
       if (keys.xwingKeys) {
         const xwingCiphertext = await fetchXWingCiphertextFromPER(connection, perConnection, pubkey);
-        console.log('[WAVETEK Scanner] Escrow <ENCRYPTED> from', source, '- XWing CT:', xwingCiphertext ? 'FOUND' : 'NOT FOUND');
+        console.log('[WAVETEK] Escrow <ENCRYPTED> from', source, '- XWing CT:', xwingCiphertext ? 'FOUND' : 'NOT FOUND');
         if (xwingCiphertext) {
           const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
-          console.log('[WAVETEK Scanner] isEscrowForUs result:', result.isOurs);
+          console.log('[WAVETEK] Escrow check result: <ENCRYPTED>');
           if (result.isOurs) {
             isOurs = true;
             sharedSecret = result.sharedSecret;
@@ -328,7 +328,7 @@ export async function scanForEscrowsV4(
           }
         }
       } else {
-        console.log('[WAVETEK Scanner] NO X-WING KEYS - cannot check escrow <ENCRYPTED>');
+        console.log('[WAVETEK] NO X-WING KEYS - cannot check escrow <ENCRYPTED>');
       }
 
       escrows.push({
@@ -344,14 +344,14 @@ export async function scanForEscrowsV4(
     }
 
     const oursEscrows = escrows.filter(e => e.isOurs);
-    console.log('[WAVETEK Scanner] SUMMARY: Total escrows:', escrows.length, 'Ours:', oursEscrows.length);
+    console.log('[WAVETEK] Scan summary: <ENCRYPTED>');
     if (oursEscrows.length > 0) {
-      console.log('[WAVETEK Scanner] OUR ESCROWS: <ENCRYPTED>', oursEscrows.length, 'found');
+      console.log('[WAVETEK] OUR ESCROWS: <ENCRYPTED>', oursEscrows.length, 'found');
     }
 
     return escrows;
   } catch (err) {
-    console.error("[WAVETEK Scanner] Scan error:", err);
+    console.error("[WAVETEK] Scan error:", err);
     return [];
   }
 }
