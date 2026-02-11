@@ -94,7 +94,7 @@ async function confirmTransactionPolling(
 }
 
 // MagicBlock PER Constants
-export const MAGICBLOCK_RPC_DEVNET = "https://devnet.magicblock.app";
+export const MAGICBLOCK_RPC_DEVNET = "https://devnet-as.magicblock.app";
 export const MAGICBLOCK_TEE_PUBKEY = new PublicKey("maborAhvYdgqzzwQAB64a3oNvpTtEAYDTvSBT4supLH");
 
 // TEE Proof Constants
