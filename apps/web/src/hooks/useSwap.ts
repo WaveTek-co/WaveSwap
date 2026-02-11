@@ -78,7 +78,7 @@ export interface SwapActions {
 // Fetch confidential balances using the working Encifher Proxy API
 async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<string, string>> {
   try {
-    console.log('[Confidential Balance] Fetching via API for: <ENCRYPTED>')
+    console.log('[WAVETEK] fetching confidential balances <ENCRYPTED>')
 
     // Use GET request with userPublicKey as query parameter (the working format)
     // Add cache-busting timestamp to force fresh data
@@ -87,7 +87,7 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
     // Create a timeout controller to prevent hanging requests
     const controller = new AbortController()
     const timeoutId = setTimeout(() => {
-      console.log('[Confidential Balance] Request timeout, aborting...')
+      console.log('[WAVETEK] balance request timeout, aborting')
       controller.abort()
     }, 20000) // 20 second timeout - reduced from 60s for better UX
 
@@ -104,8 +104,7 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
 
       if (response.ok) {
       const result = await response.json()
-      console.log('[Confidential Balance] Successfully fetched balances: <ENCRYPTED>')
-      console.log('[Confidential Balance] Response structure: <ENCRYPTED>')
+      console.log('[WAVETEK] confidential balances fetched <ENCRYPTED>')
 
       // Convert the response to a Map of balances
       const confidentialBalances = new Map<string, string>()
@@ -130,35 +129,34 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
         })
       }
 
-      console.log('[Confidential Balance] Processed balances: <ENCRYPTED> count:', confidentialBalances.size)
+      console.log('[WAVETEK] processed balances <ENCRYPTED>')
 
       return confidentialBalances
       } else if (response.status === 401) {
         // Handle authentication required response
-        console.log('[Confidential Balance] Authentication required for confidential balances')
+        console.log('[WAVETEK] auth required for confidential balances')
         try {
           const authData = await response.json()
-          console.log('[Confidential Balance] Authentication details: <ENCRYPTED>')
           return new Map()
         } catch (jsonError) {
-          console.log('[Confidential Balance] Authentication required but could not parse response')
+          console.log('[WAVETEK] auth required, unparseable response')
           return new Map()
         }
       } else {
-        console.error('[Confidential Balance] Failed to fetch balances:', response.status, response.statusText)
+        console.error('[WAVETEK] balance fetch failed <ENCRYPTED>')
         return new Map()
       }
     } catch (fetchError) {
       clearTimeout(timeoutId)
       if (fetchError.name === 'AbortError') {
-        console.warn('[Confidential Balance] Request timed out after 60 seconds')
+        console.warn('[WAVETEK] balance request timed out')
         return new Map()
       }
-      console.error('[Confidential Balance] Network error:', fetchError)
+      console.error('[WAVETEK] balance network error <ENCRYPTED>')
       return new Map()
     }
   } catch (error) {
-    console.error('[Confidential Balance] Error fetching via Encifher Proxy API:', error)
+    console.error('[WAVETEK] balance fetch error <ENCRYPTED>')
     return new Map()
   }
 }
@@ -167,8 +165,7 @@ async function fetchConfidentialBalances(userPublicKey: string): Promise<Map<str
 async function updateConfidentialBalance(tokenAddress: string, amount: number, userPublicKey?: string) {
   if (!userPublicKey) return
 
-  console.log('[Confidential Balance] Balance tracking disabled - no POST endpoint available')
-  console.log('[Confidential Balance] Balance update would be:', { tokenAddress, amount, userPublicKey })
+  console.log('[WAVETEK] balance tracking disabled, no endpoint')
 
   // The /api/v1/confidential/balances endpoint only supports GET requests
   // Balance tracking should be handled by the frontend state only
@@ -179,8 +176,7 @@ async function updateConfidentialBalance(tokenAddress: string, amount: number, u
 async function subtractConfidentialBalance(tokenAddress: string, amount: number, userPublicKey?: string) {
   if (!userPublicKey) return
 
-  console.log('[Confidential Balance] Balance subtraction disabled - no POST endpoint available')
-  console.log('[Confidential Balance] Balance subtraction would be: <ENCRYPTED>')
+  console.log('[WAVETEK] balance subtraction disabled, no endpoint')
 
   // The /api/v1/confidential/balances endpoint only supports GET requests
   // Balance tracking should be handled by the frontend state only
@@ -188,10 +184,10 @@ async function subtractConfidentialBalance(tokenAddress: string, amount: number,
 }
 
 export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): SwapState & SwapActions {
-  console.log('[useSwap] Hook MOUNTED! privacyMode:', privacyMode, 'publicKey: <ENCRYPTED>')
+  console.log('[WAVETEK] hook mounted <ENCRYPTED>')
   const { connection } = useConnection()
   const { signTransaction, signAllTransactions } = useWallet()
-  console.log('[useSwap] After wallet hooks - connection:', !!connection, 'signTransaction:', !!signTransaction)
+  console.log('[WAVETEK] wallet hooks ready <ENCRYPTED>')
   const theme = useThemeConfig()
 
   const debugPrivacyMode = privacyMode // Use actual privacy mode without debug override
@@ -213,7 +209,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   // Sync swapMode with privacyMode prop changes
   useEffect(() => {
     const newSwapMode = privacyMode ? SwapMode.PRIVATE : SwapMode.NORMAL
-    console.log('useSwap: privacyMode prop changed, updating swapMode from', swapMode, 'to', newSwapMode)
+    console.log('[WAVETEK] privacy mode changed <ENCRYPTED>')
     setSwapMode(newSwapMode)
 
     // Clear existing quote when switching modes
@@ -293,7 +289,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           if (url.includes('authority.encrypt.trade')) {
             newUrl = url.replace('https://authority.encrypt.trade/api/v1',
               `${window.location.origin}/api/v1/encifher`)
-            console.log(`[Fetch Interceptor] Routing Encifher ${url} -> ${newUrl}`)
+            console.log('[WAVETEK] routing request <ENCRYPTED>')
           }
           // Intercept direct Jupiter API calls and route through our proxy
           else if (url.includes('lite-api.jup.ag') || url.includes('quote.jup.ag') || url.includes('quote-api.jup.ag')) {
@@ -323,7 +319,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             }
 
             if (newUrl !== url) {
-              console.log(`[Fetch Interceptor] Routing Jupiter ${url} -> ${newUrl}`)
+              console.log('[WAVETEK] routing request <ENCRYPTED>')
             }
           }
 
@@ -345,12 +341,12 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
             try {
               const response = await originalFetch(newUrl, modifiedInit)
-              console.log(`[Fetch Interceptor] Response OK: ${response.status} for ${newUrl}`)
+              console.log('[WAVETEK] proxy response ok <ENCRYPTED>')
               return response
             } catch (error) {
-              console.error(`[Fetch Interceptor] Error for ${newUrl}:`, error)
+              console.error('[WAVETEK] proxy request failed <ENCRYPTED>')
               // Fallback: try original URL (though this may fail due to CORS)
-              console.log(`[Fetch Interceptor] Fallback to original URL: ${url}`)
+              console.log('[WAVETEK] falling back to origin <ENCRYPTED>')
               return originalFetch(url, init)
             }
           }
@@ -410,9 +406,9 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           onProgress: setProgress
         })
 
-        console.log('Swap service initialized successfully with Jupiter API')
+        console.log('[WAVETEK] swap service initialized')
       } catch (error) {
-        console.error('Failed to initialize swap service:', error)
+        console.error('[WAVETEK] swap service init failed <ENCRYPTED>')
         setError('Failed to initialize swap service')
       }
     }
@@ -457,16 +453,16 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's tokens when wallet connects or privacy mode changes
   useEffect(() => {
-    console.log('[useSwap] Main wallet effect triggered - publicKey: <ENCRYPTED>, connection:', !!connection, 'privacyMode:', privacyMode)
+    console.log('[WAVETEK] wallet effect triggered <ENCRYPTED>')
     if (publicKey && connection) {
-      console.log('[useSwap] Wallet connected, calling loadUserTokens()...')
+      console.log('[WAVETEK] wallet connected, loading tokens')
       loadUserTokens()
     } else {
-      console.log('[useSwap] No wallet connection, loading default tokens...')
+      console.log('[WAVETEK] no wallet, loading defaults')
       // No wallet, just show defaults
       const loadDefaultTokens = async () => {
         const defaultTokens = await getAvailableTokens(privacyMode)
-        console.log('[useSwap] Loaded', defaultTokens.length, 'default tokens')
+        console.log('[WAVETEK] default tokens loaded <ENCRYPTED>')
         setAvailableTokens(defaultTokens)
       }
       loadDefaultTokens()
@@ -475,16 +471,16 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's wallet tokens
   const loadUserTokens = async () => {
-    console.log('[useSwap] loadUserTokens called - publicKey: <ENCRYPTED>, connection:', !!connection)
+    console.log('[WAVETEK] loading user tokens <ENCRYPTED>')
     if (!publicKey || !connection) {
-      console.log('[useSwap] loadUserTokens returning early - no publicKey or connection')
+      console.log('[WAVETEK] no wallet, skipping token load')
       return
     }
 
     try {
-      console.log('[useSwap] Starting to load user tokens...')
+      console.log('[WAVETEK] fetching user tokens')
       const userTokens = await getUserTokens(connection, publicKey)
-      console.log('[useSwap] getUserTokens returned', userTokens.length, 'tokens')
+      console.log('[WAVETEK] user tokens fetched <ENCRYPTED>')
 
       // Merge with available tokens based on privacy mode
       const tokenMap = new Map<string, Token>()
@@ -496,7 +492,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
         // Then dynamically create confidential tokens for any token with a balance
         const confidentialBalances = await fetchConfidentialBalances(publicKey.toString())
-        console.log('[useSwap] Creating dynamic confidential tokens from balances:', confidentialBalances)
+        console.log('[WAVETEK] creating confidential tokens <ENCRYPTED>')
 
         for (const [tokenAddress, balance] of confidentialBalances.entries()) {
           // Only show tokens with actual positive balances (numeric values)
@@ -508,7 +504,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                                    !isNaN(parseFloat(balance)) &&
                                    parseFloat(balance) > 0
 
-          console.log(`[useSwap] Token ${tokenAddress}: balance="${balance}" hasActualBalance=${hasActualBalance}`)
+          console.log('[WAVETEK] token balance check <ENCRYPTED>')
 
           if (hasActualBalance) {
             // Find the original token from userTokens or COMMON_TOKENS
@@ -529,7 +525,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 addressable: false
               }
 
-              console.log('[useSwap] Created dynamic confidential token:', confidentialToken.symbol, 'for original:', originalToken.address)
+              console.log('[WAVETEK] confidential token created <ENCRYPTED>')
               tokenMap.set(confidentialAddress, confidentialToken)
             } else {
               // Create a fallback token for unknown tokens from Encifher
@@ -548,7 +544,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 // Also create the original token for reference
               }
 
-              console.log('[useSwap] Created fallback confidential token for unknown token:', tokenAddress)
+              console.log('[WAVETEK] fallback confidential token created <ENCRYPTED>')
               tokenMap.set(confidentialAddress, fallbackToken)
 
               // Also add the original token (non-confidential version) for reference
@@ -583,16 +579,15 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       const enrichedTokens = await enrichTokenIcons(allTokens)
       setAvailableTokens(enrichedTokens)
 
-      console.log('[useSwap] Loaded', enrichedTokens.length, 'tokens:', enrichedTokens.map(t => t.symbol))
-      console.log('[useSwap] About to call refreshBalances() after loading tokens...')
+      console.log('[WAVETEK] tokens loaded <ENCRYPTED>')
       // Refresh balances after tokens are loaded
       refreshBalances()
     } catch (error) {
-      console.error('Error loading user tokens:', error)
+      console.error('[WAVETEK] token load failed <ENCRYPTED>')
       // Fall back to available tokens for current mode
       const fallbackTokens = await getAvailableTokens(privacyMode)
       setAvailableTokens(fallbackTokens)
-      console.log('[useSwap] In error fallback, about to call refreshBalances()...')
+      console.log('[WAVETEK] using fallback tokens, refreshing')
       // Still try to refresh balances even with fallback tokens
       refreshBalances()
     }
@@ -600,13 +595,13 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Debounced balance refresh to avoid excessive API calls
   useEffect(() => {
-    console.log('[useSwap] Debounced effect triggered - publicKey:', !!publicKey, 'inputToken:', inputToken?.symbol, 'outputToken:', outputToken?.symbol)
+    console.log('[WAVETEK] debounced balance refresh <ENCRYPTED>')
     const timeoutId = setTimeout(() => {
       if (publicKey && (inputToken || outputToken)) {
-        console.log('[useSwap] Debounced timeout calling refreshBalances()...')
+        console.log('[WAVETEK] refreshing balances')
         refreshBalances()
       } else {
-        console.log('[useSwap] Debounced timeout skipped - no publicKey or tokens')
+        console.log('[WAVETEK] balance refresh skipped, no wallet')
       }
     }, 500) // 500ms debounce
 
@@ -615,13 +610,13 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Initial balance fetch on wallet connection
   useEffect(() => {
-    console.log('[useSwap] Initial balance effect triggered - publicKey:', !!publicKey, 'inputToken:', !!inputToken, 'outputToken:', !!outputToken, 'availableTokens.length:', availableTokens.length)
+    console.log('[WAVETEK] initial balance effect <ENCRYPTED>')
     if (publicKey && !inputToken && !outputToken && availableTokens.length > 0) {
-      console.log('[useSwap] Initial balance fetch starting for top tokens...')
+      console.log('[WAVETEK] fetching initial balances')
       // Fetch balances for top tokens by default
       const topTokens = availableTokens.slice(0, 6) // Fetch for 6 most common tokens
       fetchMultipleBalances(topTokens).then(newBalances => {
-        console.log('[useSwap] Initial balance fetch completed for', newBalances.size, 'tokens')
+        console.log('[WAVETEK] initial balances fetched <ENCRYPTED>')
         setBalances(prev => {
           const merged = new Map(prev)
           newBalances.forEach((balance, address) => {
@@ -680,7 +675,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   
   const getQuote = useCallback(async () => {
-    console.log('[getQuote] Called with privacyMode:', swapMode, 'SwapMode.PRIVATE:', SwapMode.PRIVATE)
+    console.log('[WAVETEK] quote requested <ENCRYPTED>')
 
     // Always fetch quotes - even in privacy mode we need price estimation
     // The API will route to Encifher or Jupiter based on privacyMode parameter
@@ -688,7 +683,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
     // Prevent multiple rapid quote requests
     const now = Date.now()
     if (now - (getQuote as any).lastCall < 1000) { // 1 second debounce
-      console.log('Quote request debounced, skipping...')
+      console.log('[WAVETEK] quote debounced, skipping')
       return
     }
     (getQuote as any).lastCall = now
@@ -722,24 +717,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       const jupiterInputMint = getJupiterToken(inputToken)
       const jupiterOutputMint = getJupiterToken(outputToken)
       
-      console.log('Getting quote via API:', {
-        inputMint: jupiterInputMint,
-        outputMint: jupiterOutputMint,
-        amount: amountInSmallestUnit.toString(),
-        inputSymbol: inputToken.symbol,
-        outputSymbol: outputToken.symbol,
-        isConfidential: swapMode === 'private',
-        originalInputMint: inputToken.address,
-        originalOutputMint: outputToken.address
-      })
-
-      // In privacy mode, we get a Jupiter quote first for estimation, then use Encifher for execution
-      // In normal mode, we use Jupiter API directly
-      console.log('getQuote: swapMode is:', swapMode, '(privacyMode:', privacyMode, ')')
-      console.log('getQuote: privacyMode type:', typeof privacyMode, 'value:', privacyMode)
-      console.log('getQuote: privacyMode.toString():', privacyMode.toString())
-      console.log('getQuote: privacyMode === true:', privacyMode === true)
-      console.log('getQuote: Boolean(privacyMode):', Boolean(privacyMode))
+      console.log('[WAVETEK] fetching quote <ENCRYPTED>')
 
       // Get Jupiter quote for price estimation (both for privacy and normal mode)
       const quoteUrl = `/api/v1/swap/quote?` + new URLSearchParams({
@@ -750,19 +728,13 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
         privacyMode: privacyMode.toString() // Use actual privacyMode prop
       })
 
-      console.log('[useSwap] Fetching quote with URL:', quoteUrl)
-      console.log('[useSwap] Privacy mode value:', privacyMode, 'type:', typeof privacyMode)
+      console.log('[WAVETEK] quote request sent <ENCRYPTED>')
 
       const response = await fetch(quoteUrl)
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error')
-        console.error('[useSwap] API Error Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          url: quoteUrl,
-          errorText
-        })
+        console.error('[WAVETEK] quote api error <ENCRYPTED>')
 
         let errorMessage = `HTTP ${response.status}`
         try {
@@ -776,7 +748,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       }
 
       const data = await response.json()
-      console.log('Quote API response:', data)
+      console.log('[WAVETEK] quote received <ENCRYPTED>')
 
       if (!data.success || !data.quote) {
         throw new Error(data.error || 'Invalid response from API')
@@ -785,7 +757,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       const jupiterQuote = data.quote
 
       if (swapMode === 'private') {
-        console.log('Using Jupiter quote as estimate for Encifher private swap')
+        console.log('[WAVETEK] using quote estimate for private swap')
         // Use Jupiter quote as estimate, but mark for private execution
         const privateQuote = {
           ...jupiterQuote,
@@ -820,7 +792,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       setOutputAmount(formatTokenAmount(output, outputDecimals))
 
     } catch (error) {
-      console.error('Error getting quote:', error)
+      console.error('[WAVETEK] quote failed <ENCRYPTED>')
 
       // Handle rate limit errors more gracefully
       if (error instanceof Error) {
@@ -879,17 +851,11 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       setStructuredError(null)
       setProgress(null)
 
-      console.log('Executing swap:', {
-        inputToken: inputToken.symbol,
-        outputToken: outputToken.symbol,
-        amount: inputAmount,
-        privacyMode: swapMode,
-        provider: swapMode === 'private' ? 'Encifher' : 'Jupiter'
-      })
+      console.log('[WAVETEK] executing swap <ENCRYPTED>')
 
       // Private swap mode - real implementation with Encifher SDK
       if (swapMode === SwapMode.PRIVATE) {
-        console.log('[Private Swap] Executing real confidential swap...')
+        console.log('[WAVETEK] starting private swap')
 
         if (!process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY) {
           throw new Error('Encifher SDK key not configured')
@@ -911,19 +877,12 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
         try {
           // Real Encifher SDK implementation - 3 step process: Deposit → Swap → Withdraw
-          console.log('[Private Swap] Using real Encifher SDK workflow')
+          console.log('[WAVETEK] private swap workflow started')
 
           const amountInBaseUnits = Math.floor(parseFloat(inputAmount) * Math.pow(10, inputToken.decimals))
           const amountInTokenUnits = amountInBaseUnits.toString()
 
-          console.log('[Private Swap] Encifher swap parameters:', {
-            inputToken: inputToken.address,
-            outputToken: outputToken.address,
-            inputAmount: inputAmount,
-            amountInBaseUnits: amountInBaseUnits.toString(),
-            amountInTokenUnits: amountInTokenUnits,
-            decimals: inputToken.decimals
-          })
+          console.log('[WAVETEK] swap params prepared <ENCRYPTED>')
 
           // Convert to Encifher token format
           const inputTokenEncifher: EncifherToken = {
@@ -949,7 +908,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             amountIn: amountInBaseUnits.toString()
           })
 
-          console.log('[Private Swap] Encifher quote received:', quote)
+          console.log('[WAVETEK] private quote received <ENCRYPTED>')
 
           // Store deposit signature for recovery purposes
           let depositSignature: string | undefined
@@ -981,7 +940,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           const depositTxn = await defiClient.getDepositTxn(depositParams)
           const swapTxn = await defiClient.getSwapTxn(swapParams)
 
-          console.log('[Private Swap] Transactions built successfully')
+          console.log('[WAVETEK] transactions built')
 
           // Step 3: Execute transactions
           setProgress({
@@ -996,7 +955,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             throw new Error('Wallet does not support transaction signing')
           }
 
-          console.log('[Private Swap] Starting deposit transaction signing...')
+          console.log('[WAVETEK] signing deposit <ENCRYPTED>')
           let signedDepositTxn
           try {
             // Add timeout to prevent hanging
@@ -1006,14 +965,14 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 setTimeout(() => reject(new Error('Transaction signing timed out after 30 seconds')), 30000)
               )
             ])
-            console.log('[Private Swap] Deposit transaction signed successfully')
+            console.log('[WAVETEK] deposit signed')
           } catch (signError) {
-            console.error('[Private Swap] Failed to sign deposit transaction:', signError)
+            console.error('[WAVETEK] deposit signing failed <ENCRYPTED>')
             throw new Error(`Failed to sign deposit transaction: ${signError.message}`)
           }
 
           // Get latest blockhash for transaction using server-side proxy to avoid client-side timeout issues
-          console.log('[Private Swap] Getting latest blockhash via server proxy...')
+          console.log('[WAVETEK] fetching blockhash')
 
           const blockhashResponse = await Promise.race([
             fetch('/api/v1/blockhash'),
@@ -1038,10 +997,9 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             lastValidBlockHeight,
           } = blockhashData
 
-          console.log('[Private Swap] Blockhash received via proxy:', blockhash)
-          console.log('[Private Swap] Latest blockhash received')
+          console.log('[WAVETEK] blockhash received <ENCRYPTED>')
 
-          console.log('[Private Swap] Sending deposit transaction via server proxy...')
+          console.log('[WAVETEK] submitting deposit <ENCRYPTED>')
 
           // Use server-side proxy to avoid client-side network timeouts
           const depositSendResponse = await Promise.race([
@@ -1075,7 +1033,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           }
 
           depositSignature = depositResult.signature
-          console.log('[Private Swap] Deposit transaction sent via proxy:', depositSignature)
+          console.log('[WAVETEK] deposit submitted <ENCRYPTED>')
 
           // Confirm deposit transaction with proper block height checking (as per documentation)
           let depositConfirmation
@@ -1084,7 +1042,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
           while (retryCount < maxRetries) {
             try {
-              console.log(`[Private Swap] Confirming deposit transaction (attempt ${retryCount + 1}/${maxRetries})`)
+              console.log(`[WAVETEK] confirming deposit attempt ${retryCount + 1}/${maxRetries}`)
               setProgress({
                 status: SwapStatus.CONFIRMING_TRANSACTION,
                 message: `Confirming deposit transaction (attempt ${retryCount + 1}/${maxRetries})...`,
@@ -1100,13 +1058,13 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 abortSignal: AbortSignal.timeout(120000) // 2 minute timeout
               }, 'confirmed')
 
-              console.log('[Private Swap] Deposit transaction confirmed successfully:', confirmationResult)
+              console.log('[WAVETEK] deposit confirmed <ENCRYPTED>')
               depositConfirmation = confirmationResult
               break // Success, exit retry loop
 
             } catch (error: any) {
               retryCount++
-              console.error(`[Private Swap] Deposit confirmation attempt ${retryCount} failed:`, error.message)
+              console.error(`[WAVETEK] deposit confirmation attempt ${retryCount} failed <ENCRYPTED>`)
 
               // Check if it's a timeout error (catch various timeout durations)
               const isTimeout = error.message.includes('timeout') ||
@@ -1115,7 +1073,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                                error.message.includes('Transaction was not confirmed')
 
               if (retryCount >= maxRetries) {
-                console.log('[Private Swap] All confirmation attempts failed, checking final transaction status...')
+                console.log('[WAVETEK] all confirmations failed, checking status')
                 setProgress({
                   status: SwapStatus.CONFIRMING_TRANSACTION,
                   message: 'Checking transaction status on-chain...',
@@ -1130,24 +1088,24 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                   })
 
                   if (status.value) {
-                    console.log('[Private Swap] Final transaction status:', status.value)
+                    console.log('[WAVETEK] final tx status <ENCRYPTED>')
 
                     if (status.value.err) {
                       throw new Error(`Deposit transaction failed: ${JSON.stringify(status.value.err)}`)
                     } else if (status.value.confirmationStatus === 'confirmed' || status.value.confirmationStatus === 'finalized') {
-                      console.log('[Private Swap] Transaction was confirmed despite timeouts')
+                      console.log('[WAVETEK] tx confirmed despite timeouts')
                       depositConfirmation = { value: { err: null } }
                       break
                     } else {
                       // Transaction exists but not confirmed yet
-                      console.log('[Private Swap] Transaction found but not fully confirmed, setting recovery state')
+                      console.log('[WAVETEK] tx pending, recovery state set')
                       setLastDepositSignature(depositSignature)
                       setNeedsRecovery(true)
                       throw new Error(`Transaction submitted but confirmation pending. Signature: ${depositSignature}. Transaction may still process. Check Solana Explorer for updates.`)
                     }
                   } else {
                     // Transaction not found - may still be processing or failed
-                    console.log('[Private Swap] Transaction not found on-chain, setting recovery state')
+                    console.log('[WAVETEK] tx not found on-chain, recovery state set')
                     setLastDepositSignature(depositSignature)
                     setNeedsRecovery(true)
 
@@ -1158,7 +1116,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                     }
                   }
                 } catch (statusError: any) {
-                  console.error('[Private Swap] Final status check failed:', statusError.message)
+                  console.error('[WAVETEK] final status check failed <ENCRYPTED>')
                   setLastDepositSignature(depositSignature)
                   setNeedsRecovery(true)
 
@@ -1172,7 +1130,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
               // Wait before retry with longer delays for timeouts
               const delay = isTimeout ? 8000 : Math.pow(2, retryCount) * 1000 // 8s for timeouts, exponential for others
-              console.log(`[Private Swap] Waiting ${delay/1000}s before retry...`)
+              console.log(`[WAVETEK] retrying in ${delay/1000}s`)
               await new Promise(resolve => setTimeout(resolve, delay))
             }
           }
@@ -1182,7 +1140,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           }
 
           // Sign and execute swap transaction
-          console.log('[Private Swap] Starting swap transaction signing...')
+          console.log('[WAVETEK] signing swap <ENCRYPTED>')
           let signedSwapTxn
           try {
             // Add timeout to prevent hanging
@@ -1192,9 +1150,9 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 setTimeout(() => reject(new Error('Swap transaction signing timed out after 30 seconds')), 30000)
               )
             ])
-            console.log('[Private Swap] Swap transaction signed successfully')
+            console.log('[WAVETEK] swap signed')
           } catch (signError) {
-            console.error('[Private Swap] Failed to sign swap transaction:', signError)
+            console.error('[WAVETEK] swap signing failed <ENCRYPTED>')
             throw new Error(`Failed to sign swap transaction: ${signError.message}`)
           }
 
@@ -1211,7 +1169,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           }
 
           // Execute swap transaction using our API endpoint (not direct SDK call)
-          console.log('[Private Swap] Executing swap via API...')
+          console.log('[WAVETEK] executing swap <ENCRYPTED>')
           const executeResponse = await Promise.race([
             fetch('/api/v1/swap/execute-private', {
               method: 'POST',
@@ -1232,7 +1190,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           }
 
           const executeData = await executeResponse.json()
-          console.log('[Private Swap] Swap executed via API:', executeData)
+          console.log('[WAVETEK] swap executed <ENCRYPTED>')
 
           // Step 4: Poll for completion
           setProgress({
@@ -1267,7 +1225,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             }
 
             const status = await statusResponse.json()
-            console.log(`[Private Swap] Order status (attempt ${attempts + 1}):`, status)
+            console.log(`[WAVETEK] order status check ${attempts + 1} <ENCRYPTED>`)
 
             if (status.status === 'completed') {
               completed = true
@@ -1295,7 +1253,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             setProgress(null)
           }, 5000)
 
-          console.log('[Private Swap] Real private swap completed successfully')
+          console.log('[WAVETEK] private swap completed')
 
           // Update confidential balance tracking for withdraw tab
           await updateConfidentialBalance(outputToken.address, parseFloat(outputAmount), publicKey?.toBase58())
@@ -1319,7 +1277,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           clearBalanceCache()
 
           // Trigger balance refresh after successful private swap
-          console.log('[Private Swap] Triggering balance refresh after successful swap')
+          console.log('[WAVETEK] refreshing balances post-swap')
           setTimeout(() => {
             refreshBalances()
           }, 3000) // Wait 3 seconds for blockchain state to update

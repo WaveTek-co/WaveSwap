@@ -51,7 +51,7 @@ export function useMultiChainWallet() {
         balance: balance ? balance.toString() : '0'
       }
     } catch (error) {
-      console.error('Solana connection error:', error)
+      console.error('[WAVETEK] solana connection failed <ENCRYPTED>')
       throw error
     }
   }, [])
@@ -81,7 +81,7 @@ export function useMultiChainWallet() {
         address: accountId
       }
     } catch (error) {
-      console.error('NEAR connection error:', error)
+      console.error('[WAVETEK] near connection failed <ENCRYPTED>')
       throw error
     }
   }, [])
@@ -106,7 +106,7 @@ export function useMultiChainWallet() {
         address: address[0] // Use first address
       }
     } catch (error) {
-      console.error('Zcash connection error:', error)
+      console.error('[WAVETEK] zcash connection failed <ENCRYPTED>')
       throw error
     }
   }, [])
@@ -133,7 +133,7 @@ export function useMultiChainWallet() {
         address: address
       }
     } catch (error) {
-      console.error('Starknet connection error:', error)
+      console.error('[WAVETEK] starknet connection failed <ENCRYPTED>')
       throw error
     }
   }, [])
@@ -167,7 +167,7 @@ export function useMultiChainWallet() {
         setConnectedWallets(prev => [...prev, connectedWallet!])
       }
     } catch (error) {
-      console.error('Wallet connection error:', error)
+      console.error('[WAVETEK] wallet connection failed <ENCRYPTED>')
       setConnectionError(error instanceof Error ? error.message : 'Failed to connect wallet')
       throw error
     } finally {
@@ -197,7 +197,7 @@ export function useMultiChainWallet() {
         // Add other chain disconnect logic as needed
       }
     } catch (error) {
-      console.error('Wallet disconnection error:', error)
+      console.error('[WAVETEK] wallet disconnection failed <ENCRYPTED>')
       setConnectionError(error instanceof Error ? error.message : 'Failed to disconnect wallet')
       throw error
     }
@@ -222,7 +222,7 @@ export function useMultiChainWallet() {
 
       return null
     } catch (error) {
-      console.error('Error getting wallet balance:', error)
+      console.error('[WAVETEK] balance check failed <ENCRYPTED>')
       return null
     }
   }, [connectedWallets])
@@ -273,10 +273,10 @@ export function useMultiChainWallet() {
             }
           }
         } catch (connectionError) {
-          console.log('Failed to check wallet connection status')
+          console.log('[WAVETEK] connection check failed')
         }
       } catch (error) {
-        console.error('Error checking existing connections:', error)
+        console.error('[WAVETEK] connection check failed <ENCRYPTED>')
       }
     }
 

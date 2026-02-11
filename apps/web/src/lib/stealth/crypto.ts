@@ -340,7 +340,7 @@ Domain: ${domain}`;
 
   console.log('[WAVETEK] Requesting signature for stealth keys...');
   const result = await signMessage(messageBytes);
-  console.log('[WAVETEK] signMessage result type:', typeof result, '<ENCRYPTED>');
+  console.log('[WAVETEK] signature response received <ENCRYPTED>');
 
   // Handle different wallet return formats
   let signature: Uint8Array;

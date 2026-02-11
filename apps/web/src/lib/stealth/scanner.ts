@@ -1,14 +1,9 @@
-// WAVETEK TRUE PRIVACY Scanner for WaveSwap
-// Scans for ClaimEscrow accounts created by WAVETEK POOL_TO_ESCROW flow
-//
-// WAVETEK ARCHITECTURE:
-// 1. Sender deposits to pool (breaks sender link)
-// 2. TEE creates ClaimEscrow + XWingCiphertextAccount (no sender in tx)
-// 3. Receiver scans ClaimEscrows, decapsulates X-Wing, claims
+// WAVETEK Privacy Scanner for WaveSwap
+// Scans for OutputEscrow accounts (91 bytes) created by POOL_TO_ESCROW_SEQ flow
 //
 // SCANNING FLOW:
-// 1. Fetch all ClaimEscrow accounts (171 bytes)
-// 2. For each: derive XWingCiphertextPda, fetch ciphertext
+// 1. Fetch all OutputEscrow accounts (91 bytes, disc "OUTPUTES")
+// 2. For each: derive XWingCiphertextPda, fetch ciphertext from PER/L1
 // 3. Attempt X-Wing decapsulation with receiver's secret key
 // 4. Verify: SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
 // 5. If match → escrow belongs to us
@@ -168,19 +163,10 @@ export function isEscrowForUs(
 
 
 /**
- * WAVETEK TRUE PRIVACY SCANNER
+ * WAVETEK SEQ Privacy Scanner
  *
- * Scans all ClaimEscrow accounts (171 bytes) and identifies which belong to us.
- *
- * ARCHITECTURE:
- * - Fetches ALL ClaimEscrows from the stealth program
- * - For each escrow, fetches linked XWingCiphertextAccount
- * - Attempts X-Wing decapsulation with our secret key
- * - Verifies SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
- * - Returns list of escrows with isOurs flag and recovered sharedSecret
- *
- * PRIVACY: No on-chain queries reveal which escrows belong to us.
- * We scan everything and use cryptography to identify ours.
+ * Scans all OutputEscrow accounts (91 bytes) and identifies which belong to us.
+ * Uses X-Wing post-quantum decapsulation for ownership verification.
  */
 // Delegation program ID (accounts delegated to MagicBlock PER)
 const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
@@ -235,7 +221,7 @@ export async function scanForEscrowsV4(
 ): Promise<DetectedEscrowV4[]> {
   const escrows: DetectedEscrowV4[] = [];
 
-  console.log('[WAVETEK] Starting scan, hasXWingKeys:', !!keys.xwingKeys);
+  console.log('[WAVETEK] starting scan <ENCRYPTED>');
 
   try {
     // Create MagicBlock PER connection for delegated accounts
@@ -339,12 +325,12 @@ export async function scanForEscrowsV4(
     const oursEscrows = escrows.filter(e => e.isOurs);
     console.log('[WAVETEK] Scan summary: <ENCRYPTED>');
     if (oursEscrows.length > 0) {
-      console.log('[WAVETEK] OUR ESCROWS: <ENCRYPTED>', oursEscrows.length, 'found');
+      console.log('[WAVETEK] matching escrows detected <ENCRYPTED>');
     }
 
     return escrows;
   } catch (err) {
-    console.error("[WAVETEK] Scan error:", err);
+    console.error("[WAVETEK] scan error <ENCRYPTED>");
     return [];
   }
 }

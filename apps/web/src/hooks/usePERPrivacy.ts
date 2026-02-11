@@ -122,7 +122,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
         const relayerPubkey = new PublicKey(DEFAULT_RELAYER_PUBKEY)
         client.setRelayer(relayerPubkey, DEFAULT_RELAYER_ENDPOINT)
       } catch (e) {
-        console.warn('[WAVETEK] Invalid relayer pubkey:', e)
+        console.warn('[WAVETEK] invalid relayer config <ENCRYPTED>')
       }
     }
 
@@ -144,14 +144,14 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     }
 
     try {
-      console.log('[WAVETEK] Generating stealth keys from wallet signature...')
+      console.log('[WAVETEK] generating stealth keys')
       const keys = await generateStealthKeysFromSignature(signMessage)
       setStealthKeys(keys)
       setIsReady(true)
-      console.log('[WAVETEK] Stealth keys ready')
+      console.log('[WAVETEK] stealth keys ready')
       return true
     } catch (err) {
-      console.error('[WAVETEK] Failed to generate keys:', err)
+      console.error('[WAVETEK] key generation failed <ENCRYPTED>')
       setError('Please sign the message to enable privacy features')
       return false
     }
@@ -163,7 +163,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
       const status = await perClient.getMixerPoolStatus()
       setMixerPoolStatus(status)
     } catch (err) {
-      console.error('[WAVETEK] Failed to get mixer status:', err)
+      console.error('[WAVETEK] mixer status failed <ENCRYPTED>')
     }
   }, [perClient])
 
@@ -197,7 +197,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
       const spendPubkey = new Uint8Array(data.slice(44, 76))
       const viewPubkey = new Uint8Array(data.slice(76, 108))
 
-      console.log('[WAVETEK] Starting privacy send to recipient...')
+      console.log('[WAVETEK] initiating send <ENCRYPTED>')
 
       // Use PER client for full privacy flow
       // This needs wallet adapter, but we'll construct a compatible interface
@@ -216,7 +216,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
       }
 
     } catch (err: any) {
-      console.error('[WAVETEK] Send failed:', err)
+      console.error('[WAVETEK] send failed <ENCRYPTED>')
       setError(err.message)
       return { success: false, error: err.message }
     } finally {
@@ -243,7 +243,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     setError(null)
 
     try {
-      console.log('[WAVETEK] Claiming via relayer...')
+      console.log('[WAVETEK] claiming via relayer <ENCRYPTED>')
 
       const result = await perClient.privacyClaim({
         stealthKeys,
@@ -257,7 +257,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
         setPendingClaims(prev => prev.map(c =>
           c.vaultAddress === claim.vaultAddress ? { ...c, status: 'claimed' as const } : c
         ))
-        console.log('[WAVETEK] Claim successful')
+        console.log('[WAVETEK] claim successful')
       } else {
         setPendingClaims(prev => prev.map(c =>
           c.vaultAddress === claim.vaultAddress
@@ -269,7 +269,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
       return result
 
     } catch (err: any) {
-      console.error('[WAVETEK] Claim failed:', err)
+      console.error('[WAVETEK] claim failed <ENCRYPTED>')
       setPendingClaims(prev => prev.map(c =>
         c.vaultAddress === claim.vaultAddress
           ? { ...c, status: 'failed' as const, error: err.message }
@@ -304,7 +304,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     setError(null)
 
     try {
-      console.log('[WAVETEK] Starting privacy-preserving scan...')
+      console.log('[WAVETEK] scanning <ENCRYPTED>')
 
       const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
       const connection = new Connection(rpcUrl, 'confirmed')
@@ -314,7 +314,7 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
         filters: [{ dataSize: 1273 }], // Announcement size
       })
 
-      console.log(`[WAVETEK] Scanning ${accounts.length} announcements...`)
+      console.log('[WAVETEK] scanning accounts <ENCRYPTED>')
 
       // Announcement layout offsets
       const OFFSET_EPHEMERAL = 17
@@ -365,11 +365,11 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
         })
       }
 
-      console.log(`[WAVETEK] Scan complete: ${foundCount} payments found`)
+      console.log('[WAVETEK] scan complete <ENCRYPTED>')
       setLastScanTime(new Date())
 
     } catch (err: any) {
-      console.error('[WAVETEK] Scan failed:', err)
+      console.error('[WAVETEK] scan failed <ENCRYPTED>')
       setError(err.message)
     } finally {
       setIsScanning(false)

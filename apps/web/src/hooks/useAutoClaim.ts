@@ -125,7 +125,7 @@ const SCAN_TIMEOUT_MS = 3000
 // Use HTTP-only endpoints to avoid WebSocket issues
 // IMPORTANT: Public devnet RPC is rate-limited. Use Helius/QuickNode for production.
 const DEVNET_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
-const MAGICBLOCK_RPC = 'https://devnet.magicblock.app'
+const MAGICBLOCK_RPC = 'https://devnet-as.magicblock.app'
 
 // Storage key for stealth keys (cached per wallet address)
 const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
@@ -190,7 +190,7 @@ function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
 
     localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, JSON.stringify(cached))
   } catch (e) {
-    console.warn('[WAVETEK] Failed to cache stealth keys:', e)
+    console.warn('[WAVETEK] cache failed <ENCRYPTED>')
   }
 }
 
@@ -209,7 +209,7 @@ async function confirmTransactionPolling(
         return true
       }
       if (status?.value?.err) {
-        console.error('[WAVETEK] TX failed:', status.value.err)
+        console.error('[WAVETEK] transaction failed <ENCRYPTED>')
         return false
       }
     } catch (e) {
@@ -217,7 +217,7 @@ async function confirmTransactionPolling(
     }
     await new Promise(r => setTimeout(r, intervalMs))
   }
-  console.warn('[WAVETEK] Timeout - TX may still succeed')
+  console.warn('[WAVETEK] confirmation timeout <ENCRYPTED>')
   return true // Optimistically return true on timeout
 }
 
@@ -337,17 +337,17 @@ export function useAutoClaim(): UseAutoClaimReturn {
   // MAGIC ACTION: Trigger PER to execute transfer
   const triggerMagicAction = useCallback(async (deposit: DelegatedDeposit): Promise<boolean> => {
     if (!publicKey || !signTransaction) {
-      console.log('[WAVETEK] No wallet connected')
+      console.log('[WAVETEK] wallet not connected')
       return false
     }
 
     if (processedDepositsRef.current.has(deposit.depositAddress)) {
-      console.log('[WAVETEK] Already processed: <ENCRYPTED>')
+      console.log('[WAVETEK] already processed <ENCRYPTED>')
       return false
     }
 
     try {
-      console.log('[WAVETEK] Triggering deposit processing: <ENCRYPTED>')
+      console.log('[WAVETEK] processing deposit <ENCRYPTED>')
       processedDepositsRef.current.add(deposit.depositAddress)
 
       const [vaultPda, vaultBump] = deriveStealthVaultPda(deposit.stealthPubkey)
@@ -356,7 +356,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         // PER Mixer Pool V2 flow:
         // - Escrow was pre-created and delegated during deposit (V2)
         // - TEE fills the escrow and commits it back to L1
-        console.log('[WAVETEK] PER Mixer Pool V2 flow - triggering execute_per_claim_v2')
+        console.log('[WAVETEK] processing claim <ENCRYPTED>')
 
         const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda()
         const [depositRecordPda] = derivePerDepositRecordPda(deposit.nonce)
@@ -416,23 +416,23 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const { blockhash } = await rollupConnection.getLatestBlockhash()
         tx.recentBlockhash = blockhash
 
-        console.log('[WAVETEK] Signing PER claim transaction...')
+        console.log('[WAVETEK] signing claim <ENCRYPTED>')
         const signedTx = await signTransaction(tx)
 
-        console.log('[WAVETEK] Sending to MagicBlock rollup...')
+        console.log('[WAVETEK] submitting <ENCRYPTED>')
         const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
-        console.log('[WAVETEK] Transaction sent to PER')
+        console.log('[WAVETEK] submitted <ENCRYPTED>')
 
         // Use HTTP polling instead of WebSocket confirmation
         const confirmed = await confirmTransactionPolling(rollupConnection, signature, 15, 1000)
-        console.log('[WAVETEK] Rollup confirmed: <ENCRYPTED>')
+        console.log('[WAVETEK] confirmed <ENCRYPTED>')
 
         // Poll mainnet for escrow
         for (let i = 0; i < 15; i++) {
           await new Promise(r => setTimeout(r, 2000))
           const escrowInfo = await connection.getAccountInfo(escrowPda)
           if (escrowInfo && escrowInfo.lamports > 0) {
-            console.log('[WAVETEK] Escrow arrived on L1')
+            console.log('[WAVETEK] settlement confirmed')
             setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
             setPendingEscrows(prev => {
               if (prev.some(e => e.escrowAddress === escrowPda.toBase58())) return prev
@@ -448,7 +448,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             return true
           }
         }
-        console.warn('[WAVETEK] Escrow not visible on L1 yet')
+        console.warn('[WAVETEK] awaiting settlement')
         return false
 
       } else if (deposit.type === 'per') {
@@ -462,7 +462,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         // Check if vault already exists (from previous partial attempt)
         const existingVaultInfo = await connection.getAccountInfo(vaultPda)
         if (existingVaultInfo && existingVaultInfo.lamports > 0) {
-          console.log('[WAVETEK] Vault already exists - claiming directly')
+          console.log('[WAVETEK] claiming directly <ENCRYPTED>')
 
           // Just claim from existing vault
           const claimData = Buffer.alloc(33)
@@ -486,7 +486,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           const { blockhash } = await connection.getLatestBlockhash()
           claimTx.recentBlockhash = blockhash
 
-          console.log('[WAVETEK] Signing direct claim...')
+          console.log('[WAVETEK] signing claim <ENCRYPTED>')
           const signedClaimTx = await signTransaction(claimTx)
           const claimSig = await connection.sendRawTransaction(signedClaimTx.serialize())
           await confirmTransactionPolling(connection, claimSig)
@@ -495,7 +495,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           showClaimSuccess({ signature: claimSig, amount: BigInt(existingVaultInfo.lamports), symbol: 'SOL' })
           setClaimHistory(prev => [...prev, { signature: claimSig, amount: BigInt(existingVaultInfo.lamports), timestamp: Date.now(), sender: 'PER_DIRECT_CLAIM' }])
 
-          console.log('[WAVETEK] Claimed from existing vault!')
+          console.log('[WAVETEK] claim complete <ENCRYPTED>')
           return true
         }
 
@@ -505,7 +505,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         if (!isAlreadyExecuted) {
           // Phase 2: EXECUTE_PER_TRANSFER in PER (only if not already executed)
-          console.log('[WAVETEK] Phase 2: Executing PER transfer...')
+          console.log('[WAVETEK] processing transfer <ENCRYPTED>')
 
           const MAGICBLOCK_ER_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111')
           const MAGIC_CONTEXT = new PublicKey('MagicContext1111111111111111111111111111111')
@@ -531,15 +531,15 @@ export function useAutoClaim(): UseAutoClaimReturn {
           const { blockhash } = await rollupConnection.getLatestBlockhash()
           executeTx.recentBlockhash = blockhash
 
-          console.log('[WAVETEK] Phase 2: Signing EXECUTE_PER_TRANSFER...')
+          console.log('[WAVETEK] signing transfer <ENCRYPTED>')
           const signedExecuteTx = await signTransaction(executeTx)
 
-          console.log('[WAVETEK] Sending to MagicBlock rollup...')
+          console.log('[WAVETEK] submitting <ENCRYPTED>')
           const executeSignature = await rollupConnection.sendRawTransaction(signedExecuteTx.serialize(), { skipPreflight: true })
-          console.log('[WAVETEK] Transaction sent to PER')
+          console.log('[WAVETEK] submitted <ENCRYPTED>')
 
           await confirmTransactionPolling(rollupConnection, executeSignature, 15, 1000)
-          console.log('[WAVETEK] PER confirmed, waiting for undelegation to L1...')
+          console.log('[WAVETEK] awaiting settlement <ENCRYPTED>')
 
           // Wait for deposit to be undelegated back to L1
           let undelegated = false
@@ -547,19 +547,19 @@ export function useAutoClaim(): UseAutoClaimReturn {
             await new Promise(r => setTimeout(r, 2000))
             const checkInfo = await connection.getAccountInfo(depositPda)
             if (checkInfo && checkInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
-              console.log('[WAVETEK] Deposit undelegated to L1!')
+              console.log('[WAVETEK] settlement confirmed')
               undelegated = true
               break
             }
-            console.log('[WAVETEK] Waiting for undelegation: <ENCRYPTED>')
+            console.log('[WAVETEK] awaiting... <ENCRYPTED>')
           }
 
           if (!undelegated) {
-            console.warn('[WAVETEK] Undelegation timeout')
+            console.warn('[WAVETEK] settlement timeout')
             return false
           }
         } else {
-          console.log('[WAVETEK] Deposit already executed - skipping Phase 2')
+          console.log('[WAVETEK] already processed, skipping')
         }
 
         // Phase 3: CREATE_VAULT_FROM_DEPOSIT + CLAIM_STEALTH_PAYMENT in one TX
@@ -608,13 +608,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
         combinedTx.recentBlockhash = l1Blockhash
 
-        console.log('[WAVETEK] Phase 3: Signing CREATE_VAULT + CLAIM (combined)...')
+        console.log('[WAVETEK] signing claim <ENCRYPTED>')
         const signedCombinedTx = await signTransaction(combinedTx)
 
-        console.log('[WAVETEK] Sending combined tx to L1...')
+        console.log('[WAVETEK] submitting <ENCRYPTED>')
         const claimSignature = await connection.sendRawTransaction(signedCombinedTx.serialize())
         await confirmTransactionPolling(connection, claimSignature)
-        console.log('[WAVETEK] Vault created and claimed')
+        console.log('[WAVETEK] claim complete <ENCRYPTED>')
 
         // Verify funds arrived at wallet
         setDelegatedDeposits(prev => prev.filter(d => d.depositAddress !== deposit.depositAddress))
@@ -624,7 +624,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         showClaimSuccess({ signature: claimSignature, amount: depositAmount, symbol: 'SOL' })
         setClaimHistory(prev => [...prev, { signature: claimSignature, amount: depositAmount, timestamp: Date.now(), sender: 'PER_DIRECT_CLAIM' }])
 
-        console.log('[WAVETEK] Funds claimed directly to wallet!')
+        console.log('[WAVETEK] funds received <ENCRYPTED>')
         return true
 
       } else {
@@ -664,13 +664,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const { blockhash } = await connection.getLatestBlockhash()
         tx.recentBlockhash = blockhash
 
-        console.log('[WAVETEK] Signing mixer transfer...')
+        console.log('[WAVETEK] signing transfer <ENCRYPTED>')
         const signedTx = await signTransaction(tx)
 
-        console.log('[WAVETEK] Sending to mainnet...')
+        console.log('[WAVETEK] submitting <ENCRYPTED>')
         const signature = await connection.sendRawTransaction(signedTx.serialize())
         await confirmTransactionPolling(connection, signature)
-        console.log('[WAVETEK] Mixer transfer confirmed')
+        console.log('[WAVETEK] transfer confirmed <ENCRYPTED>')
 
         const vaultInfo = await connection.getAccountInfo(vaultPda)
         if (vaultInfo && vaultInfo.lamports > 0) {
@@ -692,7 +692,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         return false
       }
     } catch (err: any) {
-      console.error('[WAVETEK] Failed:', err?.message || err)
+      console.error('[WAVETEK] failed <ENCRYPTED>')
       return false
     }
   }, [publicKey, signTransaction, connection, rollupConnection])
@@ -714,17 +714,14 @@ export function useAutoClaim(): UseAutoClaimReturn {
     sharedSecretInput?: Uint8Array
   ): Promise<boolean> => {
     if (!publicKey || !stealthKeys) {
-      console.log('[WAVETEK] No wallet or stealth keys')
+      console.log('[WAVETEK] wallet not connected')
       return false
     }
 
     const destination = destinationWallet || publicKey
 
     try {
-      console.log('[WAVETEK] WAVETEK TRUE PRIVACY CLAIM VIA MAGICBLOCK TEE')
-      console.log('[WAVETEK] Escrow: <ENCRYPTED>')
-      console.log('[WAVETEK] Destination: <ENCRYPTED>')
-      console.log('[WAVETEK] Amount: <ENCRYPTED>')
+      console.log('[WAVETEK] initiating claim <ENCRYPTED>')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
@@ -733,7 +730,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // Get shared_secret from X-Wing decapsulation (recovered during scanning)
       const sharedSecret = sharedSecretInput || escrow.sharedSecret
       if (!sharedSecret) {
-        console.error('[WAVETEK] WAVETEK requires sharedSecret from X-Wing decapsulation')
+        console.error('[WAVETEK] X-Wing shared secret required')
         throw new Error('V4 claim requires sharedSecret')
       }
 
@@ -741,11 +738,11 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const derivedStealth = deriveStealthPubkeyFromSharedSecret(sharedSecret)
       const stealthMatches = derivedStealth.every((b, i) => b === escrow.stealthPubkey[i])
       if (!stealthMatches) {
-        console.error('[WAVETEK] Shared secret does not match stealth pubkey')
+        console.error('[WAVETEK] key verification failed')
         throw new Error('Invalid sharedSecret for this escrow')
       }
 
-      console.log('[WAVETEK] Stealth verification passed')
+      console.log('[WAVETEK] verification passed')
 
       // =====================================================
       // STEP 0: POOL_TO_ESCROW_V4 - Fund escrow from pool (ALWAYS for V4!)
@@ -764,20 +761,16 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const needsFunding = !escrowInfoPER || escrowInfoPER.lamports < Number(escrow.amount) + escrowRent
 
       console.log('[WAVETEK] Escrow state on PER: <ENCRYPTED>')
-      console.log('[WAVETEK] Checking funding requirements...')
 
       // V4 OutputEscrows: If we have sharedSecret from X-Wing decapsulation,
       // the escrow was found via scanner which means POOL_TO_ESCROW_V4 already ran
       // (XWingCiphertext only exists after POOL_TO_ESCROW_V4 populates it)
       const isV4OutputEscrow = !!sharedSecret && !escrow.nonce
-      console.log('[WAVETEK] Is V4 OutputEscrow: <ENCRYPTED>')
-      console.log('[WAVETEK] Needs funding: <ENCRYPTED>')
 
       // Skip POOL_TO_ESCROW for V4 OutputEscrows - sender already called it
       // V4 escrows don't have nonce (they're derived from stealth_pubkey, not nonce)
       if (needsFunding && !isV4OutputEscrow && escrow.nonce) {
-        console.log('[WAVETEK] Escrow needs funding from pool')
-        console.log('[WAVETEK] Calling POOL_TO_ESCROW on PER...')
+        console.log('[WAVETEK] funding escrow <ENCRYPTED>')
 
         // Derive PDAs for POOL_TO_ESCROW_V4 (V3 style - nonce-based)
         const [poolPda, poolBump] = derivePerMixerPoolPda()
@@ -815,17 +808,16 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
         const signedPoolTx = await signTransaction!(poolToEscrowTx)
         const poolToEscrowSig = await rollupConnection.sendRawTransaction(signedPoolTx.serialize(), { skipPreflight: true })
-        console.log('[WAVETEK] POOL_TO_ESCROW sent: <ENCRYPTED>')
+        console.log('[WAVETEK] funded <ENCRYPTED>')
 
         // Wait for confirmation
         const poolConfirmed = await confirmTransactionPolling(rollupConnection, poolToEscrowSig, 20, 2000)
         if (!poolConfirmed) {
-          console.warn('[WAVETEK] POOL_TO_ESCROW confirmation timeout')
+          console.warn('[WAVETEK] confirmation timeout')
         }
-        console.log('[WAVETEK] Escrow funded from pool')
+        console.log('[WAVETEK] escrow funded')
       } else if (needsFunding && isV4OutputEscrow) {
-        console.log('[WAVETEK] V4 OutputEscrow - skipping POOL_TO_ESCROW (sender already called it)')
-        console.log('[WAVETEK] If amount is 0, sender may not have completed POOL_TO_ESCROW_V4')
+        console.log('[WAVETEK] escrow ready, skipping funding')
       }
 
       // Build CLAIM_ESCROW_WAVETEK instruction (V4 ONLY)
@@ -865,21 +857,21 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const { blockhash } = await rollupConnection.getLatestBlockhash()
       tx.recentBlockhash = blockhash
 
-      console.log('[WAVETEK] Signing CLAIM_ESCROW...')
+      console.log('[WAVETEK] signing claim <ENCRYPTED>')
       const signedTx = await signTransaction!(tx)
 
-      console.log('[WAVETEK] Sending to MagicBlock PER...')
+      console.log('[WAVETEK] submitting <ENCRYPTED>')
       const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
-      console.log('[WAVETEK] Transaction sent to PER')
+      console.log('[WAVETEK] submitted <ENCRYPTED>')
 
       // Wait for PER confirmation
       const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
       if (!confirmed) {
-        console.warn('[WAVETEK] PER confirmation timeout')
+        console.warn('[WAVETEK] confirmation timeout')
         throw new Error('PER confirmation timeout')
       }
 
-      console.log('[WAVETEK] Waiting for escrow undelegation to L1...')
+      console.log('[WAVETEK] awaiting settlement <ENCRYPTED>')
 
       // Wait for escrow to be undelegated and verified
       // V4 OutputEscrow: 91 bytes, is_verified at offset 82
@@ -891,7 +883,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           const escrowData = escrowInfo.data
           // V4 OutputEscrow is 91 bytes, check is_verified at offset 82
           if (escrowData.length >= 91 && escrowData[OUTPUT_ESCROW_OFFSET_IS_VERIFIED] === 1) {
-            console.log('[WAVETEK] OutputEscrow verified on L1!')
+            console.log('[WAVETEK] settlement confirmed')
 
             // V4: Call WITHDRAW_FROM_OUTPUT_ESCROW on L1 (uses stealth_pubkey, NOT nonce)
             // Data: stealth_pubkey(32) = 32 bytes
@@ -912,7 +904,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             // Check if XWingCiphertext account exists and add it for cleanup
             const xwingCtInfo = await connection.getAccountInfo(claimXwingCtPda)
             if (xwingCtInfo && xwingCtInfo.data.length > 0) {
-              console.log('[WAVETEK] Including XWingCiphertext for cleanup')
+              console.log('[WAVETEK] including X-Wing ciphertext')
               withdrawAccounts.push({ pubkey: claimXwingCtPda, isSigner: false, isWritable: true })
             }
 
@@ -931,7 +923,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
             await confirmTransactionPolling(connection, withdrawSig)
 
-            console.log('[WAVETEK] V4 Withdraw complete')
+            console.log('[WAVETEK] withdrawal complete <ENCRYPTED>')
 
             setPendingEscrows(prev => prev.map(e =>
               e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -944,17 +936,17 @@ export function useAutoClaim(): UseAutoClaimReturn {
             }])
             showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
 
-            console.log('[WAVETEK] WAVETEK V4 PRIVATE CLAIM COMPLETE')
+            console.log('[WAVETEK] claim complete <ENCRYPTED>')
             return true
           }
         }
       }
 
-      console.warn('[WAVETEK] OutputEscrow not verified on L1 within timeout')
+      console.warn('[WAVETEK] settlement timeout')
       return false
 
     } catch (err: any) {
-      console.error('[WAVETEK] Failed:', err?.message || err)
+      console.error('[WAVETEK] failed <ENCRYPTED>')
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'failed' as const } : e
       ))
@@ -966,14 +958,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
   // Use claimViaTEE instead for full privacy
   const withdrawFromEscrow = useCallback(async (escrow: PendingEscrow): Promise<boolean> => {
     if (!publicKey || !signTransaction) {
-      console.log('[WAVETEK] No wallet connected')
+      console.log('[WAVETEK] wallet not connected')
       return false
     }
 
     try {
-      console.log('[WAVETEK] WARNING: This method links your wallet on-chain!')
-      console.log('[WAVETEK] Use claimViaTEE() for private claims')
-      console.log('[WAVETEK] Withdrawing from escrow...')
+      console.log('[WAVETEK] direct claim mode (reduced privacy)')
+      console.log('[WAVETEK] processing withdrawal <ENCRYPTED>')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
@@ -1006,7 +997,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // Check if XWingCiphertext account exists and add it for cleanup
       const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
       if (xwingCtInfo && xwingCtInfo.data.length > 0) {
-        console.log('[WAVETEK] Including XWingCiphertext for cleanup')
+        console.log('[WAVETEK] including X-Wing ciphertext')
         withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
       }
 
@@ -1021,13 +1012,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const { blockhash } = await connection.getLatestBlockhash()
       tx.recentBlockhash = blockhash
 
-      console.log('[WAVETEK] Signing withdraw transaction...')
+      console.log('[WAVETEK] signing withdrawal <ENCRYPTED>')
       const signedTx = await signTransaction(tx)
 
-      console.log('[WAVETEK] Sending to L1...')
+      console.log('[WAVETEK] submitting <ENCRYPTED>')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
       await confirmTransactionPolling(connection, signature)
-      console.log('[WAVETEK] Withdraw confirmed')
+      console.log('[WAVETEK] withdrawal confirmed <ENCRYPTED>')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -1037,7 +1028,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       return true
 
     } catch (err: any) {
-      console.error('[WAVETEK] Withdraw failed:', err?.message || err)
+      console.error('[WAVETEK] withdrawal failed <ENCRYPTED>')
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'failed' as const } : e
       ))
@@ -1160,7 +1151,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       const perMixerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
         filters: [{ dataSize: PER_MIXER_DEPOSIT_SIZE }],
       }).catch((err) => {
-        console.error('[WAVETEK] Error scanning PER Mixer deposits:', err?.message || err)
+        console.error('[WAVETEK] scan failed <ENCRYPTED>')
         return []
       })
 
@@ -1438,7 +1429,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return foundCount
     } catch (err) {
-      console.error('[WAVETEK] Scan error:', err)
+      console.error('[WAVETEK] scan failed <ENCRYPTED>')
       return 0
     }
   }, [connection, pendingClaims, delegatedDeposits, pendingEscrows])
@@ -1472,7 +1463,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return keys
     } catch (err) {
-      console.error('[WAVETEK] Failed to generate keys:', err)
+      console.error('[WAVETEK] key generation failed <ENCRYPTED>')
       keysGeneratedRef.current = false
       return null
     }
@@ -1499,7 +1490,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
           await Promise.race([scanPromise, timeoutPromise])
         } catch (err) {
           // Timeout or error - just continue, don't block
-          console.log('[WAVETEK] Scan completed or timed out')
+          console.log('[WAVETEK] scan complete')
         }
         setLastScanTime(new Date())
       }
@@ -1569,7 +1560,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       setClaimHistory(prev => [...prev, { signature, amount: BigInt(vaultInfo.lamports), timestamp: Date.now() }])
       return true
     } catch (err: any) {
-      console.error('[WAVETEK] Claim failed:', err)
+      console.error('[WAVETEK] claim failed <ENCRYPTED>')
       setPendingClaims(prev => prev.map(c =>
         c.vaultAddress === vaultAddress ? { ...c, status: 'failed' as const } : c
       ))
@@ -1618,18 +1609,18 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       for (const escrow of toClaim) {
         autoClaimingRef.current.add(escrow.escrowAddress)
-        console.log('[WAVETEK] Auto-claiming detected escrow...')
+        console.log('[WAVETEK] auto-claiming <ENCRYPTED>')
 
         try {
           const success = await claimViaTEE(escrow, publicKey, escrow.sharedSecret)
           if (success) {
-            console.log('[WAVETEK] Successfully claimed escrow')
+            console.log('[WAVETEK] auto-claim complete <ENCRYPTED>')
             showClaimSuccess(Number(escrow.amount) / LAMPORTS_PER_SOL)
           } else {
-            console.warn('[WAVETEK] Claim returned false')
+            console.warn('[WAVETEK] claim returned false')
           }
         } catch (err) {
-          console.error('[WAVETEK] Claim error:', err)
+          console.error('[WAVETEK] claim error <ENCRYPTED>')
         }
       }
     }

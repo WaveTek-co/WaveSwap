@@ -56,26 +56,26 @@ export function useWaveStake() {
 
   // Initialize client with wallet
   useEffect(() => {
-    console.log('[WAVETEK] Wallet state changed:', { connected, publicKey: '<ENCRYPTED>', hasSignTx: !!signTransaction })
+    console.log('[WAVETEK] wallet state changed <ENCRYPTED>')
 
     if (connected && publicKey && signTransaction) {
       try {
-        console.log('[WAVETEK] Initializing WaveStake client...')
+        console.log('[WAVETEK] initializing client')
         waveStakeClient.setProvider({
           publicKey,
           signTransaction,
           signAllTransactions: async (txs) => Promise.all(txs.map(signTransaction)),
         })
-        console.log('[WAVETEK] WaveStake client initialized successfully')
+        console.log('[WAVETEK] client initialized')
       } catch (error) {
-        console.error('[WAVETEK] Failed to initialize WaveStake client:', error)
+        console.error('[WAVETEK] initialization failed <ENCRYPTED>')
         setState((prev) => ({
           ...prev,
           error: error instanceof Error ? error.message : 'Failed to initialize staking client'
         }))
       }
     } else {
-      console.log('[WAVETEK] Skipping initialization - wallet not fully connected')
+      console.log('[WAVETEK] wallet not ready')
     }
   }, [connected, publicKey, signTransaction])
 
@@ -105,14 +105,14 @@ export function useWaveStake() {
             stakes[poolId] = null
           }
         } catch (error) {
-          console.error('[WAVETEK] Error fetching stake: <ENCRYPTED>')
+          console.error('[WAVETEK] fetch stake failed <ENCRYPTED>')
           stakes[poolId] = null
         }
       }
 
       setState((prev) => ({ ...prev, userStakes: stakes, loading: false }))
     } catch (error: any) {
-      console.error('[WAVETEK] Error fetching user stakes: <ENCRYPTED>')
+      console.error('[WAVETEK] fetch stakes failed <ENCRYPTED>')
       setState((prev) => ({ ...prev, loading: false, error: error.message }))
     }
   }, [connected, publicKey, poolIds])
@@ -146,14 +146,14 @@ export function useWaveStake() {
             pools[poolId] = null
           }
         } catch (error) {
-          console.error('[WAVETEK] Error fetching pool: <ENCRYPTED>')
+          console.error('[WAVETEK] fetch pool failed <ENCRYPTED>')
           pools[poolId] = null
         }
       }
 
       setState((prev) => ({ ...prev, pools, loading: false }))
     } catch (error: any) {
-      console.error('[WAVETEK] Error fetching pools: <ENCRYPTED>')
+      console.error('[WAVETEK] fetch pools failed <ENCRYPTED>')
       setState((prev) => ({ ...prev, loading: false, error: error.message }))
     }
   }, [poolIds])
@@ -172,7 +172,7 @@ export function useWaveStake() {
     amount: number,
     lockType: LockType
   ) => {
-    console.log('[WAVETEK] stake called:', { poolId, amount, lockType, connected, publicKey: '<ENCRYPTED>' })
+    console.log('[WAVETEK] staking <ENCRYPTED>')
 
     if (!connected || !publicKey) {
       throw new Error('Wallet not connected')
@@ -190,25 +190,22 @@ export function useWaveStake() {
         signTransaction,
         signAllTransactions: async (txs) => Promise.all(txs.map(signTransaction)),
       })
-      console.log('[WAVETEK] Provider re-initialized before stake')
+      console.log('[WAVETEK] provider ready')
     } catch (error) {
-      console.error('[WAVETEK] Failed to initialize provider:', error)
+      console.error('[WAVETEK] provider failed <ENCRYPTED>')
     }
 
     setState((prev) => ({ ...prev, loading: true, error: null }))
 
     try {
-      console.log('[WAVETEK] Getting recent blockhash...')
+      console.log('[WAVETEK] preparing transaction')
       const { blockhash } = await connection.getLatestBlockhash()
 
-      console.log('[WAVETEK] Creating stake transaction...')
       const tx = await waveStakeClient.stake(
         poolId,
         Math.floor(amount * 1e9), // Convert SOL to lamports (1 SOL = 1e9 lamports)
         lockType
       )
-
-      console.log('[WAVETEK] Stake transaction created successfully')
 
       // Create a new transaction with the instructions and set blockhash immediately
       const transaction = new Transaction()
@@ -218,26 +215,19 @@ export function useWaveStake() {
       // Add all instructions from the created transaction
       tx.instructions.forEach(ix => transaction.add(ix))
 
-      console.log('[WAVETEK] Transaction prepared: <ENCRYPTED>')
-      console.log('[WAVETEK] Transaction instructions: <ENCRYPTED>')
-      console.log('[WAVETEK] Fee payer: <ENCRYPTED>')
-      transaction.instructions.forEach(() => {
-        console.log('[WAVETEK] Instruction: <ENCRYPTED>')
-      })
+      console.log('[WAVETEK] transaction prepared <ENCRYPTED>')
 
-      console.log('[WAVETEK] Signing transaction...')
+      console.log('[WAVETEK] signing <ENCRYPTED>')
       const signedTx = await signTransaction(transaction)
-      console.log('[WAVETEK] Transaction signed')
 
       // Send transaction
-      console.log('[WAVETEK] Sending transaction to blockchain...')
+      console.log('[WAVETEK] submitting <ENCRYPTED>')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      console.log('[WAVETEK] Transaction sent! Signature: <ENCRYPTED>')
+      console.log('[WAVETEK] submitted <ENCRYPTED>')
 
       // Confirm transaction
-      console.log('[WAVETEK] Confirming transaction...')
       await connection.confirmTransaction(signature, 'confirmed')
-      console.log('[WAVETEK] Transaction confirmed!')
+      console.log('[WAVETEK] confirmed <ENCRYPTED>')
 
       setState((prev) => ({ ...prev, loading: false }))
 
@@ -248,7 +238,7 @@ export function useWaveStake() {
 
       return { transaction, signature }
     } catch (error: any) {
-      console.error('[WAVETEK] Error creating stake transaction:', error)
+      console.error('[WAVETEK] stake failed <ENCRYPTED>')
       setState((prev) => ({ ...prev, loading: false, error: error.message }))
       throw error
     }
@@ -266,16 +256,13 @@ export function useWaveStake() {
     setState((prev) => ({ ...prev, loading: true, error: null }))
 
     try {
-      console.log('[WAVETEK] Getting recent blockhash...')
+      console.log('[WAVETEK] preparing transaction')
       const { blockhash } = await connection.getLatestBlockhash()
 
-      console.log('[WAVETEK] Creating unstake transaction...')
       const tx = await waveStakeClient.unstake(
         poolId,
         Math.floor(amount * 1e9) // Convert SOL to lamports
       )
-
-      console.log('[WAVETEK] Unstake transaction created successfully')
 
       // Create a new transaction with the instructions and set blockhash immediately
       const transaction = new Transaction()
@@ -285,20 +272,19 @@ export function useWaveStake() {
       // Add all instructions from the created transaction
       tx.instructions.forEach(ix => transaction.add(ix))
 
-      console.log('[WAVETEK] Transaction prepared: <ENCRYPTED>')
-      console.log('[WAVETEK] Signing transaction...')
+      console.log('[WAVETEK] transaction prepared <ENCRYPTED>')
+
+      console.log('[WAVETEK] signing <ENCRYPTED>')
       const signedTx = await signTransaction(transaction)
-      console.log('[WAVETEK] Transaction signed')
 
       // Send transaction
-      console.log('[WAVETEK] Sending transaction to blockchain...')
+      console.log('[WAVETEK] submitting <ENCRYPTED>')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      console.log('[WAVETEK] Transaction sent! Signature: <ENCRYPTED>')
+      console.log('[WAVETEK] submitted <ENCRYPTED>')
 
       // Confirm transaction
-      console.log('[WAVETEK] Confirming transaction...')
       await connection.confirmTransaction(signature, 'confirmed')
-      console.log('[WAVETEK] Transaction confirmed!')
+      console.log('[WAVETEK] confirmed <ENCRYPTED>')
 
       setState((prev) => ({ ...prev, loading: false }))
 
@@ -309,7 +295,7 @@ export function useWaveStake() {
 
       return { transaction, signature }
     } catch (error: any) {
-      console.error('[WAVETEK] Error creating unstake transaction:', error)
+      console.error('[WAVETEK] unstake failed <ENCRYPTED>')
       setState((prev) => ({ ...prev, loading: false, error: error.message }))
       throw error
     }
@@ -324,13 +310,10 @@ export function useWaveStake() {
     setState((prev) => ({ ...prev, loading: true, error: null }))
 
     try {
-      console.log('[WAVETEK] Getting recent blockhash...')
+      console.log('[WAVETEK] preparing transaction')
       const { blockhash } = await connection.getLatestBlockhash()
 
-      console.log('[WAVETEK] Creating claim rewards transaction...')
       const tx = await waveStakeClient.claimRewards(poolId)
-
-      console.log('[WAVETEK] Claim rewards transaction created successfully')
 
       // Create a new transaction with the instructions and set blockhash immediately
       const transaction = new Transaction()
@@ -340,20 +323,19 @@ export function useWaveStake() {
       // Add all instructions from the created transaction
       tx.instructions.forEach(ix => transaction.add(ix))
 
-      console.log('[WAVETEK] Transaction prepared: <ENCRYPTED>')
-      console.log('[WAVETEK] Signing transaction...')
+      console.log('[WAVETEK] transaction prepared <ENCRYPTED>')
+
+      console.log('[WAVETEK] signing <ENCRYPTED>')
       const signedTx = await signTransaction(transaction)
-      console.log('[WAVETEK] Transaction signed')
 
       // Send transaction
-      console.log('[WAVETEK] Sending transaction to blockchain...')
+      console.log('[WAVETEK] submitting <ENCRYPTED>')
       const signature = await connection.sendRawTransaction(signedTx.serialize())
-      console.log('[WAVETEK] Transaction sent! Signature: <ENCRYPTED>')
+      console.log('[WAVETEK] submitted <ENCRYPTED>')
 
       // Confirm transaction
-      console.log('[WAVETEK] Confirming transaction...')
       await connection.confirmTransaction(signature, 'confirmed')
-      console.log('[WAVETEK] Transaction confirmed!')
+      console.log('[WAVETEK] confirmed <ENCRYPTED>')
 
       setState((prev) => ({ ...prev, loading: false }))
 
@@ -364,7 +346,7 @@ export function useWaveStake() {
 
       return { transaction, signature }
     } catch (error: any) {
-      console.error('[WAVETEK] Error creating claim rewards transaction:', error)
+      console.error('[WAVETEK] claim failed <ENCRYPTED>')
       setState((prev) => ({ ...prev, loading: false, error: error.message }))
       throw error
     }

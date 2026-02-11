@@ -24,7 +24,7 @@ export function useWallet() {
       }
     })),
     select: (walletName: string) => {
-      console.log(`Selecting wallet: ${walletName}`)
+      console.log('[WAVETEK] selecting wallet <ENCRYPTED>')
     },
     connect: async (walletName?: string) => {
       // ConnectButton handles connection, but we keep this for backward compatibility
@@ -32,14 +32,14 @@ export function useWallet() {
         try {
           return await multiWallet.connect(walletName)
         } catch (error) {
-          console.log('ConnectButton should handle connection automatically')
+          console.log('[WAVETEK] connection delegated')
         }
       } else {
         // Default to phantom for backward compatibility
         try {
           return await multiWallet.connect('phantom')
         } catch (error) {
-          console.log('ConnectButton should handle connection automatically')
+          console.log('[WAVETEK] connection delegated')
         }
       }
     },
@@ -47,7 +47,7 @@ export function useWallet() {
       try {
         return await multiWallet.disconnect()
       } catch (error) {
-        console.log('ConnectButton should handle disconnection automatically')
+        console.log('[WAVETEK] disconnection delegated')
       }
     },
     signTransaction: multiWallet.signTransaction,

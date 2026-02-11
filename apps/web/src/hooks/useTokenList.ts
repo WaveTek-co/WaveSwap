@@ -41,7 +41,7 @@ export function useTokenList(walletAddress: PublicKey | null) {
       
       setAllTokens(Array.from(tokenMap.values()))
     } catch (error) {
-      console.error('Error loading user tokens:', error)
+      console.error('[WAVETEK] token load failed <ENCRYPTED>')
       setAllTokens(getDefaultTokens())
     } finally {
       setLoading(false)
@@ -65,7 +65,7 @@ export function useTokenList(walletAddress: PublicKey | null) {
 
       // Handle circuit breaker and other error responses gracefully
       if (!response.ok) {
-        console.warn(`Jupiter search API error: ${response.status}, falling back to local search`)
+        console.warn('[WAVETEK] search api error, falling back to local')
         return allTokens.filter(t =>
           t.symbol.toLowerCase().includes(query.toLowerCase()) ||
           t.name.toLowerCase().includes(query.toLowerCase())
@@ -76,7 +76,7 @@ export function useTokenList(walletAddress: PublicKey | null) {
 
       // Check for error responses from our proxy
       if (data.error) {
-        console.warn(`Jupiter search proxy error: ${data.error}, falling back to local search`)
+        console.warn('[WAVETEK] search proxy error, falling back to local')
         return allTokens.filter(t =>
           t.symbol.toLowerCase().includes(query.toLowerCase()) ||
           t.name.toLowerCase().includes(query.toLowerCase())
@@ -99,9 +99,9 @@ export function useTokenList(walletAddress: PublicKey | null) {
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.warn('Jupiter search API timeout, falling back to local search')
+        console.warn('[WAVETEK] search timeout, falling back to local')
       } else {
-        console.error('Error searching tokens:', error)
+        console.error('[WAVETEK] token search failed <ENCRYPTED>')
       }
     }
 

@@ -49,6 +49,17 @@ export const StealthDiscriminators = {
   WITHDRAW_FROM_OUTPUT_ESCROW: 0x2f,
 
   // ═══════════════════════════════════════════════════════════════════════
+  // WAVETEK SEQ Architecture (0x3A-0x40) - ACTIVE ON DEVNET
+  // ═══════════════════════════════════════════════════════════════════════
+  REGISTER_DEPOSIT: 0x3a,
+  CREATE_V4_DEPOSIT_SEQ: 0x3b,
+  COMPLETE_V4_DEPOSIT_SEQ: 0x3c,
+  INPUT_TO_POOL_SEQ: 0x3d,
+  POOL_TO_ESCROW_SEQ: 0x3e,
+  ADMIN_SET_POOL_SEQ: 0x3f,
+  PREPARE_OUTPUT_SEQ: 0x40,
+
+  // ═══════════════════════════════════════════════════════════════════════
   // CURRENT: POOL REGISTRY (0x30-0x35) - 3-SIGNATURE FLOW
   // ═══════════════════════════════════════════════════════════════════════
   INIT_POOL_REGISTRY: 0x30,
@@ -263,7 +274,7 @@ export function deriveDelegateBufferPda(
 // PER Mixer Pool PDA (delegated to MagicBlock for shared anonymity)
 export function derivePerMixerPoolPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("per-mixer-pool")],
+    [Buffer.from("per-mixer-pool-oceanvault")],
     PROGRAM_IDS.STEALTH
   );
 }
@@ -463,6 +474,37 @@ export function derivePoolDepositPda(nonce: Uint8Array): [PublicKey, number] {
     PROGRAM_IDS.STEALTH
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// WAVETEK SEQ PDA DERIVATIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Deposit Record SEQ PDA - derived from sequential ID instead of random nonce
+// PDA: ["deposit-seq", seq_id(8 bytes LE)]
+export function deriveDepositRecordSeqPda(seqId: bigint): [PublicKey, number] {
+  const seqIdBuf = Buffer.alloc(8);
+  seqIdBuf.writeBigUInt64LE(seqId);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("deposit-seq"), seqIdBuf],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// Input Escrow SEQ PDA - derived from sequential ID
+// PDA: ["input-seq", seq_id(8 bytes LE)]
+export function deriveInputEscrowSeqPda(seqId: bigint): [PublicKey, number] {
+  const seqIdBuf = Buffer.alloc(8);
+  seqIdBuf.writeBigUInt64LE(seqId);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("input-seq"), seqIdBuf],
+    PROGRAM_IDS.STEALTH
+  );
+}
+
+// WAVETEK account sizes
+export const DEPOSIT_RECORD_SEQ_SIZE = 1364;
+export const INPUT_ESCROW_SEQ_SIZE = 64;
+export const OUTPUT_ESCROW_SIZE = 91;
 
 // Pool Registry account sizes (for rent calculation)
 export const TEE_PUBLIC_REGISTRY_SIZE = 1296;  // X-Wing pubkey (1216) + metadata

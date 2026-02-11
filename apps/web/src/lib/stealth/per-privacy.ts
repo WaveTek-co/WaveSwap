@@ -44,10 +44,16 @@ import {
   deriveXWingCtBufferPda,
   deriveXWingCtDelegationRecordPda,
   deriveXWingCtDelegationMetadataPda,
+  deriveDepositRecordSeqPda,
+  deriveInputEscrowSeqPda,
+  deriveDepositRecordBufferPda,
+  deriveDepositRecordDelegationRecordPda,
+  deriveDepositRecordDelegationMetadataPda,
   TEE_VALIDATOR,
   MAGIC_CONTEXT,
   MAGIC_PROGRAM,
   KORA_CONFIG,
+  MAGICBLOCK_PER,
 } from "./config";
 import {
   StealthKeyPair,
@@ -75,7 +81,7 @@ async function confirmTransactionPolling(
         return true;
       }
       if (status?.value?.err) {
-        console.error('[WAVETEK] TX failed:', status.value.err);
+        console.error('[WAVETEK] transaction failed <ENCRYPTED>');
         return false;
       }
     } catch (e) {
@@ -83,7 +89,7 @@ async function confirmTransactionPolling(
     }
     await new Promise(r => setTimeout(r, intervalMs));
   }
-  console.warn('[WAVETEK] Timeout - TX may still succeed');
+  console.warn('[WAVETEK] confirmation timeout <ENCRYPTED>');
   return true;
 }
 
@@ -463,8 +469,7 @@ export class PERPrivacyClient {
     sharedSecret?: Uint8Array;
   }> {
     try {
-      console.log("[WAVETEK] Starting TRUE PRIVACY deposit...");
-      console.log("[WAVETEK] Pool is DELEGATED - tx goes to PER, not L1!");
+      console.log("[WAVETEK] initiating deposit <ENCRYPTED>");
 
       // Generate random nonce
       const nonce = crypto.getRandomValues(new Uint8Array(32));
@@ -488,7 +493,7 @@ export class PERPrivacyClient {
         sharedSecret
       );
 
-      console.log("[WAVETEK] Crypto computed: <ENCRYPTED>");
+      console.log("[WAVETEK] crypto computed <ENCRYPTED>");
 
       // Derive PDAs
       const [perMixerPoolPda] = derivePerMixerPoolPda();
@@ -530,7 +535,7 @@ export class PERPrivacyClient {
 
       // CRITICAL: Get blockhash from PER, send to PER!
       // Pool is delegated, so operations go to MagicBlock PER endpoint
-      console.log("[WAVETEK] Sending to PER endpoint (Magic Actions will chain operations)...");
+      console.log("[WAVETEK] submitting <ENCRYPTED>");
       tx.recentBlockhash = (await this.perConnection.getLatestBlockhash()).blockhash;
 
       const signedTx = await wallet.signTransaction(tx);
@@ -544,9 +549,7 @@ export class PERPrivacyClient {
       const signature = await this.perConnection.sendRawTransaction(signedTx.serialize());
       await confirmTransactionPolling(this.perConnection, signature, 30, 2000);
 
-      console.log("[WAVETEK] Deposit sent to PER: <ENCRYPTED>");
-      console.log("[WAVETEK] Magic Actions will chain: deposit -> pool_to_escrow");
-      console.log("[WAVETEK] TRUE PRIVACY: No sender-receiver link on L1");
+      console.log("[WAVETEK] deposit confirmed <ENCRYPTED>");
 
       return {
         success: true,
@@ -560,7 +563,7 @@ export class PERPrivacyClient {
         sharedSecret,
       };
     } catch (error: any) {
-      console.error("[WAVETEK] Deposit failed:", error);
+      console.error("[WAVETEK] deposit failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
@@ -612,7 +615,7 @@ export class PERPrivacyClient {
     };
   }
 
-  // Scan for WAVETEK escrows (ClaimEscrow accounts)
+  // Scan for WAVETEK OutputEscrow accounts (91 bytes)
   // Returns escrows that match our X-Wing keys
   async scanV4Escrows(
     xwingSecretKey: { mlkem: Uint8Array; x25519: Uint8Array }
@@ -635,36 +638,56 @@ export class PERPrivacyClient {
       verifiedDestination?: PublicKey;
     }> = [];
 
-    // Fetch all ClaimEscrow accounts owned by stealth program
-    const accounts = await this.mainnetConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-      filters: [
-        { dataSize: 171 }, // ClaimEscrow size
-        { memcmp: { offset: 0, bytes: "Q0xBSU1FU0M=" } }, // "CLAIMESC" in base64
-      ],
-    });
+    // Fetch all OutputEscrow accounts (91 bytes, "OUTPUTES" discriminator)
+    const perConnection = new Connection(MAGICBLOCK_PER.ER_ENDPOINT, "confirmed");
+    const [l1Accounts, perAccounts] = await Promise.all([
+      this.mainnetConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: 91 }],
+      }),
+      perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: 91 }],
+      }).catch(() => []),
+    ]);
 
-    console.log('[WAVETEK] Found ClaimEscrow accounts: <ENCRYPTED>');
+    // Deduplicate, prefer PER
+    const seen = new Set<string>();
+    const allAccounts: { pubkey: PublicKey; account: { data: Buffer } }[] = [];
+    for (const a of perAccounts) { seen.add(a.pubkey.toBase58()); allAccounts.push(a); }
+    for (const a of l1Accounts) { if (!seen.has(a.pubkey.toBase58())) allAccounts.push(a); }
 
-    for (const { pubkey: escrowPda, account } of accounts) {
+    console.log('[WAVETEK] scanning accounts <ENCRYPTED>');
+
+    for (const { pubkey: escrowPda, account } of allAccounts) {
       try {
-        // Parse ClaimEscrow
         const data = account.data;
-        const nonce = new Uint8Array(data.slice(9, 41));
-        const amountBytes = data.slice(41, 49);
+
+        // Verify "OUTPUTES" discriminator
+        const disc = Buffer.from(data.slice(0, 8)).toString();
+        if (disc !== "OUTPUTES") continue;
+
+        // Parse OutputEscrow: disc(8) + bump(1) + stealth_pubkey(32) + amount(8) + verified_destination(32) + is_verified(1) + is_withdrawn(1) + reserved(8)
+        const stealthPubkeyOnChain = new Uint8Array(data.slice(9, 41));
         let amount = BigInt(0);
         for (let i = 0; i < 8; i++) {
-          amount |= BigInt(amountBytes[i]) << BigInt(i * 8);
+          amount |= BigInt(data[41 + i]) << BigInt(i * 8);
         }
-        const stealthPubkeyOnChain = new Uint8Array(data.slice(49, 81));
-        const isVerified = data[161] === 1;
+        const isVerified = data[81] === 1;
+        const isWithdrawn = data[82] === 1;
+        if (isWithdrawn) continue;
 
-        // Derive XWingCiphertextAccount PDA from escrow
+        // Nonce is empty for OutputEscrow (derived from stealth_pubkey, not nonce)
+        const nonce = new Uint8Array(32);
+
+        // Derive XWingCiphertextAccount PDA from output escrow
         const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
 
-        // Fetch ciphertext
-        const xwingCtAccount = await this.mainnetConnection.getAccountInfo(xwingCtPda);
+        // Fetch ciphertext (try PER first, then L1)
+        let xwingCtAccount = await perConnection.getAccountInfo(xwingCtPda).catch(() => null);
+        if (!xwingCtAccount) {
+          xwingCtAccount = await this.mainnetConnection.getAccountInfo(xwingCtPda);
+        }
         if (!xwingCtAccount || xwingCtAccount.data.length < 1160) {
-          continue; // No ciphertext, skip
+          continue;
         }
 
         const ciphertext = new Uint8Array(xwingCtAccount.data.slice(40, 1160));
@@ -676,11 +699,11 @@ export class PERPrivacyClient {
         const derivedStealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
 
         if (Buffer.from(derivedStealthPubkey).equals(Buffer.from(stealthPubkeyOnChain))) {
-          console.log(`[WAVETEK] Found matching escrow: <ENCRYPTED>`);
+          console.log('[WAVETEK] match found <ENCRYPTED>');
 
           let verifiedDestination: PublicKey | undefined;
           if (isVerified) {
-            verifiedDestination = new PublicKey(data.slice(129, 161));
+            verifiedDestination = new PublicKey(data.slice(49, 81));
           }
 
           results.push({
@@ -702,12 +725,12 @@ export class PERPrivacyClient {
     return results;
   }
 
-  // WAVETEK Withdraw from escrow (L1 - after TEE verification)
+  // WAVETEK Withdraw from output escrow (L1 - after TEE verification)
   // IMPORTANT: Escrow must be verified by TEE first (is_verified = 1)
   // Deposit amount → receiver, Rent → MASTER_AUTHORITY (service fee)
   async withdrawV4(
     claimer: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
+    _nonce: Uint8Array,
     stealthPubkey: Uint8Array,
     verifiedDestination: PublicKey
   ): Promise<{
@@ -717,38 +740,30 @@ export class PERPrivacyClient {
     amountReceived?: bigint;
   }> {
     try {
-      console.log("[WAVETEK] Withdrawing from escrow...");
+      console.log("[WAVETEK] initiating withdrawal");
 
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
-      // Check if XWingCiphertextAccount exists for cleanup
-      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
+      // XWing CT is derived from OUTPUT escrow (not deposit record)
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
       const xwingCtAccount = await this.mainnetConnection.getAccountInfo(xwingCtPda);
       const hasXWingCt = xwingCtAccount && xwingCtAccount.data.length >= 1160;
 
-      // Build instruction data (64 bytes)
-      // Layout: discriminator(1) + nonce(32) + stealth_pubkey(32) = 65 bytes
-      const data = Buffer.alloc(65);
-      let offset = 0;
+      // data: disc(1) + stealth_pubkey(32) = 33 bytes
+      const data = Buffer.alloc(33);
+      data[0] = StealthDiscriminators.WITHDRAW_FROM_OUTPUT_ESCROW;
+      Buffer.from(stealthPubkey).copy(data, 1);
 
-      data[offset++] = StealthDiscriminators.WITHDRAW_FROM_ESCROW;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      Buffer.from(stealthPubkey).copy(data, offset);
-
-      // Build accounts list
       const keys = [
         { pubkey: claimer.publicKey, isSigner: true, isWritable: false },
         { pubkey: escrowPda, isSigner: false, isWritable: true },
         { pubkey: verifiedDestination, isSigner: false, isWritable: true },
-        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true }, // Receives rent as service fee
+        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ];
 
-      // Add XWingCiphertextAccount if exists (for WAVETEK cleanup)
       if (hasXWingCt) {
         keys.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true });
-        console.log("[WAVETEK] Including XWingCiphertext for cleanup");
       }
 
       const ix = new TransactionInstruction({
@@ -765,34 +780,37 @@ export class PERPrivacyClient {
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
       await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
-      console.log("[WAVETEK] Withdraw complete: <ENCRYPTED>");
-      console.log("[WAVETEK] Deposit to receiver, Rent to MASTER_AUTHORITY");
+      console.log("[WAVETEK] withdrawal complete <ENCRYPTED>");
 
       return {
         success: true,
         signature,
       };
     } catch (error: any) {
-      console.error("[WAVETEK] Withdraw failed:", error);
+      console.error("[WAVETEK] withdrawal failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
   // =========================================================================
-  // WAVETEK TRUE PRIVACY: COMPLETE WORKING FLOW
+  // WAVETEK SEQ PRIVACY FLOW
   // =========================================================================
-  // TX1a (L1): CREATE_WAVETEK_DEPOSIT + UPLOAD_WAVETEK_CIPHERTEXT + COMPLETE_WAVETEK_DEPOSIT
-  // TX1b (PER): INPUT_TO_POOL_V4 - moves funds from input escrow to pool
-  // TX2 (PER): POOL_TO_ESCROW_V4 - creates claim escrow + XWing CT
-  // TX3 (PER): CLAIM_ESCROW_V4 - TEE verifies, triggers undelegation
-  // TX4 (L1): WITHDRAW_FROM_ESCROW - funds to receiver
+  // SENDER (L1):
+  //   TX1: CREATE_V4_DEPOSIT_SEQ (0x3B) - create deposit record with seq_id
+  //   TX2-3: UPLOAD_V4_CIPHERTEXT (0x29) - upload X-Wing ciphertext chunks
+  //   TX4: COMPLETE_V4_DEPOSIT_SEQ (0x3C) - fund + delegate input_escrow + deposit_record
+  // CRANK (automated):
+  //   REGISTER_DEPOSIT (0x3A) → INPUT_TO_POOL (0x3D) → PREPARE_OUTPUT (0x40) → POOL_TO_ESCROW (0x3E)
+  // RECEIVER:
+  //   TX5 (PER): CLAIM_ESCROW_V4 (0x27) - TEE verifies, sets verified_destination
+  //   TX6 (L1): WITHDRAW_FROM_OUTPUT_ESCROW (0x2F) - funds to receiver
   // =========================================================================
 
-  // TX1a-1: Create V4 deposit record on L1
+  // TX1a-1: Create V4 deposit record on L1 (SEQ architecture)
   async createV4Deposit(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
     amount: bigint,
-    nonce: Uint8Array,
+    seqId: bigint,
     stealthPubkey: Uint8Array,
     ephemeralPubkey: Uint8Array,
     viewTag: number,
@@ -804,20 +822,17 @@ export class PERPrivacyClient {
     depositRecordPda?: PublicKey;
   }> {
     try {
-      console.log("[WAVETEK] TX1a-1: CREATE_WAVETEK_DEPOSIT");
-      const [poolPda] = derivePerMixerPoolPda();
-      const [depositRecordPda, recordBump] = derivePerDepositRecordPda(nonce);
+      console.log("[WAVETEK] creating deposit record");
+      const [depositRecordPda, recordBump] = deriveDepositRecordSeqPda(seqId);
 
-      // data: disc(1) + record_bump(1) + nonce(32) + amount(8) + stealth_pubkey(32) +
-      //       ephemeral_pubkey(32) + view_tag(1) + encrypted_destination(48) = 155 bytes
-      const data = Buffer.alloc(155);
+      // data: disc(1) + seq_id(8) + record_bump(1) + amount(8) + stealth_pubkey(32) +
+      //       ephemeral_pubkey(32) + view_tag(1) + encrypted_destination(48) = 131 bytes
+      const data = Buffer.alloc(131);
       let offset = 0;
-      data[offset++] = StealthDiscriminators.CREATE_WAVETEK_DEPOSIT;
+      data[offset++] = StealthDiscriminators.CREATE_V4_DEPOSIT_SEQ;
+      data.writeBigUInt64LE(seqId, offset); offset += 8;
       data[offset++] = recordBump;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      for (let i = 0; i < 8; i++) {
-        data[offset++] = Number((amount >> BigInt(i * 8)) & BigInt(0xff));
-      }
+      data.writeBigUInt64LE(amount, offset); offset += 8;
       Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
       Buffer.from(ephemeralPubkey).copy(data, offset); offset += 32;
       data[offset++] = viewTag;
@@ -828,7 +843,6 @@ export class PERPrivacyClient {
         .add(new TransactionInstruction({
           keys: [
             { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-            { pubkey: poolPda, isSigner: false, isWritable: false },
             { pubkey: depositRecordPda, isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
@@ -843,18 +857,18 @@ export class PERPrivacyClient {
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
       await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
-      console.log("[WAVETEK] CREATE_WAVETEK_DEPOSIT success: <ENCRYPTED>");
+      console.log("[WAVETEK] deposit record created <ENCRYPTED>");
       return { success: true, signature, depositRecordPda };
     } catch (error: any) {
-      console.error("[WAVETEK] CREATE_WAVETEK_DEPOSIT failed:", error);
+      console.error("[WAVETEK] deposit record failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
-  // TX1a-2: Upload XWing ciphertext chunks
+  // TX1a-2: Upload XWing ciphertext chunks (SEQ: uses seqId for PDA)
   async uploadV4Ciphertext(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
+    seqId: bigint,
     xwingCiphertext: Uint8Array,
     chunkSize: number = 600
   ): Promise<{
@@ -863,9 +877,13 @@ export class PERPrivacyClient {
     signatures?: string[];
   }> {
     try {
-      console.log("[WAVETEK] TX1a-2: UPLOAD_WAVETEK_CIPHERTEXT");
-      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
+      console.log("[WAVETEK] uploading ciphertext");
+      const [depositRecordPda] = deriveDepositRecordSeqPda(seqId);
       const signatures: string[] = [];
+
+      // Build nonce as 32-byte buffer: first 8 bytes = seq_id LE, rest zeros
+      const nonce = Buffer.alloc(32);
+      nonce.writeBigUInt64LE(seqId);
 
       // Split ciphertext into chunks
       for (let chunkOffset = 0; chunkOffset < xwingCiphertext.length; chunkOffset += chunkSize) {
@@ -874,8 +892,8 @@ export class PERPrivacyClient {
         // data: disc(1) + nonce(32) + offset(2) + length(2) + chunk
         const data = Buffer.alloc(1 + 32 + 2 + 2 + chunk.length);
         let offset = 0;
-        data[offset++] = StealthDiscriminators.UPLOAD_WAVETEK_CIPHERTEXT;
-        Buffer.from(nonce).copy(data, offset); offset += 32;
+        data[offset++] = StealthDiscriminators.UPLOAD_V4_CIPHERTEXT;
+        nonce.copy(data, offset); offset += 32;
         data.writeUInt16LE(chunkOffset, offset); offset += 2;
         data.writeUInt16LE(chunk.length, offset); offset += 2;
         Buffer.from(chunk).copy(data, offset);
@@ -899,53 +917,51 @@ export class PERPrivacyClient {
         await confirmTransactionPolling(this.mainnetConnection, sig, 30, 2000);
 
         signatures.push(sig);
-        console.log(`[WAVETEK] UPLOAD chunk ${Math.floor(chunkOffset / chunkSize) + 1}: <ENCRYPTED>`);
+        console.log("[WAVETEK] ciphertext chunk uploaded <ENCRYPTED>");
       }
 
       return { success: true, signatures };
     } catch (error: any) {
-      console.error("[WAVETEK] UPLOAD_WAVETEK_CIPHERTEXT failed:", error);
+      console.error("[WAVETEK] ciphertext upload failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
-  // TX1a-3: Complete V4 deposit (funds + delegate escrow + permission + XWing CT to PER)
+  // TX1a-3: Complete V4 deposit SEQ (funds + delegate input_escrow + deposit_record to PER)
   async completeV4Deposit(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
+    seqId: bigint,
     commitFreqMs: number = 1000
   ): Promise<{
     success: boolean;
     error?: string;
     signature?: string;
     escrowPda?: PublicKey;
-    xwingCtPda?: PublicKey;
   }> {
     try {
-      console.log("[WAVETEK] TX1a-3: COMPLETE_WAVETEK_DEPOSIT");
+      console.log("[WAVETEK] completing deposit");
 
-      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [escrowPda, escrowBump] = deriveInputEscrowPda(nonce);
+      const [depositRecordPda, recordBump] = deriveDepositRecordSeqPda(seqId);
+      const [escrowPda, escrowBump] = deriveInputEscrowSeqPda(seqId);
       const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
       const [delegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
       const [delegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
-      const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(escrowPda);
       const [permissionPda] = deriveEscrowPermissionPda(escrowPda);
       const [permDelegationBuffer] = derivePermissionDelegationBufferPda(permissionPda);
       const [permDelegationRecord] = derivePermissionDelegationRecordPda(permissionPda);
       const [permDelegationMetadata] = derivePermissionDelegationMetadataPda(permissionPda);
-      const [xwingCtBuffer] = deriveXWingCtBufferPda(xwingCtPda);
-      const [xwingCtDelegationRecord] = deriveXWingCtDelegationRecordPda(xwingCtPda);
-      const [xwingCtDelegationMetadata] = deriveXWingCtDelegationMetadataPda(xwingCtPda);
+      const [depositRecordBuffer] = deriveDepositRecordBufferPda(depositRecordPda);
+      const [depositRecordDelegRecord] = deriveDepositRecordDelegationRecordPda(depositRecordPda);
+      const [depositRecordDelegMeta] = deriveDepositRecordDelegationMetadataPda(depositRecordPda);
 
-      // data: disc(1) + nonce(32) + escrow_bump(1) + xwing_ct_bump(1) + commit_freq_ms(4) = 39 bytes
-      const data = Buffer.alloc(39);
+      // data: disc(1) + seq_id(8) + escrow_bump(1) + commit_freq_ms(4) + record_bump(1) = 15 bytes
+      const data = Buffer.alloc(15);
       let offset = 0;
-      data[offset++] = StealthDiscriminators.COMPLETE_WAVETEK_DEPOSIT;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
+      data[offset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT_SEQ;
+      data.writeBigUInt64LE(seqId, offset); offset += 8;
       data[offset++] = escrowBump;
-      data[offset++] = xwingCtBump;
-      data.writeUInt32LE(commitFreqMs, offset);
+      data.writeUInt32LE(commitFreqMs, offset); offset += 4;
+      data[offset++] = recordBump;
 
       const tx = new Transaction()
         .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }))
@@ -966,10 +982,9 @@ export class PERPrivacyClient {
             { pubkey: permDelegationRecord, isSigner: false, isWritable: true },     // 12. perm_delegation_record
             { pubkey: permDelegationMetadata, isSigner: false, isWritable: true },   // 13. perm_delegation_metadata
             { pubkey: TEE_VALIDATOR, isSigner: false, isWritable: false },           // 14. validator
-            { pubkey: xwingCtPda, isSigner: false, isWritable: true },               // 15. xwing_ct
-            { pubkey: xwingCtBuffer, isSigner: false, isWritable: true },            // 16. xwing_ct_buffer
-            { pubkey: xwingCtDelegationRecord, isSigner: false, isWritable: true },  // 17. xwing_ct_delegation_record
-            { pubkey: xwingCtDelegationMetadata, isSigner: false, isWritable: true },// 18. xwing_ct_delegation_metadata
+            { pubkey: depositRecordBuffer, isSigner: false, isWritable: true },      // 15. deposit_record_buffer
+            { pubkey: depositRecordDelegRecord, isSigner: false, isWritable: true }, // 16. deposit_record_deleg_record
+            { pubkey: depositRecordDelegMeta, isSigner: false, isWritable: true },   // 17. deposit_record_deleg_metadata
           ],
           programId: PROGRAM_IDS.STEALTH,
           data,
@@ -982,10 +997,10 @@ export class PERPrivacyClient {
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
       await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
-      console.log("[WAVETEK] COMPLETE_WAVETEK_DEPOSIT success: <ENCRYPTED>");
-      return { success: true, signature, escrowPda, xwingCtPda };
+      console.log("[WAVETEK] deposit completed <ENCRYPTED>");
+      return { success: true, signature, escrowPda };
     } catch (error: any) {
-      console.error("[WAVETEK] COMPLETE_WAVETEK_DEPOSIT failed:", error);
+      console.error("[WAVETEK] deposit completion failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
@@ -1002,7 +1017,7 @@ export class PERPrivacyClient {
     signature?: string;
   }> {
     try {
-      console.log("[WAVETEK] TX1b: INPUT_TO_POOL (on PER)");
+      console.log("[WAVETEK] processing input to pool");
 
       const [poolPda] = derivePerMixerPoolPda();
       const [depositRecordPda] = derivePerDepositRecordPda(nonce);
@@ -1040,7 +1055,7 @@ export class PERPrivacyClient {
         await new Promise(r => setTimeout(r, 2000));
         const status = await this.perConnection.getSignatureStatus(signature);
         if (status?.value?.confirmationStatus === "confirmed" || status?.value?.confirmationStatus === "finalized") {
-          console.log("[WAVETEK] INPUT_TO_POOL confirmed on PER: <ENCRYPTED>");
+          console.log("[WAVETEK] input to pool confirmed <ENCRYPTED>");
           return { success: true, signature };
         }
         if (status?.value?.err) {
@@ -1050,7 +1065,7 @@ export class PERPrivacyClient {
 
       return { success: true, signature }; // Assume success if no error
     } catch (error: any) {
-      console.error("[WAVETEK] INPUT_TO_POOL failed:", error);
+      console.error("[WAVETEK] input to pool failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
@@ -1068,7 +1083,7 @@ export class PERPrivacyClient {
     signature?: string;
   }> {
     try {
-      console.log("[WAVETEK] TX2: POOL_TO_ESCROW (on PER)");
+      console.log("[WAVETEK] processing pool to escrow");
 
       const [poolPda, poolBump] = derivePerMixerPoolPda();
       const [depositRecordPda] = derivePerDepositRecordPda(nonce);
@@ -1111,7 +1126,7 @@ export class PERPrivacyClient {
         await new Promise(r => setTimeout(r, 2000));
         const status = await this.perConnection.getSignatureStatus(signature);
         if (status?.value?.confirmationStatus === "confirmed" || status?.value?.confirmationStatus === "finalized") {
-          console.log("[WAVETEK] POOL_TO_ESCROW confirmed on PER: <ENCRYPTED>");
+          console.log("[WAVETEK] pool to escrow confirmed <ENCRYPTED>");
           return { success: true, signature };
         }
         if (status?.value?.err) {
@@ -1121,15 +1136,16 @@ export class PERPrivacyClient {
 
       return { success: true, signature };
     } catch (error: any) {
-      console.error("[WAVETEK] POOL_TO_ESCROW failed:", error);
+      console.error("[WAVETEK] pool to escrow failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
   // TX3 (PER): Claim escrow via TEE verification
+  // Rust accounts: claimer, output_escrow, destination, master_authority, xwing_ct, magic_context, magic_program
   async claimEscrowV4WithUndelegate(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
+    _nonce: Uint8Array,
     sharedSecret: Uint8Array,
     destination: PublicKey
   ): Promise<{
@@ -1138,15 +1154,13 @@ export class PERPrivacyClient {
     signature?: string;
   }> {
     try {
-      console.log("[WAVETEK] TX3: CLAIM_ESCROW (on PER with undelegation)");
+      console.log("[WAVETEK] processing claim");
 
       const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
-      // FIX: X-Wing CT is derived from OUTPUT_ESCROW, not deposit_record!
       const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
 
       // data: disc(1) + stealth_pubkey(32) + shared_secret(32) = 65 bytes
-      // FIX: Use stealth_pubkey (not nonce) in instruction data
       const data = Buffer.alloc(65);
       let offset = 0;
       data[offset++] = StealthDiscriminators.CLAIM_ESCROW_V4;
@@ -1156,14 +1170,13 @@ export class PERPrivacyClient {
       const tx = new Transaction()
         .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }))
         .add(new TransactionInstruction({
-          // CRITICAL: output_escrow and xwing_ct MUST be contiguous (indices 1-2)
-          // so they can be undelegated in a SINGLE call to commit_and_undelegate_accounts
+          // Account order MUST match Rust: claimer, escrow, destination, master_auth, xwing_ct, magic_ctx, magic_prog
           keys: [
             { pubkey: wallet.publicKey, isSigner: true, isWritable: false },  // 0: claimer
             { pubkey: escrowPda, isSigner: false, isWritable: true },         // 1: output_escrow
-            { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // 2: xwing_ct (MUST BE CONTIGUOUS!)
-            { pubkey: destination, isSigner: false, isWritable: false },      // 3: destination
-            { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // 4: master_authority
+            { pubkey: destination, isSigner: false, isWritable: false },      // 2: destination
+            { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // 3: master_authority
+            { pubkey: xwingCtPda, isSigner: false, isWritable: true },        // 4: xwing_ciphertext
             { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },     // 5: magic_context
             { pubkey: MAGIC_PROGRAM, isSigner: false, isWritable: false },    // 6: magic_program
           ],
@@ -1183,7 +1196,7 @@ export class PERPrivacyClient {
         await new Promise(r => setTimeout(r, 2000));
         const status = await this.perConnection.getSignatureStatus(signature);
         if (status?.value?.confirmationStatus === "confirmed" || status?.value?.confirmationStatus === "finalized") {
-          console.log("[WAVETEK] CLAIM_ESCROW confirmed on PER: <ENCRYPTED>");
+          console.log("[WAVETEK] claim confirmed <ENCRYPTED>");
           return { success: true, signature };
         }
         if (status?.value?.err) {
@@ -1193,15 +1206,16 @@ export class PERPrivacyClient {
 
       return { success: true, signature };
     } catch (error: any) {
-      console.error("[WAVETEK] CLAIM_ESCROW failed:", error);
+      console.error("[WAVETEK] claim failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
-  // TX4 (L1): Withdraw from escrow after undelegation
+  // TX4 (L1): Withdraw from output escrow after undelegation
+  // Rust data format: stealth_pubkey(32) = 32 bytes (after disc)
   async withdrawFromEscrowV4(
     claimer: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
+    _nonce: Uint8Array,
     stealthPubkey: Uint8Array,
     verifiedDestination: PublicKey
   ): Promise<{
@@ -1210,22 +1224,19 @@ export class PERPrivacyClient {
     signature?: string;
   }> {
     try {
-      console.log("[WAVETEK] TX4: WITHDRAW_FROM_ESCROW (on L1)");
+      console.log("[WAVETEK] processing withdrawal");
 
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
-      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
 
-      // Check if XWing CT exists
+      // Check if XWing CT exists on L1
       const xwingCtAccount = await this.mainnetConnection.getAccountInfo(xwingCtPda);
       const hasXWingCt = xwingCtAccount && xwingCtAccount.data.length >= 1160;
 
-      // data: disc(1) + nonce(32) + stealth_pubkey(32) = 65 bytes
-      const data = Buffer.alloc(65);
-      let offset = 0;
-      data[offset++] = StealthDiscriminators.WITHDRAW_FROM_ESCROW;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
-      Buffer.from(stealthPubkey).copy(data, offset);
+      // data: disc(1) + stealth_pubkey(32) = 33 bytes
+      const data = Buffer.alloc(33);
+      data[0] = StealthDiscriminators.WITHDRAW_FROM_OUTPUT_ESCROW;
+      Buffer.from(stealthPubkey).copy(data, 1);
 
       const keys = [
         { pubkey: claimer.publicKey, isSigner: true, isWritable: false },
@@ -1254,10 +1265,10 @@ export class PERPrivacyClient {
       const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
       await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
 
-      console.log("[WAVETEK] WITHDRAW_FROM_ESCROW success: <ENCRYPTED>");
+      console.log("[WAVETEK] withdrawal complete <ENCRYPTED>");
       return { success: true, signature };
     } catch (error: any) {
-      console.error("[WAVETEK] WITHDRAW_FROM_ESCROW failed:", error);
+      console.error("[WAVETEK] withdrawal failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
@@ -1277,7 +1288,7 @@ export class PERPrivacyClient {
     const koraUrl = koraRpcUrl || KORA_CONFIG.RPC_URL;
 
     try {
-      console.log("[WAVETEK] Starting gasless withdraw...");
+      console.log("[WAVETEK] initiating relayed withdrawal");
 
       // 1. Read escrow to get verified_destination and amount
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
@@ -1363,16 +1374,111 @@ export class PERPrivacyClient {
       for (const byte of signatureBytes) num = num * BigInt(256) + BigInt(byte);
       while (num > 0) { signature = bs58Chars[Number(num % BigInt(58))] + signature; num = num / BigInt(58); }
 
-      console.log("[WAVETEK] Gasless withdraw success");
+      console.log("[WAVETEK] relayed withdrawal complete <ENCRYPTED>");
       return { success: true, signature, destination: verifiedDestination, amount };
     } catch (error: any) {
-      console.error("[WAVETEK] Gasless withdraw failed:", error);
+      console.error("[WAVETEK] relayed withdrawal failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
-  // Complete V4 privacy send flow (sender side)
-  // Returns nonce and sharedSecret for receiver to claim
+  // TX1a-4: Prepare output (creates OUTPUT_ESCROW - NO SENDER LINK!)
+  // This is the FINAL sender step - after this, Magic Actions takes over
+  async prepareOutputV4(
+    wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
+    nonce: Uint8Array,
+    stealthPubkey: Uint8Array
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    signature?: string;
+    outputEscrowPda?: PublicKey;
+  }> {
+    try {
+      console.log("[WAVETEK] preparing output escrow");
+
+      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
+      const [outputEscrowPda, escrowBump] = deriveOutputEscrowPda(stealthPubkey);
+      const [xwingCtPda, xwingCtBump] = deriveXWingCiphertextPda(outputEscrowPda);
+
+      // data: disc(1) + nonce(32) + stealth_pubkey(32) + escrow_bump(1) + xwing_ct_bump(1) = 67 bytes
+      const data = Buffer.alloc(67);
+      let offset = 0;
+      data[offset++] = StealthDiscriminators.PREPARE_OUTPUT_V4;
+      Buffer.from(nonce).copy(data, offset); offset += 32;
+      Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
+      data[offset++] = escrowBump;
+      data[offset++] = xwingCtBump;
+
+      const tx = new Transaction()
+        .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }))
+        .add(new TransactionInstruction({
+          keys: [
+            { pubkey: wallet.publicKey, isSigner: true, isWritable: true },     // 0. payer
+            { pubkey: depositRecordPda, isSigner: false, isWritable: true },    // 1. deposit_record
+            { pubkey: outputEscrowPda, isSigner: false, isWritable: true },     // 2. output_escrow
+            { pubkey: xwingCtPda, isSigner: false, isWritable: true },          // 3. xwing_ct
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 4. system_program
+          ],
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        }));
+
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = (await this.mainnetConnection.getLatestBlockhash()).blockhash;
+
+      const signedTx = await wallet.signTransaction(tx);
+      const signature = await this.mainnetConnection.sendRawTransaction(signedTx.serialize());
+      await confirmTransactionPolling(this.mainnetConnection, signature, 30, 2000);
+
+      console.log("[WAVETEK] output escrow created <ENCRYPTED>");
+      return { success: true, signature, outputEscrowPda };
+    } catch (error: any) {
+      console.error("[WAVETEK] output escrow failed <ENCRYPTED>");
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Read next available seq_id from PER pool state
+  async getNextSeqId(): Promise<bigint> {
+    try {
+      const perConnection = new Connection(MAGICBLOCK_PER.ER_ENDPOINT, "confirmed");
+      const [poolPda] = derivePerMixerPoolPda();
+      const poolInfo = await perConnection.getAccountInfo(poolPda);
+
+      if (!poolInfo || poolInfo.data.length < 95) {
+        // Pool not found on PER, try L1
+        const l1PoolInfo = await this.mainnetConnection.getAccountInfo(poolPda);
+        if (!l1PoolInfo || l1PoolInfo.data.length < 95) {
+          return 1n; // First deposit
+        }
+        // last_deposited_id at offset 79 (8 bytes LE)
+        const lastId = Buffer.from(l1PoolInfo.data.slice(79, 87)).readBigUInt64LE();
+        return lastId + 1n;
+      }
+
+      // last_deposited_id at offset 79 (8 bytes LE) in pool data
+      const lastId = Buffer.from(poolInfo.data.slice(79, 87)).readBigUInt64LE();
+      return lastId + 1n;
+    } catch (error) {
+      console.warn("[WAVETEK] pool state unavailable, using default");
+      return 1n;
+    }
+  }
+
+  // Complete V4 privacy send flow (sender side) - SEQ Architecture
+  // Returns seqId and sharedSecret for receiver to claim
+  //
+  // WAVETEK SEQ FLOW (sender signs 3 TXs on L1):
+  // 1. CREATE_V4_DEPOSIT_SEQ (0x3B) - L1
+  // 2. UPLOAD_V4_CIPHERTEXT x2 (0x29) - L1
+  // 3. COMPLETE_V4_DEPOSIT_SEQ (0x3C) - L1 (delegates INPUT_ESCROW + DEPOSIT_RECORD to PER)
+  //
+  // After sender signs, crank automatically processes:
+  // - REGISTER_DEPOSIT (0x3A) on PER
+  // - INPUT_TO_POOL_SEQ (0x3D) on PER
+  // - PREPARE_OUTPUT_SEQ (0x40) on L1 (crank creates OUTPUT_ESCROW)
+  // - POOL_TO_ESCROW_SEQ (0x3E) on PER
   async sendPrivateV4(
     wallet: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
     amount: bigint,
@@ -1385,60 +1491,50 @@ export class PERPrivacyClient {
     sharedSecret?: Uint8Array;
     stealthPubkey?: Uint8Array;
     escrowPda?: PublicKey;
+    seqId?: bigint;
   }> {
     try {
-      console.log("[WAVETEK] Starting complete privacy send flow...");
+      console.log("[WAVETEK] initiating send");
+
+      // Get next seq_id from PER pool
+      const seqId = await this.getNextSeqId();
+      console.log("[WAVETEK] sequence assigned <ENCRYPTED>");
 
       // Generate crypto data
-      const nonce = crypto.getRandomValues(new Uint8Array(32));
       const { ciphertext: xwingCiphertext, sharedSecret } = xwingEncapsulate(recipientXWingPubkey);
       const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
       const ephemeralPubkey = xwingCiphertext.slice(1088, 1120);
       const viewTag = sharedSecret[0];
       const encryptedDestination = await encryptDestinationWallet(destinationWallet.toBytes(), sharedSecret);
 
-      // TX1a-1: Create deposit record
+      // Build nonce from seqId for backwards compat
+      const nonce = new Uint8Array(32);
+      const nonceBuf = Buffer.from(nonce.buffer);
+      nonceBuf.writeBigUInt64LE(seqId);
+
+      // TX1: Create deposit record (L1)
       const createResult = await this.createV4Deposit(
-        wallet, amount, nonce, stealthPubkey, ephemeralPubkey, viewTag, encryptedDestination
+        wallet, amount, seqId, stealthPubkey, ephemeralPubkey, viewTag, encryptedDestination
       );
       if (!createResult.success) {
         return { success: false, error: `CREATE failed: ${createResult.error}` };
       }
 
-      // TX1a-2: Upload XWing ciphertext
-      const uploadResult = await this.uploadV4Ciphertext(wallet, nonce, xwingCiphertext);
+      // TX2-3: Upload XWing ciphertext in chunks (L1)
+      const uploadResult = await this.uploadV4Ciphertext(wallet, seqId, xwingCiphertext);
       if (!uploadResult.success) {
         return { success: false, error: `UPLOAD failed: ${uploadResult.error}` };
       }
 
-      // TX1a-3: Complete deposit (funds + delegate)
-      const completeResult = await this.completeV4Deposit(wallet, nonce);
+      // TX4: Complete deposit - funds + delegate INPUT_ESCROW + DEPOSIT_RECORD to PER (L1)
+      const completeResult = await this.completeV4Deposit(wallet, seqId);
       if (!completeResult.success) {
         return { success: false, error: `COMPLETE failed: ${completeResult.error}` };
       }
 
-      // Wait for PER to sync
-      console.log("[WAVETEK] Waiting for PER to sync (5 sec)...");
-      await new Promise(r => setTimeout(r, 5000));
+      // PREPARE_OUTPUT is now handled by the crank (not sender) for better privacy
 
-      // TX1b: Input to pool (on PER)
-      const inputResult = await this.inputToPoolV4(wallet, nonce);
-      if (!inputResult.success) {
-        return { success: false, error: `INPUT_TO_POOL failed: ${inputResult.error}` };
-      }
-
-      // Wait for L1 commit
-      console.log("[WAVETEK] Waiting for L1 commit (15 sec)...");
-      await new Promise(r => setTimeout(r, 15000));
-
-      // TX2: Pool to escrow (on PER)
-      const poolToEscrowResult = await this.poolToEscrowV4(wallet, nonce, stealthPubkey);
-      if (!poolToEscrowResult.success) {
-        return { success: false, error: `POOL_TO_ESCROW failed: ${poolToEscrowResult.error}` };
-      }
-
-      console.log("[WAVETEK] Privacy send complete!");
-      console.log("[WAVETEK] Receiver can now scan for escrow and claim with sharedSecret");
+      console.log("[WAVETEK] send complete <ENCRYPTED>");
 
       return {
         success: true,
@@ -1446,9 +1542,10 @@ export class PERPrivacyClient {
         sharedSecret,
         stealthPubkey,
         escrowPda: completeResult.escrowPda,
+        seqId,
       };
     } catch (error: any) {
-      console.error("[WAVETEK] Privacy send failed:", error);
+      console.error("[WAVETEK] send failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
@@ -1465,7 +1562,7 @@ export class PERPrivacyClient {
     amount?: bigint;
   }> {
     try {
-      console.log("[WAVETEK] Starting claim flow...");
+      console.log("[WAVETEK] initiating claim");
 
       const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
 
@@ -1476,17 +1573,17 @@ export class PERPrivacyClient {
       }
 
       // Wait for undelegation
-      console.log("[WAVETEK] Waiting for escrow undelegation (30 sec)...");
+      console.log("[WAVETEK] awaiting settlement <ENCRYPTED>");
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
       for (let i = 0; i < 12; i++) {
         await new Promise(r => setTimeout(r, 2500));
         const escrowInfo = await this.mainnetConnection.getAccountInfo(escrowPda);
         if (escrowInfo && !escrowInfo.owner.equals(PROGRAM_IDS.DELEGATION)) {
-          console.log("[WAVETEK] Escrow undelegated!");
+          console.log("[WAVETEK] settlement confirmed");
           break;
         }
-        console.log(`[WAVETEK] Waiting... (${i + 1}/12)`);
+        console.log(`[WAVETEK] awaiting... (${i + 1}/12)`);
       }
 
       // TX4: Withdraw from escrow (on L1)
@@ -1495,21 +1592,19 @@ export class PERPrivacyClient {
         return { success: false, error: `WITHDRAW failed: ${withdrawResult.error}` };
       }
 
-      console.log("[WAVETEK] Claim complete! Funds transferred to: <ENCRYPTED>");
+      console.log("[WAVETEK] claim complete <ENCRYPTED>");
       return { success: true };
     } catch (error: any) {
-      console.error("[WAVETEK] Claim failed:", error);
+      console.error("[WAVETEK] claim failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }
 
-  // WAVETEK Claim Escrow via Magic Actions (TEE verifies and sends to receiver)
-  // CRITICAL: This goes to PER endpoint, NOT L1!
-  // TEE verifies SHA256(sharedSecret || "stealth-derive") == escrow.stealth_pubkey
-  // Then sends deposit to destination, closes escrow + xwing_ciphertext, rent to MASTER_AUTHORITY
+  // WAVETEK Claim Escrow via TEE (PER) - alternative to claimEscrowV4WithUndelegate
+  // Uses 7 accounts matching claim_escrow_v4.rs with magic_context/magic_program
   async claimEscrowV4(
     claimer: { publicKey: PublicKey; signTransaction: (tx: Transaction) => Promise<Transaction> },
-    nonce: Uint8Array,
+    _nonce: Uint8Array,
     sharedSecret: Uint8Array,
     destination: PublicKey
   ): Promise<{
@@ -1518,73 +1613,72 @@ export class PERPrivacyClient {
     signature?: string;
   }> {
     try {
-      console.log("[WAVETEK] Claiming escrow via TEE verification...");
+      console.log("[WAVETEK] processing claim <ENCRYPTED>");
 
-      if (nonce.length !== 32) {
-        throw new Error("Nonce must be 32 bytes");
-      }
       if (sharedSecret.length !== 32) {
         throw new Error("SharedSecret must be 32 bytes");
       }
 
       const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
       const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
-      const [depositRecordPda] = derivePerDepositRecordPda(nonce);
-      const [xwingCtPda] = deriveXWingCiphertextPda(depositRecordPda);
+      const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
 
-      // Build instruction data (65 bytes)
-      // Layout: discriminator(1) + nonce(32) + shared_secret(32)
+      // data: disc(1) + stealth_pubkey(32) + shared_secret(32) = 65 bytes
       const data = Buffer.alloc(65);
       let offset = 0;
-
       data[offset++] = StealthDiscriminators.CLAIM_ESCROW_V4;
-      Buffer.from(nonce).copy(data, offset); offset += 32;
+      Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
       Buffer.from(sharedSecret).copy(data, offset);
 
       // Accounts per claim_escrow_v4.rs:
       // 0. [signer] claimer
-      // 1. [writable] claim_escrow PDA
-      // 2. [writable] destination (receiver's wallet)
-      // 3. [writable] master_authority (receives rent)
-      // 4. [writable] xwing_ciphertext PDA (closed)
-      // 5. [] system_program
+      // 1. [writable] output_escrow
+      // 2. [] destination
+      // 3. [] master_authority
+      // 4. [writable] xwing_ciphertext
+      // 5. [writable] magic_context
+      // 6. [] magic_program
       const keys = [
         { pubkey: claimer.publicKey, isSigner: true, isWritable: false },
         { pubkey: escrowPda, isSigner: false, isWritable: true },
-        { pubkey: destination, isSigner: false, isWritable: true },
-        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
+        { pubkey: destination, isSigner: false, isWritable: false },
+        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false },
         { pubkey: xwingCtPda, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: MAGIC_CONTEXT, isSigner: false, isWritable: true },
+        { pubkey: MAGIC_PROGRAM, isSigner: false, isWritable: false },
       ];
 
-      const ix = new TransactionInstruction({
-        keys,
-        programId: PROGRAM_IDS.STEALTH,
-        data,
-      });
+      const tx = new Transaction()
+        .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }))
+        .add(new TransactionInstruction({
+          keys,
+          programId: PROGRAM_IDS.STEALTH,
+          data,
+        }));
 
-      const tx = new Transaction().add(ix);
       tx.feePayer = claimer.publicKey;
-
-      // CRITICAL: Get blockhash from PER and send to PER!
-      // This instruction runs inside TEE for verification
       tx.recentBlockhash = (await this.perConnection.getLatestBlockhash()).blockhash;
 
       const signedTx = await claimer.signTransaction(tx);
-      const signature = await this.perConnection.sendRawTransaction(signedTx.serialize());
+      const signature = await this.perConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
 
-      console.log("[WAVETEK] Claim submitted to PER: <ENCRYPTED>");
-      console.log("[WAVETEK] TEE will verify sharedSecret and transfer funds");
+      console.log("[WAVETEK] claim submitted <ENCRYPTED>");
 
       // Wait for PER to process
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const status = await this.perConnection.getSignatureStatus(signature);
+        if (status?.value?.confirmationStatus === "confirmed" || status?.value?.confirmationStatus === "finalized") {
+          return { success: true, signature };
+        }
+        if (status?.value?.err) {
+          return { success: false, error: JSON.stringify(status.value.err) };
+        }
+      }
 
-      return {
-        success: true,
-        signature,
-      };
+      return { success: true, signature };
     } catch (error: any) {
-      console.error("[WAVETEK] Claim failed:", error);
+      console.error("[WAVETEK] claim failed <ENCRYPTED>");
       return { success: false, error: error.message };
     }
   }

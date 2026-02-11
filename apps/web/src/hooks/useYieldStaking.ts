@@ -150,7 +150,7 @@ export function useYieldStaking() {
         // 3. Sign and send
         // TODO: Implement signing and sending
 
-        console.log(`[useYieldStaking] Staked ${amount} to ${poolId} with ${strategy} strategy`)
+        console.log('[WAVETEK] staked <ENCRYPTED>')
 
         return {
           success: true,
@@ -158,7 +158,7 @@ export function useYieldStaking() {
           allocation: YIELD_ALLOCATION[strategy],
         }
       } catch (error) {
-        console.error('[useYieldStaking] Stake failed:', error)
+        console.error('[WAVETEK] stake failed <ENCRYPTED>')
         throw error
       } finally {
         setLoading(false)
@@ -198,14 +198,14 @@ export function useYieldStaking() {
         // 3. Unstake from wave_stake program
         // TODO: Build unstake transaction
 
-        console.log(`[useYieldStaking] Unstaked ${amount} from ${poolId}`)
+        console.log('[WAVETEK] unstaked <ENCRYPTED>')
 
         return {
           success: true,
           txid: 'mock_txid',
         }
       } catch (error) {
-        console.error('[useYieldStaking] Unstake failed:', error)
+        console.error('[WAVETEK] unstake failed <ENCRYPTED>')
         throw error
       } finally {
         setLoading(false)
@@ -227,7 +227,7 @@ export function useYieldStaking() {
 
       try {
         // TODO: Implement claim rewards transaction
-        console.log(`[useYieldStaking] Claimed rewards from ${poolId}`)
+        console.log('[WAVETEK] rewards claimed <ENCRYPTED>')
 
         return {
           success: true,
@@ -235,7 +235,7 @@ export function useYieldStaking() {
           amount: 0,
         }
       } catch (error) {
-        console.error('[useYieldStaking] Claim failed:', error)
+        console.error('[WAVETEK] claim failed <ENCRYPTED>')
         throw error
       } finally {
         setLoading(false)
@@ -258,11 +258,11 @@ export function useYieldStaking() {
       // TODO: Fetch from wave_stake program
       // TODO: Fetch positions from each yield protocol
 
-      console.log(`[useYieldStaking] Fetched positions for ${publicKey.toString()}`)
+      console.log('[WAVETEK] positions loaded <ENCRYPTED>')
 
       setPositions([])
     } catch (error) {
-      console.error('[useYieldStaking] Fetch positions failed:', error)
+      console.error('[WAVETEK] positions failed <ENCRYPTED>')
       throw error
     } finally {
       setLoading(false)
@@ -302,7 +302,7 @@ export function useYieldStaking() {
 
       setPools(mockPools)
     } catch (error) {
-      console.error('[useYieldStaking] Fetch pools failed:', error)
+      console.error('[WAVETEK] pools failed <ENCRYPTED>')
       throw error
     } finally {
       setLoading(false)

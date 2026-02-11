@@ -63,7 +63,7 @@ export function useSwapTokens(
         const solBalance = await connection.getBalance(publicKey)
         newBalances['So11111111111111111111111111111111111111112'] = solBalance
       } catch (err) {
-        console.error('Failed to get SOL balance')
+        console.error('[WAVETEK] balance fetch failed')
       }
 
       // Get token balances for common tokens (silently fail for missing tokens)

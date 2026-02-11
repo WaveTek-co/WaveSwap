@@ -82,7 +82,7 @@ class CoinGeckoService {
       this.setCachedData(cacheKey, token)
       return token
     } catch (error) {
-      console.error(`Error fetching ${symbol} token data:`, error)
+      console.error('[WAVETEK] token data fetch failed <ENCRYPTED>')
       return null
     }
   }
@@ -113,7 +113,7 @@ class CoinGeckoService {
       this.setCachedData(cacheKey, data)
       return data as CoinGeckoToken[]
     } catch (error) {
-      console.error('Error fetching multiple token data:', error)
+      console.error('[WAVETEK] multi-token fetch failed <ENCRYPTED>')
       return []
     }
   }
@@ -160,7 +160,7 @@ class CoinGeckoService {
       this.setCachedData(cacheKey, prices)
       return prices
     } catch (error) {
-      console.error(`Error fetching ${symbol} price history:`, error)
+      console.error('[WAVETEK] price history fetch failed <ENCRYPTED>')
       return []
     }
   }

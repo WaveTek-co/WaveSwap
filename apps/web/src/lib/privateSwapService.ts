@@ -119,7 +119,7 @@ export class PrivateSwapService {
       })
 
     } catch (error) {
-      console.error('Error getting hybrid balances:', error)
+      console.error('[WAVETEK] balance fetch failed <ENCRYPTED>')
       throw new Error(`Failed to get balances: ${error}`)
     }
 

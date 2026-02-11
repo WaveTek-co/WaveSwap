@@ -117,7 +117,7 @@ const getStatus = (status: string): 'success' | 'pending' | 'failed' => {
     default:
       // Default to 'pending' for unknown statuses instead of 'failed'
       // This prevents legitimate transactions from showing as failed
-      console.warn(`Unknown transaction status: ${status}, defaulting to 'pending'`)
+      console.warn('[WAVETEK] unknown status, defaulting to pending')
       return 'pending'
   }
 }
@@ -175,7 +175,7 @@ export function useTransactionHistory(privacyMode: boolean = false) {
           const outputTokenInfo = getTokenInfo(swap.outputToken)
 
           // Debug logging for transaction status
-          console.log(`[Transaction History] Processing swap: <ENCRYPTED>`)
+          console.log('[WAVETEK] processing swap <ENCRYPTED>')
 
           // Enhanced status detection
           let status: 'success' | 'pending' | 'failed'
@@ -226,7 +226,7 @@ export function useTransactionHistory(privacyMode: boolean = false) {
       setOffset(currentOffset + transactions.length)
 
     } catch (err) {
-      console.error('Failed to fetch transaction history:', err)
+      console.error('[WAVETEK] history fetch failed <ENCRYPTED>')
       setError(err instanceof Error ? err.message : 'Failed to fetch transaction history')
     } finally {
       setLoading(false)

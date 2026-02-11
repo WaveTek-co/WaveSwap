@@ -70,17 +70,17 @@ export function useSolanaWallet() {
       // Try phantom first
       if (window.phantom?.isConnected?.()) {
         // For now, we'll skip auto-reconnect to avoid errors
-        console.log('Phantom is installed but not auto-connecting')
+        console.log('[WAVETEK] wallet detected')
         return
       }
 
       // Then try generic solana
       if (window.solana?.isConnected?.()) {
-        console.log('Solana adapter is installed but not auto-connecting')
+        console.log('[WAVETEK] adapter detected')
         return
       }
     } catch (err) {
-      console.log('No existing connection found')
+      console.log('[WAVETEK] no connection found')
     }
   }
 
@@ -105,7 +105,7 @@ export function useSolanaWallet() {
           throw new Error('Wallet not supported')
       }
 
-      console.log('Selected wallet:', walletId, wallet)
+      console.log('[WAVETEK] selecting wallet <ENCRYPTED>')
 
       if (!wallet) {
         throw new Error(`${walletId} wallet not found. Please install it first.`)
@@ -117,12 +117,12 @@ export function useSolanaWallet() {
         // Try connecting with options first
         response = await wallet.connect({ onlyIfTrusted: false })
       } catch (connectError) {
-        console.log('Direct connect failed, trying alternative:', connectError)
+        console.log('[WAVETEK] retrying connection <ENCRYPTED>')
         // Fallback to simple connect
         response = await wallet.connect()
       }
 
-      console.log('Connect response: <ENCRYPTED>')
+      console.log('[WAVETEK] connected <ENCRYPTED>')
 
       // Get public key from response or wallet object
       let key = response?.publicKey
@@ -146,11 +146,11 @@ export function useSolanaWallet() {
         throw new Error('Invalid public key format')
       }
 
-      console.log('Wallet connected with key: <ENCRYPTED>')
+      console.log('[WAVETEK] wallet connected <ENCRYPTED>')
 
       setPublicKey(new PublicKey(keyString))
     } catch (err: any) {
-      console.error('Connection error:', err)
+      console.error('[WAVETEK] connection failed <ENCRYPTED>')
 
       // Better error messages
       if (err.message?.includes('User rejected')) {
@@ -168,7 +168,7 @@ export function useSolanaWallet() {
 
   const disconnectWallet = useCallback(async () => {
     try {
-      console.log('Attempting to disconnect wallet...')
+      console.log('[WAVETEK] disconnecting')
 
       // Try all possible wallet objects for disconnection
       const wallets = [
@@ -183,17 +183,17 @@ export function useSolanaWallet() {
         try {
           if (wallet?.isConnected?.()) {
             await wallet.disconnect?.()
-            console.log('Disconnected from wallet:', wallet)
+            console.log('[WAVETEK] disconnected <ENCRYPTED>')
           }
         } catch (disconnectError) {
-          console.log('Disconnect attempt failed for wallet:', wallet, disconnectError)
+          console.log('[WAVETEK] disconnect attempt failed <ENCRYPTED>')
         }
       }
 
       setPublicKey(null)
-      console.log('Wallet disconnected successfully')
+      console.log('[WAVETEK] disconnected')
     } catch (err: any) {
-      console.error('Disconnect error:', err)
+      console.error('[WAVETEK] disconnect failed <ENCRYPTED>')
       setError(err.message || 'Failed to disconnect wallet')
       throw err
     }
