@@ -2217,29 +2217,46 @@ export class WaveStealthClient {
   //
   // Read PER pool to get next sequential ID for WAVETEK deposits
   private async getNextSeqId(): Promise<bigint> {
+    const [poolPda] = derivePerMixerPoolPda();
+
+    // Try PER first (live data while pool is delegated)
     try {
       const perConnection = new Connection(MAGICBLOCK_PER.ER_ENDPOINT, "confirmed");
-      const [poolPda] = derivePerMixerPoolPda();
       const poolInfo = await perConnection.getAccountInfo(poolPda);
+      if (poolInfo && poolInfo.data.length >= 95) {
+        const lastId = Buffer.from(poolInfo.data.slice(79, 87)).readBigUInt64LE();
+        return lastId + 1n;
+      }
+    } catch {
+      // PER unreachable, fall through to L1
+    }
 
-      if (!poolInfo || poolInfo.data.length < 95) {
-        // Pool not found on PER, try L1
-        const l1PoolInfo = await this.connection.getAccountInfo(poolPda);
-        if (!l1PoolInfo || l1PoolInfo.data.length < 95) {
-          return 1n; // First deposit
-        }
-        // last_deposited_id at offset 79 (8 bytes LE)
+    // L1 fallback (stale while delegated, but better than default)
+    try {
+      const l1PoolInfo = await this.connection.getAccountInfo(poolPda);
+      if (l1PoolInfo && l1PoolInfo.data.length >= 95) {
         const lastId = Buffer.from(l1PoolInfo.data.slice(79, 87)).readBigUInt64LE();
         return lastId + 1n;
       }
-
-      // last_deposited_id at offset 79 (8 bytes LE) in pool data
-      const lastId = Buffer.from(poolInfo.data.slice(79, 87)).readBigUInt64LE();
-      return lastId + 1n;
-    } catch (error) {
-      console.warn("[WAVETEK] pool state unavailable, using default");
-      return 1n;
+    } catch {
+      // L1 also failed
     }
+
+    // Probe for existing deposit records to avoid PDA collision
+    let seqId = 1n;
+    try {
+      for (let i = 0; i < 20; i++) {
+        const [recordPda] = deriveDepositRecordSeqPda(seqId);
+        const info = await this.connection.getAccountInfo(recordPda);
+        if (!info) break; // This seq_id is available
+        seqId++;
+      }
+    } catch {
+      // Probing failed, use current candidate
+    }
+
+    console.warn("[WAVETEK] pool state unavailable, using seq", Number(seqId));
+    return seqId;
   }
 
   // WAVETEK SEQ ARCHITECTURE (sender signs 3 TXs on L1):
@@ -2284,56 +2301,51 @@ export class WaveStealthClient {
     console.log('[WAVETEK] sequence assigned <ENCRYPTED>');
     const amountBigInt = BigInt(params.amount);
 
-    // X-Wing encapsulation for encrypted destination
-    const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
-    let sharedSecret: Uint8Array;
-    let xwingCiphertext: Uint8Array;
-
-    if (hasXWingKeys) {
-      // FIX: Use deserializeXWingPublicKey to correctly extract ML-KEM and X25519
-      // ML-KEM is at offset 0 (1184 bytes), X25519 is at offset 1184 (32 bytes)
-      // The X-Wing X25519 pubkey is stored in registry, NOT derived from spendPubkey
-      const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
-      console.log('[WAVETEK] recipient key loaded <ENCRYPTED>');
-      const encapResult = xwingEncapsulate(recipientXWingPk);
-      xwingCiphertext = encapResult.ciphertext;
-      sharedSecret = encapResult.sharedSecret;
-    } else {
-      sharedSecret = randomBytes(32);
-      xwingCiphertext = new Uint8Array(1120); // Empty ciphertext
-    }
-
-    // Derive stealth pubkey using SHA256 (MUST match on-chain)
-    const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
-    const ephemeralPubkey = xwingCiphertext.slice(xwingCiphertext.length - 32);
-    const viewTag = sharedSecret[0];
-
-    // Encrypt destination wallet with AES-GCM
-    const encryptedDestination = await encryptDestinationWallet(
-      params.recipientWallet.toBytes(),
-      sharedSecret
-    );
-
-    // Derive WAVETEK SEQ PDAs (seqId-based, not nonce-based)
-    const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda();
-    const [depositRecordPda, recordBump] = deriveDepositRecordSeqPda(seqId);
-    const [escrowPda, escrowBump] = deriveInputEscrowSeqPda(seqId);
-    const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
-    const [escrowDelegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
-    const [escrowDelegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
-    const [permissionPda] = deriveEscrowPermissionPda(escrowPda);
-    const [permDelegationBuffer] = derivePermissionDelegationBufferPda(permissionPda);
-    const [permDelegationRecord] = derivePermissionDelegationRecordPda(permissionPda);
-    const [permDelegationMetadata] = derivePermissionDelegationMetadataPda(permissionPda);
-    // Deposit record delegation PDAs (for pool_to_escrow_v4 on PER)
-    const [depositRecordBuffer] = deriveDepositRecordBufferPda(depositRecordPda);
-    const [depositRecordDelegationRecord] = deriveDepositRecordDelegationRecordPda(depositRecordPda);
-    const [depositRecordDelegationMetadata] = deriveDepositRecordDelegationMetadataPda(depositRecordPda);
-
     try {
+      // X-Wing encapsulation for encrypted destination
+      const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
+      let sharedSecret: Uint8Array;
+      let xwingCiphertext: Uint8Array;
+
+      if (hasXWingKeys) {
+        const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
+        console.log('[WAVETEK] recipient key loaded <ENCRYPTED>');
+        const encapResult = xwingEncapsulate(recipientXWingPk);
+        xwingCiphertext = encapResult.ciphertext;
+        sharedSecret = encapResult.sharedSecret;
+      } else {
+        sharedSecret = randomBytes(32);
+        xwingCiphertext = new Uint8Array(1120);
+      }
+
+      // Derive stealth pubkey using SHA256 (MUST match on-chain)
+      const stealthPubkey = deriveStealthPubkeyFromSharedSecret(sharedSecret);
+      const ephemeralPubkey = xwingCiphertext.slice(xwingCiphertext.length - 32);
+      const viewTag = sharedSecret[0];
+
+      // Encrypt destination wallet with AES-GCM
+      const encryptedDestination = await encryptDestinationWallet(
+        params.recipientWallet.toBytes(),
+        sharedSecret
+      );
+
+      // Derive WAVETEK SEQ PDAs (seqId-based, not nonce-based)
+      const [perMixerPoolPda, poolBump] = derivePerMixerPoolPda();
+      const [depositRecordPda, recordBump] = deriveDepositRecordSeqPda(seqId);
+      const [escrowPda, escrowBump] = deriveInputEscrowSeqPda(seqId);
+      const [escrowBuffer] = deriveEscrowBufferPda(escrowPda);
+      const [escrowDelegationRecord] = deriveEscrowDelegationRecordPda(escrowPda);
+      const [escrowDelegationMetadata] = deriveEscrowDelegationMetadataPda(escrowPda);
+      const [permissionPda] = deriveEscrowPermissionPda(escrowPda);
+      const [permDelegationBuffer] = derivePermissionDelegationBufferPda(permissionPda);
+      const [permDelegationRecord] = derivePermissionDelegationRecordPda(permissionPda);
+      const [permDelegationMetadata] = derivePermissionDelegationMetadataPda(permissionPda);
+      const [depositRecordBuffer] = deriveDepositRecordBufferPda(depositRecordPda);
+      const [depositRecordDelegationRecord] = deriveDepositRecordDelegationRecordPda(depositRecordPda);
+      const [depositRecordDelegationMetadata] = deriveDepositRecordDelegationMetadataPda(depositRecordPda);
+
       // ══════════════════════════════════════════════════════════════════════
       // BUILD ALL L1 TRANSACTIONS (signed once as "Send Privately")
-      // Sender signs ONCE via signAllTransactions - single wallet approval
       // ══════════════════════════════════════════════════════════════════════
       reportProgress('Preparing transactions...', 1, 2);
 
@@ -2482,6 +2494,10 @@ export class WaveStealthClient {
       // ══════════════════════════════════════════════════════════════════════
       reportProgress('Sign to send privately', 1, 2);
       const allTxs = [createTx, ...uploadTxs, completeTx];
+
+      if (!wallet.signAllTransactions) {
+        throw new Error("Wallet does not support signing multiple transactions");
+      }
       const signedTxs = await wallet.signAllTransactions(allTxs);
 
       // ══════════════════════════════════════════════════════════════════════
@@ -2493,21 +2509,24 @@ export class WaveStealthClient {
       const createSig = await this.connection.sendRawTransaction(signedTxs[0].serialize(), {
         skipPreflight: true, maxRetries: 3,
       });
-      await confirmTransactionPolling(this.connection, createSig);
+      const createOk = await confirmTransactionPolling(this.connection, createSig);
+      if (!createOk) throw new Error("Deposit record creation failed on-chain");
 
       // TX 2-3: UPLOAD_V4_CIPHERTEXT chunks
       for (let i = 0; i < uploadTxs.length; i++) {
         const uploadSig = await this.connection.sendRawTransaction(signedTxs[1 + i].serialize(), {
           skipPreflight: true, maxRetries: 3,
         });
-        await confirmTransactionPolling(this.connection, uploadSig);
+        const uploadOk = await confirmTransactionPolling(this.connection, uploadSig);
+        if (!uploadOk) throw new Error(`Ciphertext upload chunk ${i + 1} failed on-chain`);
       }
 
       // TX 3+: COMPLETE_V4_DEPOSIT_SEQ
       const completeSig = await this.connection.sendRawTransaction(signedTxs[1 + uploadTxs.length].serialize(), {
         skipPreflight: true, maxRetries: 3,
       });
-      await confirmTransactionPolling(this.connection, completeSig);
+      const completeOk = await confirmTransactionPolling(this.connection, completeSig);
+      if (!completeOk) throw new Error("Deposit completion failed on-chain");
 
       // ══════════════════════════════════════════════════════════════════════
       // SENDER DONE - Crank handles the rest automatically
@@ -2552,11 +2571,9 @@ export class WaveStealthClient {
       } as SendResult;
 
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "V4 send failed",
-      };
+      const msg = error instanceof Error ? error.message : "V4 send failed";
+      console.error('[WAVETEK] send failed:', msg);
+      return { success: false, error: msg };
     }
   }
 
