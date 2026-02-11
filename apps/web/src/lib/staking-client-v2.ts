@@ -360,5 +360,5 @@ export class WaveStakeClient {
 
 // Export singleton instance
 export const waveStakeClient = new WaveStakeClient(
-  new Connection(process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.devnet.solana.com')
+  new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com')
 )

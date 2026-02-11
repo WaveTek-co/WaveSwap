@@ -699,7 +699,7 @@ export const EncifherUtils = {
    */
   getConfig(): EncifherConfig | null {
     const encifherKey = process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
-    const rpcUrl = process.env.NEXT_PUBLIC_ENCIFHER_RPC_URL || 'https://api.mainnet-beta.solana.com'
+    const rpcUrl = process.env.NEXT_PUBLIC_ENCIFHER_RPC_URL || 'https://api.devnet.solana.com'
 
     // Use the provided API key if available, otherwise use default
     if (encifherKey && encifherKey !== 'your-api-key-here') {

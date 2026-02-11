@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Connection } from '@solana/web3.js'
 
 // Direct config to avoid initialization issues
-const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com'
+const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 
 /**
  * Proxy API endpoint to send raw transaction server-side to avoid client-side timeout issues

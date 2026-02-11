@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const connection = new Connection(process.env.NEXT_PUBLIC_HELIUS_RPC_URL!)
+    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com')
 
     const mockTransaction = {
       type: 'claim' as const,

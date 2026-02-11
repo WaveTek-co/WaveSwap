@@ -70,9 +70,9 @@ export class SwapExecutionService {
     }
 
     // Use more reliable RPC endpoints for Encifher
-    const rpcUrl = this.config.connection.rpcEndpoint || 'https://api.mainnet-beta.solana.com'
+    const rpcUrl = this.config.connection.rpcEndpoint || 'https://api.devnet.solana.com'
 
-    console.log('Initializing DefiClient with RPC URL:', rpcUrl)
+    // RPC URL logged intentionally omitted to keep API keys private
 
     // Encifher SDK works without any API key!
     const config: DefiClientConfig = {

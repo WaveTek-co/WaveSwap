@@ -7,14 +7,10 @@
 export const config = {
   // Solana RPC Configuration
   rpc: {
-    url: process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com',
-    network: process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet-beta',
-    // Fallback RPC endpoints for redundancy - all public endpoints that don't require API keys
+    url: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+    network: process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet',
     fallbackUrls: [
-      'https://api.mainnet-beta.solana.com',
-      'https://solana-api.projectserum.com',
-      'https://rpc.ankr.com/solana', // Keep as last fallback - may have rate limits
-      'https://solana-public.nodeinfra.com:8899' // Additional public endpoint
+      'https://api.devnet.solana.com',
     ]
   },
 

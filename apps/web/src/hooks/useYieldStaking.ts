@@ -68,7 +68,7 @@ export function useYieldStaking() {
 
   // Initialize yield manager
   useEffect(() => {
-    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL!)
+    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com')
     const manager = createYieldManager(connection)
     setYieldManager(manager)
 

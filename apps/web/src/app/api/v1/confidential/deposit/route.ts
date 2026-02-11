@@ -34,8 +34,8 @@ export async function POST(
     // Initialize Encifher SDK client with professional configuration
     const encifherConfig = {
       encifherKey: process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY || '',
-      rpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-      mode: 'Mainnet'
+      rpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+      mode: 'Devnet'
     }
 
     if (!encifherConfig.encifherKey) {

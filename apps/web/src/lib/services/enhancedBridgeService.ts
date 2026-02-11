@@ -121,7 +121,7 @@ export class EnhancedBridgeService {
   }) {
     // Initialize Solana connection
     this.connection = new Connection(
-      config.solanaRpc || process.env.NEXT_PUBLIC_SOLANA_RPC || 'https://api.mainnet-beta.solana.com'
+      config.solanaRpc || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
     )
 
     // Initialize Intents SDK if JWT is provided

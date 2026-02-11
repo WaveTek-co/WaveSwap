@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     // For now, return a mock transaction
     // In production, this would build an actual Solana transaction
-    const connection = new Connection(process.env.NEXT_PUBLIC_HELIUS_RPC_URL!)
+    const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com')
 
     const mockTransaction = {
       type: 'stake' as const,
