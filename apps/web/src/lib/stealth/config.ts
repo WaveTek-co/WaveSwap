@@ -2,6 +2,24 @@
 
 import { PublicKey } from "@solana/web3.js";
 
+// Browser-compatible BigInt LE read/write
+// (Buffer polyfill in Next.js browser bundles lacks writeBigUInt64LE/readBigUInt64LE)
+export function writeBigUint64LE(buf: Buffer | Uint8Array, value: bigint, offset: number): void {
+  let v = value;
+  for (let i = 0; i < 8; i++) {
+    buf[offset + i] = Number(v & 0xFFn);
+    v >>= 8n;
+  }
+}
+
+export function readBigUint64LE(buf: Buffer | Uint8Array, offset: number): bigint {
+  let value = 0n;
+  for (let i = 7; i >= 0; i--) {
+    value = (value << 8n) | BigInt(buf[offset + i]);
+  }
+  return value;
+}
+
 // OceanVault Program IDs (Devnet)
 // CRITICAL: Must match deployed on-chain programs
 export const PROGRAM_IDS = {
@@ -483,7 +501,7 @@ export function derivePoolDepositPda(nonce: Uint8Array): [PublicKey, number] {
 // PDA: ["deposit-seq", seq_id(8 bytes LE)]
 export function deriveDepositRecordSeqPda(seqId: bigint): [PublicKey, number] {
   const seqIdBuf = Buffer.alloc(8);
-  seqIdBuf.writeBigUInt64LE(seqId);
+  writeBigUint64LE(seqIdBuf, seqId, 0);
   return PublicKey.findProgramAddressSync(
     [Buffer.from("deposit-seq"), seqIdBuf],
     PROGRAM_IDS.STEALTH
@@ -494,7 +512,7 @@ export function deriveDepositRecordSeqPda(seqId: bigint): [PublicKey, number] {
 // PDA: ["input-seq", seq_id(8 bytes LE)]
 export function deriveInputEscrowSeqPda(seqId: bigint): [PublicKey, number] {
   const seqIdBuf = Buffer.alloc(8);
-  seqIdBuf.writeBigUInt64LE(seqId);
+  writeBigUint64LE(seqIdBuf, seqId, 0);
   return PublicKey.findProgramAddressSync(
     [Buffer.from("input-seq"), seqIdBuf],
     PROGRAM_IDS.STEALTH

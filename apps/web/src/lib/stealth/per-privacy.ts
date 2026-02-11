@@ -54,6 +54,8 @@ import {
   MAGIC_PROGRAM,
   KORA_CONFIG,
   MAGICBLOCK_PER,
+  writeBigUint64LE,
+  readBigUint64LE,
 } from "./config";
 import {
   StealthKeyPair,
@@ -830,9 +832,9 @@ export class PERPrivacyClient {
       const data = Buffer.alloc(131);
       let offset = 0;
       data[offset++] = StealthDiscriminators.CREATE_V4_DEPOSIT_SEQ;
-      data.writeBigUInt64LE(seqId, offset); offset += 8;
+      writeBigUint64LE(data, seqId, offset); offset += 8;
       data[offset++] = recordBump;
-      data.writeBigUInt64LE(amount, offset); offset += 8;
+      writeBigUint64LE(data, amount, offset); offset += 8;
       Buffer.from(stealthPubkey).copy(data, offset); offset += 32;
       Buffer.from(ephemeralPubkey).copy(data, offset); offset += 32;
       data[offset++] = viewTag;
@@ -883,7 +885,7 @@ export class PERPrivacyClient {
 
       // Build nonce as 32-byte buffer: first 8 bytes = seq_id LE, rest zeros
       const nonce = Buffer.alloc(32);
-      nonce.writeBigUInt64LE(seqId);
+      writeBigUint64LE(nonce, seqId, 0);
 
       // Split ciphertext into chunks
       for (let chunkOffset = 0; chunkOffset < xwingCiphertext.length; chunkOffset += chunkSize) {
@@ -958,7 +960,7 @@ export class PERPrivacyClient {
       const data = Buffer.alloc(15);
       let offset = 0;
       data[offset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT_SEQ;
-      data.writeBigUInt64LE(seqId, offset); offset += 8;
+      writeBigUint64LE(data, seqId, offset); offset += 8;
       data[offset++] = escrowBump;
       data.writeUInt32LE(commitFreqMs, offset); offset += 4;
       data[offset++] = recordBump;
@@ -1301,7 +1303,7 @@ export class PERPrivacyClient {
       const data = escrowAccount.data;
       const isVerified = data[81] === 1;
       const isWithdrawn = data[82] === 1;
-      const amount = Buffer.from(data.slice(41, 49)).readBigUInt64LE();
+      const amount = readBigUint64LE(data, 41);
       const verifiedDestination = new PublicKey(data.slice(49, 81));
 
       if (!isVerified) {
@@ -1453,12 +1455,12 @@ export class PERPrivacyClient {
           return 1n; // First deposit
         }
         // last_deposited_id at offset 79 (8 bytes LE)
-        const lastId = Buffer.from(l1PoolInfo.data.slice(79, 87)).readBigUInt64LE();
+        const lastId = readBigUint64LE(l1PoolInfo.data, 79);
         return lastId + 1n;
       }
 
       // last_deposited_id at offset 79 (8 bytes LE) in pool data
-      const lastId = Buffer.from(poolInfo.data.slice(79, 87)).readBigUInt64LE();
+      const lastId = readBigUint64LE(poolInfo.data, 79);
       return lastId + 1n;
     } catch (error) {
       console.warn("[WAVETEK] pool state unavailable, using default");
@@ -1510,7 +1512,7 @@ export class PERPrivacyClient {
       // Build nonce from seqId for backwards compat
       const nonce = new Uint8Array(32);
       const nonceBuf = Buffer.from(nonce.buffer);
-      nonceBuf.writeBigUInt64LE(seqId);
+      writeBigUint64LE(nonceBuf, seqId, 0);
 
       // TX1: Create deposit record (L1)
       const createResult = await this.createV4Deposit(

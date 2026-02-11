@@ -1439,10 +1439,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
               const isConfidentialRealBalance = balance !== 'AUTH_REQUIRED' && balance !== 'DEPOSITED'
               const isCurrentRealBalance = currentBalance && currentBalance !== 'AUTH_REQUIRED' && currentBalance !== 'DEPOSITED' && currentBalance !== '0'
 
-              // Debug logging for SOL specifically
-              if (address === 'So11111111111111111111111111111111111111112') {
-                console.log(`[Balance Merge] SOL: current=${currentBalance}, confidential=${balance}, isConfidentialReal=${isConfidentialRealBalance}, isCurrentReal=${isCurrentRealBalance}`)
-              }
+              // Merge logic: prefer confidential if real, or if current is not real
 
               if (isConfidentialRealBalance || !isCurrentRealBalance) {
                 merged.set(address, balance)

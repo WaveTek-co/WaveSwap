@@ -64,13 +64,13 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
     setIsLoadingConfidentialBalances(true)
     try {
-      console.log('[SwapComponent] Fetching confidential balances from API for user:', publicKey.toString())
+      console.log('[SwapComponent] fetching confidential balances')
 
       const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${publicKey.toString()}`)
 
       if (response.ok) {
         const data = await response.json()
-        console.log('[SwapComponent] Successfully fetched confidential balances:', data)
+        console.log('[SwapComponent] confidential balances loaded:', (data.confidentialBalances || []).length)
         setApiConfidentialBalances(data.confidentialBalances || [])
       } else if (response.status === 401) {
         console.log('[SwapComponent] Authentication required for confidential balances')
@@ -897,7 +897,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     // Merge local fallback balances
     localBalances.forEach((localBalance, address) => {
       const currentBalance = merged.get(address) || '0'
-      console.log(`[Balance Merge] ${address}: current=${currentBalance}, local=${localBalance}, using local=${parseFloat(localBalance) > parseFloat(currentBalance)}`)
+      // Balance merge: prefer local if greater than current
 
       // Use local balance if it's greater than current balance (to handle the case where current is 0)
       if (parseFloat(localBalance) > parseFloat(currentBalance)) {

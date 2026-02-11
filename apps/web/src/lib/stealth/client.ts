@@ -66,6 +66,8 @@ import {
   deriveTeeSecretStorePda,
   derivePoolDepositPda,
   MASTER_AUTHORITY,
+  writeBigUint64LE,
+  readBigUint64LE,
 } from "./config";
 import { ComputeBudgetProgram } from "@solana/web3.js";
 // Use Web Crypto API for random bytes (browser-compatible)
@@ -2224,7 +2226,7 @@ export class WaveStealthClient {
       const perConnection = new Connection(MAGICBLOCK_PER.ER_ENDPOINT, "confirmed");
       const poolInfo = await perConnection.getAccountInfo(poolPda);
       if (poolInfo && poolInfo.data.length >= 95) {
-        const lastId = Buffer.from(poolInfo.data.slice(79, 87)).readBigUInt64LE();
+        const lastId = readBigUint64LE(poolInfo.data, 79);
         return lastId + 1n;
       }
     } catch {
@@ -2235,7 +2237,7 @@ export class WaveStealthClient {
     try {
       const l1PoolInfo = await this.connection.getAccountInfo(poolPda);
       if (l1PoolInfo && l1PoolInfo.data.length >= 95) {
-        const lastId = Buffer.from(l1PoolInfo.data.slice(79, 87)).readBigUInt64LE();
+        const lastId = readBigUint64LE(l1PoolInfo.data, 79);
         return lastId + 1n;
       }
     } catch {
@@ -2360,7 +2362,7 @@ export class WaveStealthClient {
       let offset = 0;
       createData[offset++] = StealthDiscriminators.CREATE_V4_DEPOSIT_SEQ;
       // seq_id (8 bytes LE)
-      createData.writeBigUInt64LE(seqId, offset); offset += 8;
+      writeBigUint64LE(createData, seqId, offset); offset += 8;
       createData[offset++] = recordBump;
       // amount (8 bytes LE)
       for (let i = 0; i < 8; i++) {
@@ -2400,7 +2402,7 @@ export class WaveStealthClient {
         // Data: discriminator(1) + nonce(32) + offset(2) + chunk_len(2) + chunk
         // nonce = 32-byte buffer with first 8 bytes = seqId LE (for PDA derivation)
         const seqNonce = Buffer.alloc(32);
-        seqNonce.writeBigUInt64LE(seqId);
+        writeBigUint64LE(seqNonce, seqId, 0);
         const uploadData = Buffer.alloc(1 + 32 + 2 + 2 + chunk.length);
         let uOffset = 0;
         uploadData[uOffset++] = StealthDiscriminators.UPLOAD_V4_CIPHERTEXT;
@@ -2430,7 +2432,7 @@ export class WaveStealthClient {
       const completeData = Buffer.alloc(15);
       let cOffset = 0;
       completeData[cOffset++] = StealthDiscriminators.COMPLETE_V4_DEPOSIT_SEQ;
-      completeData.writeBigUInt64LE(seqId, cOffset); cOffset += 8;
+      writeBigUint64LE(completeData, seqId, cOffset); cOffset += 8;
       completeData[cOffset++] = escrowBump;
       completeData.writeUInt32LE(1000, cOffset); cOffset += 4; // 1000ms commit frequency
       completeData[cOffset++] = recordBump;
@@ -2588,7 +2590,7 @@ export class WaveStealthClient {
       try {
         const info = await this.connection.getAccountInfo(escrowPda);
         if (info && info.data.length >= 91) {
-          const amount = Buffer.from(info.data.slice(41, 49)).readBigUInt64LE();
+          const amount = readBigUint64LE(info.data, 41);
           if (amount > 0n) {
             return true; // TEE funded the OUTPUT_ESCROW via POOL_TO_ESCROW
           }
@@ -2761,7 +2763,7 @@ export class WaveStealthClient {
       data[0] = StealthDiscriminators.CREATE_POOL_DEPOSIT;
       data[1] = depositBump;
       Buffer.from(nonce).copy(data, 2);
-      data.writeBigUInt64LE(amount, 34);
+      writeBigUint64LE(data, amount, 34);
 
       const tx = new Transaction();
       tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
