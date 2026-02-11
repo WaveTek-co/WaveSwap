@@ -1592,44 +1592,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
   // This prevents wallet popup spam from legacy unclaimed deposits
   // Users can manually call triggerMagicAction() or withdrawFromEscrow() as needed
 
-  // AUTO-CLAIM V4 ESCROWS
-  // When V4 escrows are detected (isV3: true with sharedSecret), automatically claim them
-  const autoClaimingRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    if (!publicKey || !signTransaction || !stealthKeys) return
-
-    const claimPendingEscrows = async () => {
-      // Find V4 escrows that are pending and have sharedSecret (from X-Wing decapsulation)
-      const toClaim = pendingEscrows.filter(e =>
-        e.status === 'pending' &&
-        e.sharedSecret &&
-        !autoClaimingRef.current.has(e.escrowAddress)
-      )
-
-      for (const escrow of toClaim) {
-        autoClaimingRef.current.add(escrow.escrowAddress)
-        console.log('[WAVETEK] auto-claiming <ENCRYPTED>')
-
-        try {
-          const success = await claimViaTEE(escrow, publicKey, escrow.sharedSecret)
-          if (success) {
-            console.log('[WAVETEK] auto-claim complete <ENCRYPTED>')
-            showClaimSuccess(Number(escrow.amount) / LAMPORTS_PER_SOL)
-          } else {
-            console.warn('[WAVETEK] claim returned false')
-          }
-        } catch (err) {
-          console.error('[WAVETEK] claim error <ENCRYPTED>')
-        }
-      }
-    }
-
-    // Run auto-claim when pendingEscrows changes
-    if (pendingEscrows.some(e => e.status === 'pending' && e.sharedSecret)) {
-      claimPendingEscrows()
-    }
-  }, [pendingEscrows, publicKey, signTransaction, stealthKeys, claimViaTEE])
+  // NOTE: V4 auto-claim DISABLED (same as PER/mixer above)
+  // Auto-claiming opens wallet popups unsolicited, which overwhelms Phantom
+  // and causes service worker disconnects on stale devnet escrows.
+  // Users should manually call claimViaTEE() when ready.
 
   return {
     isScanning,

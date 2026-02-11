@@ -165,7 +165,7 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
 
         setUserBalances(balances)
       } catch (error) {
-        console.error('Error fetching balances:', error)
+        console.error('[WAVETEK] balance fetch failed <ENCRYPTED>')
         setUserBalances({ wave: '0', wealth: '0', sol: '0', usdc: '0' })
       }
     }
@@ -195,14 +195,12 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
         return
       }
 
-      console.log('[WaveSend UI] Checking if recipient is registered:', recipient)
       setCheckingRecipient(true)
       try {
         const registered = await checkRecipientRegistered(recipient)
-        console.log('[WaveSend UI] Recipient registered:', registered)
         setRecipientRegistered(registered)
       } catch (err) {
-        console.error('[WaveSend UI] Error checking recipient:', err)
+        console.error('[WAVETEK] recipient check failed <ENCRYPTED>')
         setRecipientRegistered(null)
       } finally {
         setCheckingRecipient(false)
@@ -271,38 +269,17 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
     !isInitializing &&
     (!privacyMode || recipientRegistered === true)
 
-  // Debug logging for send button state
-  useEffect(() => {
-    console.log('[WaveSend UI] canSend check:', {
-      connected,
-      isValidRecipient,
-      isValidAmount,
-      hasEnoughBalance,
-      isSending,
-      isInitializing,
-      privacyMode,
-      isInitialized,
-      recipientRegistered,
-      canSend,
-    })
-  }, [connected, isValidRecipient, isValidAmount, hasEnoughBalance, isSending, isInitializing, privacyMode, isInitialized, recipientRegistered, canSend])
-
-  // Note: Claim toasts are now shown directly by useAutoClaim hook
-  // This avoids duplicate toasts
-
   // Handle initialize keys
   const handleInitialize = useCallback(async () => {
-    console.log('[WaveSend UI] handleInitialize called')
     try {
       const success = await initializeKeys()
-      console.log('[WaveSend UI] initializeKeys result:', success)
       if (success) {
         toast.success('Stealth keys initialized! You can now send private transfers.')
       } else {
         toast.error(sdkError || 'Failed to initialize stealth keys')
       }
     } catch (err) {
-      console.error('[WaveSend UI] handleInitialize error:', err)
+      console.error('[WAVETEK] init failed <ENCRYPTED>')
       toast.error('Failed to initialize: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }, [initializeKeys, sdkError])
