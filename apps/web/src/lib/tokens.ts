@@ -447,113 +447,47 @@ export async function getTokenBalance(
   mint: string
 ): Promise<string> {
   try {
-    console.log(`[getTokenBalance] Fetching balance for ${mint} for wallet ${walletAddress.toString()}`)
-
-    // Create cache key
     const cacheKey = `${walletAddress.toString()}-${mint}`
 
     // Check cache first
     const cached = balanceCache.get(cacheKey)
     if (cached && (Date.now() - cached.timestamp < BALANCE_CACHE_DURATION)) {
-      console.log(`[getTokenBalance] Using cached balance for ${mint}: ${cached.balance}`)
       return cached.balance
     }
 
     let balance: string
 
-    // Handle SOL balance - also check for wrapped SOL (WSOL)
     if (mint === 'So11111111111111111111111111111111111111112') {
-      console.log(`[getTokenBalance] Fetching SOL balance via server proxy`)
-
       try {
         const response = await fetch(
           `/api/v1/balance?wallet=${walletAddress.toString()}&mint=${mint}&commitment=confirmed`
         )
-
-        if (!response.ok) {
-          throw new Error(`Balance API returned ${response.status}: ${response.statusText}`)
-        }
-
+        if (!response.ok) throw new Error(`Balance API returned ${response.status}: ${response.statusText}`)
         const data = await response.json()
-
-        if (!data.success) {
-          throw new Error(`Balance API error: ${data.error}`)
-        }
-
+        if (!data.success) throw new Error(`Balance API error: ${data.error}`)
         balance = data.balance
-        const lamports = data.lamports || 0
-        const solAmount = parseFloat(balance) / 1e9
-
-        console.log(`[getTokenBalance] SOL balance fetched via proxy: <ENCRYPTED>`)
-
-        // Log for debugging the actual values
-        if (solAmount > 0) {
-          console.log(`[getTokenBalance] User has SOL balance: <ENCRYPTED>`)
-        } else {
-          console.log(`[getTokenBalance] SOL balance is 0`)
-        }
-
-      } catch (proxyError) {
-        console.error(`[getTokenBalance] Proxy balance fetch error:`, proxyError)
-        console.error(`[getTokenBalance] Proxy Error details:`, {
-          message: proxyError?.message,
-          name: proxyError?.name,
-          stack: proxyError?.stack,
-          walletAddress: walletAddress.toString()
-        })
+      } catch {
         balance = '0'
       }
-    }
-    // Handle confidential tokens (they have different mint formats)
-    else if (mint.startsWith('c') || !isBase58(mint)) {
-      console.log(`[getTokenBalance] Confidential token ${mint}, setting balance to 0`)
-            balance = '0'
-    }
-    // Validate that mint is a valid public key before creating PublicKey
-    else {
+    } else if (mint.startsWith('c') || !isBase58(mint)) {
+      balance = '0'
+    } else {
       try {
-        console.log(`[getTokenBalance] Fetching SPL token balance via server proxy for ${mint}`)
-
         const response = await fetch(
           `/api/v1/balance?wallet=${walletAddress.toString()}&mint=${mint}&commitment=confirmed`
         )
-
-        if (!response.ok) {
-          throw new Error(`Balance API returned ${response.status}: ${response.statusText}`)
-        }
-
+        if (!response.ok) throw new Error(`Balance API returned ${response.status}: ${response.statusText}`)
         const data = await response.json()
-
-        if (!data.success) {
-          throw new Error(`Balance API error: ${data.error}`)
-        }
-
+        if (!data.success) throw new Error(`Balance API error: ${data.error}`)
         balance = data.balance
-        console.log(`[getTokenBalance] SPL token balance fetched via proxy: <ENCRYPTED>`)
-
-      } catch (proxyError) {
-        console.error(`[getTokenBalance] Proxy SPL balance fetch error:`, proxyError)
+      } catch {
         balance = '0'
       }
+    }
 
-      }
-
-    // Cache the result
     balanceCache.set(cacheKey, { balance, timestamp: Date.now() })
-    console.log(`[getTokenBalance] Final balance for ${mint}: ${balance}`)
-
     return balance
-  } catch (error) {
-    console.error(`[getTokenBalance] Top-level error fetching balance for ${mint}:`, error)
-    console.error(`[getTokenBalance] Top-level error details:`, {
-      message: error?.message,
-      name: error?.name,
-      stack: error?.stack,
-      walletAddress: walletAddress.toString(),
-      mint: mint
-    })
-
-    // No mock fallbacks - return 0 if balance fetching fails
+  } catch {
     return '0'
   }
 }

@@ -184,10 +184,8 @@ async function subtractConfidentialBalance(tokenAddress: string, amount: number,
 }
 
 export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): SwapState & SwapActions {
-  console.log('[WAVETEK] hook mounted <ENCRYPTED>')
   const { connection } = useConnection()
   const { signTransaction, signAllTransactions } = useWallet()
-  console.log('[WAVETEK] wallet hooks ready <ENCRYPTED>')
   const theme = useThemeConfig()
 
   const debugPrivacyMode = privacyMode // Use actual privacy mode without debug override
@@ -209,7 +207,6 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   // Sync swapMode with privacyMode prop changes
   useEffect(() => {
     const newSwapMode = privacyMode ? SwapMode.PRIVATE : SwapMode.NORMAL
-    console.log('[WAVETEK] privacy mode changed <ENCRYPTED>')
     setSwapMode(newSwapMode)
 
     // Clear existing quote when switching modes
@@ -406,9 +403,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
           onProgress: setProgress
         })
 
-        console.log('[WAVETEK] swap service initialized')
-      } catch (error) {
-        console.error('[WAVETEK] swap service init failed <ENCRYPTED>')
+      } catch {
         setError('Failed to initialize swap service')
       }
     }
@@ -453,16 +448,11 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's tokens when wallet connects or privacy mode changes
   useEffect(() => {
-    console.log('[WAVETEK] wallet effect triggered <ENCRYPTED>')
     if (publicKey && connection) {
-      console.log('[WAVETEK] wallet connected, loading tokens')
       loadUserTokens()
     } else {
-      console.log('[WAVETEK] no wallet, loading defaults')
-      // No wallet, just show defaults
       const loadDefaultTokens = async () => {
         const defaultTokens = await getAvailableTokens(privacyMode)
-        console.log('[WAVETEK] default tokens loaded <ENCRYPTED>')
         setAvailableTokens(defaultTokens)
       }
       loadDefaultTokens()
@@ -471,16 +461,10 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Load user's wallet tokens
   const loadUserTokens = async () => {
-    console.log('[WAVETEK] loading user tokens <ENCRYPTED>')
-    if (!publicKey || !connection) {
-      console.log('[WAVETEK] no wallet, skipping token load')
-      return
-    }
+    if (!publicKey || !connection) return
 
     try {
-      console.log('[WAVETEK] fetching user tokens')
       const userTokens = await getUserTokens(connection, publicKey)
-      console.log('[WAVETEK] user tokens fetched <ENCRYPTED>')
 
       // Merge with available tokens based on privacy mode
       const tokenMap = new Map<string, Token>()
@@ -492,7 +476,6 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
         // Then dynamically create confidential tokens for any token with a balance
         const confidentialBalances = await fetchConfidentialBalances(publicKey.toString())
-        console.log('[WAVETEK] creating confidential tokens <ENCRYPTED>')
 
         for (const [tokenAddress, balance] of confidentialBalances.entries()) {
           // Only show tokens with actual positive balances (numeric values)
@@ -504,7 +487,6 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                                    !isNaN(parseFloat(balance)) &&
                                    parseFloat(balance) > 0
 
-          console.log('[WAVETEK] token balance check <ENCRYPTED>')
 
           if (hasActualBalance) {
             // Find the original token from userTokens or COMMON_TOKENS
@@ -525,7 +507,6 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 addressable: false
               }
 
-              console.log('[WAVETEK] confidential token created <ENCRYPTED>')
               tokenMap.set(confidentialAddress, confidentialToken)
             } else {
               // Create a fallback token for unknown tokens from Encifher
@@ -544,7 +525,6 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
                 // Also create the original token for reference
               }
 
-              console.log('[WAVETEK] fallback confidential token created <ENCRYPTED>')
               tokenMap.set(confidentialAddress, fallbackToken)
 
               // Also add the original token (non-confidential version) for reference
@@ -579,44 +559,30 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
       const enrichedTokens = await enrichTokenIcons(allTokens)
       setAvailableTokens(enrichedTokens)
 
-      console.log('[WAVETEK] tokens loaded <ENCRYPTED>')
-      // Refresh balances after tokens are loaded
       refreshBalances()
-    } catch (error) {
-      console.error('[WAVETEK] token load failed <ENCRYPTED>')
-      // Fall back to available tokens for current mode
+    } catch {
       const fallbackTokens = await getAvailableTokens(privacyMode)
       setAvailableTokens(fallbackTokens)
-      console.log('[WAVETEK] using fallback tokens, refreshing')
-      // Still try to refresh balances even with fallback tokens
       refreshBalances()
     }
   }
 
   // Debounced balance refresh to avoid excessive API calls
   useEffect(() => {
-    console.log('[WAVETEK] debounced balance refresh <ENCRYPTED>')
     const timeoutId = setTimeout(() => {
       if (publicKey && (inputToken || outputToken)) {
-        console.log('[WAVETEK] refreshing balances')
         refreshBalances()
-      } else {
-        console.log('[WAVETEK] balance refresh skipped, no wallet')
       }
-    }, 500) // 500ms debounce
+    }, 500)
 
     return () => clearTimeout(timeoutId)
   }, [publicKey, inputToken, outputToken])
 
   // Initial balance fetch on wallet connection
   useEffect(() => {
-    console.log('[WAVETEK] initial balance effect <ENCRYPTED>')
     if (publicKey && !inputToken && !outputToken && availableTokens.length > 0) {
-      console.log('[WAVETEK] fetching initial balances')
-      // Fetch balances for top tokens by default
-      const topTokens = availableTokens.slice(0, 6) // Fetch for 6 most common tokens
+      const topTokens = availableTokens.slice(0, 6)
       fetchMultipleBalances(topTokens).then(newBalances => {
-        console.log('[WAVETEK] initial balances fetched <ENCRYPTED>')
         setBalances(prev => {
           const merged = new Map(prev)
           newBalances.forEach((balance, address) => {
@@ -1369,27 +1335,15 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
 
   // Optimized batch balance fetching
   const fetchMultipleBalances = useCallback(async (tokens: Token[]): Promise<Map<string, string>> => {
-    console.log(`[useSwap] fetchMultipleBalances called with ${tokens.length} tokens`)
-    console.log('[useSwap] publicKey: <ENCRYPTED>')
-    console.log(`[useSwap] connection: ${!!connection}`)
-
     if (!publicKey || !connection || tokens.length === 0) {
-      console.log(`[useSwap] Returning empty Map - missing:`, {
-        publicKey: !!publicKey,
-        connection: !!connection,
-        tokensCount: tokens.length
-      })
       return new Map()
     }
 
-    const balancePromises = tokens.map(async (token, index) => {
+    const balancePromises = tokens.map(async (token) => {
       try {
-        console.log(`[useSwap] Starting balance fetch for token ${index + 1}/${tokens.length}: ${token.address} (${token.symbol})`)
         const balance = await getTokenBalance(connection, publicKey, token.address)
-        console.log(`[useSwap] Balance fetched for ${token.symbol}: <ENCRYPTED>`)
         return [token.address, balance] as [string, string]
-      } catch (error) {
-        console.error(`[useSwap] Failed to fetch balance for <ENCRYPTED>:`, error)
+      } catch {
         return [token.address, '0'] as [string, string]
       }
     })
@@ -1397,33 +1351,29 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
     const results = await Promise.allSettled(balancePromises)
     const newBalances = new Map<string, string>()
 
-    console.log(`[useSwap] Processing ${results.length} balance fetch results...`)
-    results.forEach((result, index) => {
+    results.forEach((result) => {
       if (result.status === 'fulfilled' && result.value) {
         const [address, balance] = result.value
         newBalances.set(address, balance)
-        console.log(`[useSwap] Result ${index}: <ENCRYPTED>`)
-      } else {
-        console.error(`[useSwap] Balance fetch failed:`, result)
       }
     })
 
-    console.log(`[useSwap] Final balances Map created with ${newBalances.size} entries: <ENCRYPTED>`)
     return newBalances
   }, [publicKey, connection])
 
+  const isRefreshingRef = useRef(false)
+
   const refreshBalances = useCallback(async () => {
-    console.log('[refreshBalances] Called with publicKey: <ENCRYPTED>')
     if (!publicKey || !connection) {
-      console.log('[refreshBalances] No publicKey or connection, clearing balances')
       setBalances(new Map())
       return
     }
 
-    console.log('[refreshBalances] Starting balance refresh for:', publicKey.toString())
-    // Clear SOL balance cache to ensure fresh data
+    // Prevent overlapping refreshes that cause re-render cascades
+    if (isRefreshingRef.current) return
+    isRefreshingRef.current = true
+
     clearBalanceCache()
-    console.log('[refreshBalances] Balance cache cleared')
 
     try {
       // Get user's tokens from wallet
@@ -1501,13 +1451,13 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
             return merged
           })
         } catch (confidentialError) {
-          console.error('[Confidential Balance] Failed to fetch confidential balances:', confidentialError)
           // Don't fail the entire refresh if confidential balances fail
         }
       }
-    } catch (error) {
-      console.error('Error refreshing balances:', error)
+    } catch {
       setBalances(new Map())
+    } finally {
+      isRefreshingRef.current = false
     }
   }, [publicKey, connection, inputToken, outputToken])
 
