@@ -2217,47 +2217,43 @@ export class WaveStealthClient {
   // WAVETEK TRUE PRIVACY FLOW
   // ═══════════════════════════════════════════════════════════════════════════════
   //
-  // Read PER pool to get next sequential ID for WAVETEK deposits
+  // Read L1 pool to get next sequential ID for WAVETEK deposits
+  // Pool data on L1 may be stale (delegated to PER), so also probe deposit records
   private async getNextSeqId(): Promise<bigint> {
     const [poolPda] = derivePerMixerPoolPda();
 
-    // Try PER first (live data while pool is delegated)
+    // Read L1 pool (may be stale while delegated, but gives a baseline)
     try {
-      const perConnection = new Connection(MAGICBLOCK_PER.ER_ENDPOINT, "confirmed");
-      const poolInfo = await perConnection.getAccountInfo(poolPda);
+      const poolInfo = await this.connection.getAccountInfo(poolPda);
       if (poolInfo && poolInfo.data.length >= 95) {
         const lastId = readBigUint64LE(poolInfo.data, 79);
-        return lastId + 1n;
+        // L1 data is stale while delegated - probe from lastId to find actual next
+        let seqId = lastId + 1n;
+        for (let i = 0; i < 50; i++) {
+          const [recordPda] = deriveDepositRecordSeqPda(seqId);
+          const info = await this.connection.getAccountInfo(recordPda);
+          if (!info) return seqId; // This seq_id is available
+          seqId++;
+        }
+        return seqId;
       }
     } catch {
-      // PER unreachable, fall through to L1
+      // L1 read failed
     }
 
-    // L1 fallback (stale while delegated, but better than default)
-    try {
-      const l1PoolInfo = await this.connection.getAccountInfo(poolPda);
-      if (l1PoolInfo && l1PoolInfo.data.length >= 95) {
-        const lastId = readBigUint64LE(l1PoolInfo.data, 79);
-        return lastId + 1n;
-      }
-    } catch {
-      // L1 also failed
-    }
-
-    // Probe for existing deposit records to avoid PDA collision
+    // Full probe fallback (no pool data at all)
     let seqId = 1n;
     try {
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 50; i++) {
         const [recordPda] = deriveDepositRecordSeqPda(seqId);
         const info = await this.connection.getAccountInfo(recordPda);
-        if (!info) break; // This seq_id is available
+        if (!info) break;
         seqId++;
       }
     } catch {
       // Probing failed, use current candidate
     }
 
-    console.warn("[WAVETEK] pool state unavailable, using seq", Number(seqId));
     return seqId;
   }
 
@@ -2530,32 +2526,22 @@ export class WaveStealthClient {
       const completeOk = await confirmTransactionPolling(this.connection, completeSig);
       if (!completeOk) throw new Error("Deposit completion failed on-chain");
 
-      // ══════════════════════════════════════════════════════════════════════
-      // SENDER DONE - Crank handles the rest automatically
-      // ══════════════════════════════════════════════════════════════════════
-      // Automated flow (no sender involvement):
-      // 1. REGISTER_DEPOSIT on PER: validates seq_id ordering
-      // 2. INPUT_TO_POOL on PER: moves funds from input_escrow to pool
-      // 3. PREPARE_OUTPUT on L1: crank creates output_escrow (batched for privacy)
-      // 4. POOL_TO_ESCROW on PER: distributes funds to output_escrow
-      // Receiver: CLAIM on PER → WITHDRAW on L1
-      reportProgress('Waiting for crank to process deposit...', 2, 2);
+      // SENDER DONE - Crank handles the rest automatically:
+      // INPUT_TO_POOL → PREPARE_OUTPUT → POOL_TO_ESCROW
+      // Receiver scans L1 for committed output escrows
+      reportProgress('Sent! Crank will process through mixer.', 2, 2);
 
-      console.log('[WAVETEK] awaiting settlement <ENCRYPTED>');
-      const outputEscrowFunded = await this.waitForOutputEscrowFunded(
-        stealthPubkey,
-        60000 // 60s timeout
-      );
-
-      if (outputEscrowFunded) {
-        console.log('[WAVETEK] settlement confirmed');
-        reportProgress('Send complete! Receiver can now scan & claim.', 2, 2);
-      } else {
-        console.log('[WAVETEK] processing <ENCRYPTED>');
-        reportProgress('Deposit delegated. Processing in PER...', 2, 2);
+      // Trigger server-side crank to process this deposit
+      try {
+        fetch('/api/wavetek/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seqId: Number(seqId) }),
+        }).catch(() => {}); // Fire-and-forget, don't block sender
+      } catch {
+        // Crank trigger is best-effort
       }
 
-      // Derive output escrow PDA for return value (created by crank later)
       const [outputEscrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
       return {
@@ -2579,29 +2565,6 @@ export class WaveStealthClient {
     }
   }
 
-  // Poll L1 to verify Magic Actions funded the OUTPUT_ESCROW
-  private async waitForOutputEscrowFunded(
-    stealthPubkey: Uint8Array,
-    timeoutMs: number = 30000
-  ): Promise<boolean> {
-    const [escrowPda] = deriveOutputEscrowPda(stealthPubkey);
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      try {
-        const info = await this.connection.getAccountInfo(escrowPda);
-        if (info && info.data.length >= 91) {
-          const amount = readBigUint64LE(info.data, 41);
-          if (amount > 0n) {
-            return true; // TEE funded the OUTPUT_ESCROW via POOL_TO_ESCROW
-          }
-        }
-      } catch {
-        // Ignore transient RPC errors during polling
-      }
-      await new Promise(r => setTimeout(r, 2000));
-    }
-    return false;
-  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // POOL REGISTRY - 3-Signature Post-Quantum Privacy Flow

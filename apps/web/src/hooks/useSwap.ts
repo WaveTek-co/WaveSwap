@@ -1490,7 +1490,7 @@ export function useSwap(privacyMode: boolean, publicKey: PublicKey | null): Swap
   // Refresh balances when wallet connects or publicKey changes
   useEffect(() => {
     if (publicKey && connection) {
-      console.log('[useSwap] Wallet connected, refreshing balances for:', publicKey.toString())
+      console.log('[useSwap] Wallet connected, refreshing balances')
       // Force immediate balance refresh
       refreshBalances()
 

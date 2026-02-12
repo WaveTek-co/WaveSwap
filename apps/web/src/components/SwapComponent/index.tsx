@@ -110,7 +110,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
     setIsLoadingConfidentialBalances(true)
     try {
-      console.log('[SwapComponent] Initiating authenticated balance fetch for user:', publicKey.toString())
+      console.log('[SwapComponent] Initiating authenticated balance fetch')
 
       // Use existing connection from wallet adapter
 
@@ -755,13 +755,7 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   // Debug: Log balance state changes
   useEffect(() => {
     if (publicKey && safeInputToken) {
-      console.log(`[Balance State] Wallet: ${publicKey.toString().slice(0, 8)}...`)
-      console.log(`[Balance State] Token: ${safeInputToken.symbol} (${safeInputToken.address})`)
-      console.log(`[Balance State] Raw balance from useSwap: "${inputBalance}"`)
-      console.log(`[Balance State] Total balances in Map: ${balances.size}`)
-      if (balances.size > 0) {
-        console.log(`[Balance State] All balances:`, Array.from(balances.entries()))
-      }
+      console.log(`[Balance State] Token: ${safeInputToken.symbol}, balances loaded: ${balances.size}`)
     }
   }, [publicKey, safeInputToken, inputBalance, balances.size])
 

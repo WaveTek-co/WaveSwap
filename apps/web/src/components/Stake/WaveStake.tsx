@@ -177,7 +177,7 @@ export function WaveStake({ privacyMode, comingSoon = false }: WaveStakeProps) {
 
   // Pool data - All 5 tokens on devnet (using test tokens)
   const stakePools: StakePool[] = useMemo(() => {
-    console.log('[WaveStake] useMemo recalculating stakePools with userBalances:', userBalances)
+    console.log('[WaveStake] recalculating stakePools')
 
     const poolsToShow = [
       {
