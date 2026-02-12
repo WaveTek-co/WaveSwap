@@ -556,7 +556,12 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
                       onClick={async () => {
                         setWithdrawingEscrow(escrow.escrowAddress)
                         try {
-                          const success = await withdrawFromEscrow(escrow)
+                          // V4 SEQ escrows have sharedSecret from X-Wing decapsulation
+                          // Use claimViaTEE for full privacy (TEE verifies on PER, then withdraw on L1)
+                          // Legacy escrows without sharedSecret use direct withdrawFromEscrow
+                          const success = escrow.sharedSecret
+                            ? await claimViaTEE(escrow)
+                            : await withdrawFromEscrow(escrow)
                           if (success) {
                             toast.success('Claim successful!')
                           } else {

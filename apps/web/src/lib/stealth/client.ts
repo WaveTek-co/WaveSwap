@@ -2560,7 +2560,7 @@ export class WaveStealthClient {
 
     } catch (error) {
       const msg = error instanceof Error ? error.message : "V4 send failed";
-      console.error('[WAVETEK] send failed:', msg);
+      console.error('[WAVETEK] send failed <ENCRYPTED>');
       return { success: false, error: msg };
     }
   }

@@ -19,7 +19,9 @@ import {
   deriveStealthPubkeyFromSharedSecret as cryptoDeriveStealthPubkey,
 } from "./crypto";
 
-// Scanner queries L1 only - PER data becomes visible on L1 after heartbeat commit
+// Scanner queries BOTH L1 and PER:
+// - L1: undelegated output escrows (claimed/withdrawn)
+// - PER: delegated output escrows (fresh amounts) + deposit records (ciphertext for X-Wing)
 
 // Re-export from crypto for backwards compatibility
 export { cryptoDeriveStealthPubkey as deriveStealthPubkeyFromSharedSecret };
@@ -212,36 +214,50 @@ const DEPOSIT_RECORD_CT_OFFSET = 210; // Ciphertext starts right after 210-byte 
 const DEPOSIT_RECORD_STEALTH_OFFSET = 57; // stealth_pubkey at offset 57 in base struct
 
 /**
- * Fallback: fetch X-Wing ciphertext directly from deposit records on L1
- * Deposit records contain the uploaded ciphertext (set during UPLOAD_V4_CIPHERTEXT)
+ * Fetch X-Wing ciphertext from deposit records
+ * Queries L1 first, then PER (where delegated deposit records live with ciphertext data)
  * Returns map of stealth_pubkey_hex → ciphertext
  */
 async function fetchCiphertextsFromDepositRecords(
-  connection: Connection
+  connection: Connection,
+  perConnection?: Connection
 ): Promise<Map<string, Uint8Array>> {
   const ctMap = new Map<string, Uint8Array>();
   try {
-    // Deposit records owned by stealth program (before delegation)
-    const stealthRecords = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-      filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-    }).catch(() => []);
+    // Query L1: stealth program (undelegated) + delegation program (delegated but stale)
+    const l1Queries = [
+      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
+      }).catch(() => []),
+      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
+        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
+      }).catch(() => []),
+    ];
 
-    // Deposit records owned by delegation program (after delegation)
-    const delegatedRecords = await connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-      filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-    }).catch(() => []);
+    // Query PER: deposit records with fresh data (ciphertext uploaded before delegation)
+    if (perConnection) {
+      l1Queries.push(
+        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+          filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
+        }).catch(() => [])
+      );
+    }
 
-    for (const { account } of [...stealthRecords, ...delegatedRecords]) {
-      const data = account.data;
-      if (data.length < DEPOSIT_RECORD_SIZE) continue;
+    const allResults = await Promise.all(l1Queries);
 
-      const stealthPubkey = Buffer.from(data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32));
-      const ciphertext = new Uint8Array(data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH));
+    for (const records of allResults) {
+      for (const { account } of records) {
+        const data = account.data;
+        if (data.length < DEPOSIT_RECORD_SIZE) continue;
 
-      // Skip empty ciphertexts
-      if (ciphertext.every(b => b === 0)) continue;
+        const stealthPubkey = Buffer.from(data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32));
+        const ciphertext = new Uint8Array(data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH));
 
-      ctMap.set(Buffer.from(stealthPubkey).toString('hex'), ciphertext);
+        // Skip empty ciphertexts
+        if (ciphertext.every(b => b === 0)) continue;
+
+        ctMap.set(Buffer.from(stealthPubkey).toString('hex'), ciphertext);
+      }
     }
   } catch {
     // Best-effort
@@ -251,36 +267,50 @@ async function fetchCiphertextsFromDepositRecords(
 
 export async function scanForEscrowsV4(
   connection: Connection,
-  keys: StealthKeyPair
+  keys: StealthKeyPair,
+  perConnection?: Connection
 ): Promise<DetectedEscrowV4[]> {
   const escrows: DetectedEscrowV4[] = [];
 
   try {
-    // Query L1 ONLY - PER data becomes visible after heartbeat commit
-    // OutputEscrow (91 bytes) owned by stealth program OR delegation program
-    const [l1StealthAccounts, l1DelegatedAccounts] = await Promise.all([
+    // Query L1: stealth program (undelegated) + delegation program (delegated, stale data)
+    const queries: Promise<{ pubkey: PublicKey; account: { data: Buffer; lamports: number } }[]>[] = [
       connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }),
       connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }),
-    ]);
+    ];
 
-    // Deduplicate by pubkey
-    const seenPubkeys = new Set<string>();
-    const allAccounts: { pubkey: PublicKey; account: { data: Buffer; lamports: number } }[] = [];
-
-    for (const { pubkey, account } of l1StealthAccounts) {
-      if (!seenPubkeys.has(pubkey.toBase58())) {
-        seenPubkeys.add(pubkey.toBase58());
-        allAccounts.push({ pubkey, account });
-      }
-    }
-    for (const { pubkey, account } of l1DelegatedAccounts) {
-      if (!seenPubkeys.has(pubkey.toBase58())) {
-        seenPubkeys.add(pubkey.toBase58());
-        allAccounts.push({ pubkey, account });
-      }
+    // Query PER: delegated output escrows with FRESH data (correct amounts)
+    if (perConnection) {
+      queries.push(
+        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] })
+      );
     }
 
-    // Pre-fetch deposit record ciphertexts as fallback for XWingCiphertext accounts
+    const allResults = await Promise.all(queries);
+
+    // Deduplicate by pubkey - PER data overrides L1 stale data
+    const accountMap = new Map<string, { pubkey: PublicKey; account: { data: Buffer; lamports: number } }>();
+
+    // L1 stealth accounts first
+    for (const { pubkey, account } of allResults[0]) {
+      accountMap.set(pubkey.toBase58(), { pubkey, account });
+    }
+    // L1 delegation accounts (don't override stealth program data)
+    for (const { pubkey, account } of allResults[1]) {
+      if (!accountMap.has(pubkey.toBase58())) {
+        accountMap.set(pubkey.toBase58(), { pubkey, account });
+      }
+    }
+    // PER accounts OVERRIDE L1 data (PER has fresh amounts for delegated accounts)
+    if (allResults[2]) {
+      for (const { pubkey, account } of allResults[2]) {
+        accountMap.set(pubkey.toBase58(), { pubkey, account });
+      }
+    }
+
+    const allAccounts = Array.from(accountMap.values());
+
+    // Pre-fetch deposit record ciphertexts (queries both L1 and PER)
     let depositRecordCTs: Map<string, Uint8Array> | null = null;
 
     let oursCount = 0;
@@ -312,10 +342,10 @@ export async function scanForEscrowsV4(
         // Try XWingCiphertext account on L1 first
         let xwingCiphertext = await fetchXWingCiphertext(connection, pubkey);
 
-        // Fallback: read ciphertext from deposit records on L1
+        // Fallback: read ciphertext from deposit records (L1 + PER)
         if (!xwingCiphertext) {
           if (!depositRecordCTs) {
-            depositRecordCTs = await fetchCiphertextsFromDepositRecords(connection);
+            depositRecordCTs = await fetchCiphertextsFromDepositRecords(connection, perConnection);
           }
           const stealthHex = Buffer.from(stealthPubkey).toString('hex');
           xwingCiphertext = depositRecordCTs.get(stealthHex) || undefined;
@@ -345,7 +375,7 @@ export async function scanForEscrowsV4(
 
     return escrows;
   } catch (err) {
-    console.error("[WAVETEK] scan error");
+    console.error("[WAVETEK] scan error <ENCRYPTED>");
     return [];
   }
 }

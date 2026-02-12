@@ -820,10 +820,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.log('[WAVETEK] escrow ready, skipping funding')
       }
 
-      // Build CLAIM_ESCROW_WAVETEK instruction (V4 ONLY)
-      // V4 OutputEscrows use stealth_pubkey (NOT nonce) for PDA derivation
-      // Accounts: claimer, output_escrow, destination, master_authority, xwing_ct, magic_context, magic_program
-      const [claimXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+      // Build CLAIM_ESCROW_WAVETEK instruction
+      // V4 SEQ: 6 accounts (no xwing_ct - ciphertext in deposit record)
+      // Legacy: 7 accounts (with xwing_ct)
       const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
       const [magicContext] = PublicKey.findProgramAddressSync(
         [Buffer.from('magic_context')],
@@ -837,18 +836,31 @@ export function useAutoClaim(): UseAutoClaimReturn {
       Buffer.from(escrow.stealthPubkey).copy(data, offset); offset += 32
       Buffer.from(sharedSecret).copy(data, offset)
 
+      // V4 SEQ escrows: no nonce means no XWingCT account (ciphertext in deposit record)
+      const isSeqEscrow = !escrow.nonce || escrow.nonce.every((b: number) => b === 0)
+
+      const claimAccounts = [
+        { pubkey: publicKey, isSigner: true, isWritable: true },      // claimer
+        { pubkey: escrowPda, isSigner: false, isWritable: true },     // escrow (delegated)
+        { pubkey: destination, isSigner: false, isWritable: false },  // destination (read-only)
+        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // master_authority (read-only)
+      ]
+
+      if (!isSeqEscrow) {
+        // Legacy: include xwing_ciphertext PDA
+        const [claimXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+        claimAccounts.push({ pubkey: claimXwingCtPda, isSigner: false, isWritable: true })
+      }
+
+      claimAccounts.push(
+        { pubkey: magicContext, isSigner: false, isWritable: true },  // magic_context
+        { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false }, // magic_program
+      )
+
       const tx = new Transaction()
       tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }))
       tx.add(new TransactionInstruction({
-        keys: [
-          { pubkey: publicKey, isSigner: true, isWritable: true },      // claimer
-          { pubkey: escrowPda, isSigner: false, isWritable: true },     // escrow (delegated)
-          { pubkey: destination, isSigner: false, isWritable: false },  // destination (read-only)
-          { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // master_authority (read-only)
-          { pubkey: claimXwingCtPda, isSigner: false, isWritable: true },    // xwing_ciphertext (delegated)
-          { pubkey: magicContext, isSigner: false, isWritable: true },  // magic_context
-          { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false }, // magic_program
-        ],
+        keys: claimAccounts,
         programId: PROGRAM_IDS.STEALTH,
         data,
       }))
@@ -874,8 +886,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.log('[WAVETEK] awaiting settlement <ENCRYPTED>')
 
       // Wait for escrow to be undelegated and verified
-      // V4 OutputEscrow: 91 bytes, is_verified at offset 82
-      const OUTPUT_ESCROW_OFFSET_IS_VERIFIED = 82
+      // V4 OutputEscrow: 91 bytes, is_verified at offset 81 (is_withdrawn at 82)
+      const OUTPUT_ESCROW_OFFSET_IS_VERIFIED = 81
       for (let i = 0; i < 15; i++) {
         await new Promise(r => setTimeout(r, 2000))
         const escrowInfo = await connection.getAccountInfo(escrowPda)
@@ -901,11 +913,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
               { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
             ]
 
-            // Check if XWingCiphertext account exists and add it for cleanup
-            const xwingCtInfo = await connection.getAccountInfo(claimXwingCtPda)
+            // Check if XWingCiphertext account exists on L1 and add it for cleanup
+            // V4 SEQ escrows don't have XWingCT, but check anyway
+            const [withdrawXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+            const xwingCtInfo = await connection.getAccountInfo(withdrawXwingCtPda)
             if (xwingCtInfo && xwingCtInfo.data.length > 0) {
               console.log('[WAVETEK] including X-Wing ciphertext')
-              withdrawAccounts.push({ pubkey: claimXwingCtPda, isSigner: false, isWritable: true })
+              withdrawAccounts.push({ pubkey: withdrawXwingCtPda, isSigner: false, isWritable: true })
             }
 
             const withdrawTx = new Transaction()
@@ -1344,7 +1358,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // ONLY includes escrows that belong to us (isOurs === true)
       if (keys.xwingKeys) {
 
-        const v4Escrows = await scanForEscrowsV4(connection, keys)
+        const v4Escrows = await scanForEscrowsV4(connection, keys, rollupConnection)
 
         // Only process escrows that belong to us
         const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
@@ -1432,7 +1446,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.error('[WAVETEK] scan failed <ENCRYPTED>')
       return 0
     }
-  }, [connection, pendingClaims, delegatedDeposits, pendingEscrows])
+  }, [connection, rollupConnection, pendingClaims, delegatedDeposits, pendingEscrows])
 
   // Generate stealth keys - uses localStorage cache to avoid repeated wallet popups
   const ensureStealthKeys = useCallback(async (): Promise<StealthKeyPair | null> => {
