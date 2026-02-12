@@ -2217,31 +2217,50 @@ export class WaveStealthClient {
   // WAVETEK TRUE PRIVACY FLOW
   // ═══════════════════════════════════════════════════════════════════════════════
   //
-  // Read L1 pool to get next sequential ID for WAVETEK deposits
-  // Pool data on L1 may be stale (delegated to PER), so also probe deposit records
+  // Read PER pool to get next sequential ID for WAVETEK deposits
+  // Pool is delegated to PER, so L1 data is STALE - must read from PER
   private async getNextSeqId(): Promise<bigint> {
     const [poolPda] = derivePerMixerPoolPda();
 
-    // Read L1 pool (may be stale while delegated, but gives a baseline)
+    // Read pool from PER (live, authoritative data)
     try {
-      const poolInfo = await this.connection.getAccountInfo(poolPda);
+      const poolInfo = await this.perConnection.getAccountInfo(poolPda);
       if (poolInfo && poolInfo.data.length >= 95) {
         const lastId = readBigUint64LE(poolInfo.data, 79);
-        // L1 data is stale while delegated - probe from lastId to find actual next
+        // Start from lastId + 1 and probe PER for available seq_id
         let seqId = lastId + 1n;
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 10; i++) {
           const [recordPda] = deriveDepositRecordSeqPda(seqId);
+          // Check L1 (where CREATE_V4_DEPOSIT_SEQ creates the record before delegation)
           const info = await this.connection.getAccountInfo(recordPda);
-          if (!info) return seqId; // This seq_id is available
+          if (!info) return seqId;
           seqId++;
         }
         return seqId;
       }
     } catch {
-      // L1 read failed
+      // PER read failed, try L1 as fallback
     }
 
-    // Full probe fallback (no pool data at all)
+    // Fallback: read L1 pool (stale but better than nothing)
+    try {
+      const poolInfo = await this.connection.getAccountInfo(poolPda);
+      if (poolInfo && poolInfo.data.length >= 95) {
+        const lastId = readBigUint64LE(poolInfo.data, 79);
+        let seqId = lastId + 1n;
+        for (let i = 0; i < 10; i++) {
+          const [recordPda] = deriveDepositRecordSeqPda(seqId);
+          const info = await this.connection.getAccountInfo(recordPda);
+          if (!info) return seqId;
+          seqId++;
+        }
+        return seqId;
+      }
+    } catch {
+      // L1 read also failed
+    }
+
+    // Last resort: probe from 1
     let seqId = 1n;
     try {
       for (let i = 0; i < 50; i++) {
@@ -2251,7 +2270,7 @@ export class WaveStealthClient {
         seqId++;
       }
     } catch {
-      // Probing failed, use current candidate
+      // Probing failed
     }
 
     return seqId;

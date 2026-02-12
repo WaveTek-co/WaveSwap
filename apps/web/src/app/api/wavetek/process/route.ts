@@ -40,7 +40,13 @@ function deriveDelegation(account: PublicKey) {
   return { buffer, delegationRecord, delegationMetadata }
 }
 
-function readPoolState(data: Buffer) {
+interface PoolState {
+  lastDepositedId: bigint
+  nextToProcessId: bigint
+  nextOutputId: bigint
+}
+
+function readPoolState(data: Buffer): PoolState {
   return {
     lastDepositedId: data.readBigUInt64LE(79),
     nextToProcessId: data.readBigUInt64LE(87),
@@ -48,14 +54,25 @@ function readPoolState(data: Buffer) {
   }
 }
 
+async function readPool(per: Connection, poolPda: PublicKey): Promise<PoolState | null> {
+  const info = await per.getAccountInfo(poolPda)
+  if (!info) return null
+  return readPoolState(info.data as Buffer)
+}
+
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
+// ============================================
+// FIFO-correct batch crank processing
+// ============================================
+// Processes ALL pending deposits through the pipeline:
+// INPUT pipeline: REGISTER → INPUT_TO_POOL (sequential FIFO)
+// OUTPUT pipeline: PREPARE_OUTPUT → POOL_TO_ESCROW (sequential FIFO, temporal decorrelation)
+// Both pipelines run in the same invocation
 
 export async function POST(req: NextRequest) {
   try {
     const { seqId: seqIdNum } = await req.json()
-    if (!seqIdNum || seqIdNum < 1) {
-      return NextResponse.json({ error: 'Invalid seqId' }, { status: 400 })
-    }
 
     const crankKey = process.env.CRANK_PRIVATE_KEY
     if (!crankKey) {
@@ -68,183 +85,242 @@ export async function POST(req: NextRequest) {
 
     const l1 = new Connection(l1Rpc, 'confirmed')
     const per = new Connection(perRpc, 'confirmed')
-    const seqId = BigInt(seqIdNum)
     const [poolPda, poolBump] = derivePool()
-    const [inputEscrow, ieBump] = deriveInputEscrow(seqId)
-    const [depositRecord, drBump] = deriveDepositRecord(seqId)
-
-    // Read pool state from PER
-    const poolInfo = await per.getAccountInfo(poolPda)
-    if (!poolInfo) {
-      return NextResponse.json({ error: 'Pool not found on PER' }, { status: 500 })
-    }
-    const pool = readPoolState(poolInfo.data as Buffer)
+    const targetSeqId = seqIdNum ? BigInt(seqIdNum) : 0n
 
     const results: string[] = []
 
-    // Stage 0: REGISTER_DEPOSIT if needed (must run before INPUT_TO_POOL)
-    if (seqId > pool.lastDepositedId) {
-      const ieInfo = await per.getAccountInfo(inputEscrow)
-      if (!ieInfo) {
-        return NextResponse.json({ error: `Input escrow seq=${seqIdNum} not on PER yet` }, { status: 202 })
+    // Wait for target deposit to appear on PER (delegation sync ~3-10s)
+    if (targetSeqId > 0n) {
+      const [targetEscrow] = deriveInputEscrow(targetSeqId)
+      for (let i = 0; i < 15; i++) {
+        const info = await per.getAccountInfo(targetEscrow)
+        if (info) break
+        if (i === 14) {
+          results.push(`target seq=${seqIdNum} not on PER after 30s`)
+        }
+        await sleep(2000)
       }
+    }
+
+    // ============================================
+    // INPUT PIPELINE: Register + InputToPool
+    // ============================================
+    // Process all unregistered deposits in FIFO order
+    let pool = await readPool(per, poolPda)
+    if (!pool) {
+      return NextResponse.json({ error: 'Pool not found on PER' }, { status: 500 })
+    }
+
+    // Stage 1: REGISTER all unregistered deposits (probe forward from lastDepositedId+1)
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const nextRegId = pool.lastDepositedId + 1n
+      const [ie, ieBump] = deriveInputEscrow(nextRegId)
+      const [dr, drBump] = deriveDepositRecord(nextRegId)
+
+      const ieInfo = await per.getAccountInfo(ie)
+      if (!ieInfo) break // No more unregistered deposits
 
       const regData = Buffer.alloc(12)
       regData.writeUInt8(0x3A, 0)
-      regData.writeBigUInt64LE(seqId, 1)
+      regData.writeBigUInt64LE(nextRegId, 1)
       regData.writeUInt8(ieBump, 9)
       regData.writeUInt8(drBump, 10)
       regData.writeUInt8(poolBump, 11)
 
-      const regIx = new TransactionInstruction({
-        programId: PROGRAM_ID,
-        keys: [
-          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-          { pubkey: poolPda, isSigner: false, isWritable: true },
-          { pubkey: inputEscrow, isSigner: false, isWritable: false },
-          { pubkey: depositRecord, isSigner: false, isWritable: false },
-        ],
-        data: regData,
-      })
-
       try {
-        const sig = await sendAndConfirmTransaction(per, new Transaction().add(regIx), [payer], {
-          commitment: 'confirmed', skipPreflight: true,
-        })
-        results.push(`REGISTER_DEPOSIT: ${sig}`)
-        // Re-read pool state after registration
-        const refreshed = await per.getAccountInfo(poolPda)
-        if (refreshed) {
-          const updated = readPoolState(refreshed.data as Buffer)
-          pool.lastDepositedId = updated.lastDepositedId
-          pool.nextToProcessId = updated.nextToProcessId
-        }
+        const sig = await sendAndConfirmTransaction(per, new Transaction().add(
+          new TransactionInstruction({
+            programId: PROGRAM_ID,
+            keys: [
+              { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+              { pubkey: poolPda, isSigner: false, isWritable: true },
+              { pubkey: ie, isSigner: false, isWritable: false },
+              { pubkey: dr, isSigner: false, isWritable: false },
+            ],
+            data: regData,
+          })
+        ), [payer], { commitment: 'confirmed', skipPreflight: true })
+        results.push(`REGISTER seq=${nextRegId}: ${sig}`)
       } catch (e: any) {
-        results.push(`REGISTER_DEPOSIT failed: ${e.message}`)
+        results.push(`REGISTER seq=${nextRegId} failed: ${e.message}`)
+        break
       }
+
+      // Refresh pool state
+      pool = (await readPool(per, poolPda)) || pool
     }
 
-    // Stage 1: INPUT_TO_POOL_SEQ if needed
-    if (seqId > pool.nextToProcessId) {
-      const ieInfo = await per.getAccountInfo(inputEscrow)
-      if (!ieInfo) {
-        return NextResponse.json({ error: `Input escrow seq=${seqIdNum} not on PER yet` }, { status: 202 })
+    // Stage 2: INPUT_TO_POOL for all registered but unprocessed deposits
+    pool = (await readPool(per, poolPda)) || pool
+    const pendingInputs = Number(pool.lastDepositedId - pool.nextToProcessId)
+
+    for (let i = 0; i < pendingInputs && i < 20; i++) {
+      const nextInputId = pool.nextToProcessId + 1n
+      const [ie, ieBump] = deriveInputEscrow(nextInputId)
+      const [dr, drBump] = deriveDepositRecord(nextInputId)
+
+      const ieInfo = await per.getAccountInfo(ie)
+      if (!ieInfo) break
+
+      // Skip already emptied
+      if (ieInfo.data[49] === 1) {
+        results.push(`INPUT seq=${nextInputId} already emptied`)
+        continue
       }
 
       const data = Buffer.alloc(11)
       data.writeUInt8(0x3D, 0)
-      data.writeBigUInt64LE(seqId, 1)
+      data.writeBigUInt64LE(nextInputId, 1)
       data.writeUInt8(ieBump, 9)
       data.writeUInt8(drBump, 10)
 
-      const ix = new TransactionInstruction({
-        programId: PROGRAM_ID,
-        keys: [
-          { pubkey: payer.publicKey, isSigner: true, isWritable: false },
-          { pubkey: inputEscrow, isSigner: false, isWritable: true },
-          { pubkey: depositRecord, isSigner: false, isWritable: true },
-          { pubkey: poolPda, isSigner: false, isWritable: true },
-        ],
-        data,
-      })
-
       try {
-        const sig = await sendAndConfirmTransaction(per, new Transaction().add(ix), [payer], {
-          commitment: 'confirmed', skipPreflight: true,
-        })
-        results.push(`INPUT_TO_POOL: ${sig}`)
+        const sig = await sendAndConfirmTransaction(per, new Transaction().add(
+          new TransactionInstruction({
+            programId: PROGRAM_ID,
+            keys: [
+              { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+              { pubkey: ie, isSigner: false, isWritable: true },
+              { pubkey: dr, isSigner: false, isWritable: true },
+              { pubkey: poolPda, isSigner: false, isWritable: true },
+            ],
+            data,
+          })
+        ), [payer], { commitment: 'confirmed', skipPreflight: true })
+        results.push(`INPUT_TO_POOL seq=${nextInputId}: ${sig}`)
       } catch (e: any) {
-        results.push(`INPUT_TO_POOL failed: ${e.message}`)
+        results.push(`INPUT_TO_POOL seq=${nextInputId} failed: ${e.message}`)
+        break
       }
+
+      pool = (await readPool(per, poolPda)) || pool
     }
 
-    // Read deposit record for stealth_pubkey
-    const drInfo = await per.getAccountInfo(depositRecord)
-    if (!drInfo) {
-      return NextResponse.json({ results, note: 'deposit_record not on PER' })
-    }
-    const stealthPubkey = Buffer.from(drInfo.data.slice(57, 89))
-    const [outputEscrow, oeBump] = deriveOutputEscrow(stealthPubkey)
+    // ============================================
+    // OUTPUT PIPELINE: PrepareOutput + PoolToEscrow
+    // ============================================
+    // Process all mature deposits (3+ heartbeats old) in FIFO order
+    // Runs after input pipeline so newly processed inputs can be checked for maturity
+    pool = (await readPool(per, poolPda)) || pool
+    const pendingOutputs = Number(pool.nextToProcessId - pool.nextOutputId)
 
-    // Stage 2: PREPARE_OUTPUT on L1 if needed
-    const oeInfoPer = await per.getAccountInfo(outputEscrow)
-    if (!oeInfoPer) {
-      const oeDel = deriveDelegation(outputEscrow)
-      const prepData = Buffer.alloc(15)
-      prepData.writeUInt8(0x40, 0)
-      prepData.writeBigUInt64LE(seqId, 1)
-      prepData.writeUInt8(drBump, 9)
-      prepData.writeUInt8(oeBump, 10)
-      prepData.writeUInt32LE(1000, 11)
+    for (let i = 0; i < pendingOutputs && i < 20; i++) {
+      const nextOutputId = pool.nextOutputId + 1n
+      const [dr, drBump] = deriveDepositRecord(nextOutputId)
 
-      const prepIx = new TransactionInstruction({
-        programId: PROGRAM_ID,
-        keys: [
-          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-          { pubkey: depositRecord, isSigner: false, isWritable: false },
-          { pubkey: outputEscrow, isSigner: false, isWritable: true },
-          { pubkey: oeDel.buffer, isSigner: false, isWritable: true },
-          { pubkey: oeDel.delegationRecord, isSigner: false, isWritable: true },
-          { pubkey: oeDel.delegationMetadata, isSigner: false, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: DELEGATION_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: VALIDATOR, isSigner: false, isWritable: false },
-        ],
-        data: prepData,
-      })
+      const drInfo = await per.getAccountInfo(dr)
+      if (!drInfo) break
 
-      const tx = new Transaction()
-      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }))
-      tx.add(prepIx)
+      // Check if deposit is in pool and output not yet created
+      const isInPool = drInfo.data[204] === 1
+      const isOutputCreated = drInfo.data[209] === 1
+      if (!isInPool || isOutputCreated) {
+        results.push(`OUTPUT seq=${nextOutputId} skip: inPool=${isInPool} created=${isOutputCreated}`)
+        continue
+      }
 
-      try {
-        const sig = await sendAndConfirmTransaction(l1, tx, [payer], {
-          commitment: 'confirmed', skipPreflight: true,
-        })
-        results.push(`PREPARE_OUTPUT: ${sig}`)
+      const stealthPubkey = Buffer.from(drInfo.data.slice(57, 89))
+      const [outputEscrow, oeBump] = deriveOutputEscrow(stealthPubkey)
 
-        // Wait for sync to PER
-        for (let i = 0; i < 15; i++) {
-          await sleep(2000)
-          const check = await per.getAccountInfo(outputEscrow)
-          if (check) { results.push('output_escrow synced to PER'); break }
+      // PREPARE_OUTPUT on L1 if output_escrow doesn't exist on PER yet
+      const oeInfoPer = await per.getAccountInfo(outputEscrow)
+      if (!oeInfoPer) {
+        const oeDel = deriveDelegation(outputEscrow)
+        const prepData = Buffer.alloc(15)
+        prepData.writeUInt8(0x40, 0)
+        prepData.writeBigUInt64LE(nextOutputId, 1)
+        prepData.writeUInt8(drBump, 9)
+        prepData.writeUInt8(oeBump, 10)
+        prepData.writeUInt32LE(1000, 11)
+
+        const tx = new Transaction()
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }))
+        tx.add(new TransactionInstruction({
+          programId: PROGRAM_ID,
+          keys: [
+            { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+            { pubkey: dr, isSigner: false, isWritable: false },
+            { pubkey: outputEscrow, isSigner: false, isWritable: true },
+            { pubkey: oeDel.buffer, isSigner: false, isWritable: true },
+            { pubkey: oeDel.delegationRecord, isSigner: false, isWritable: true },
+            { pubkey: oeDel.delegationMetadata, isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            { pubkey: DELEGATION_PROGRAM_ID, isSigner: false, isWritable: false },
+            { pubkey: PROGRAM_ID, isSigner: false, isWritable: false },
+            { pubkey: VALIDATOR, isSigner: false, isWritable: false },
+          ],
+          data: prepData,
+        }))
+
+        try {
+          const sig = await sendAndConfirmTransaction(l1, tx, [payer], {
+            commitment: 'confirmed', skipPreflight: true,
+          })
+          results.push(`PREPARE_OUTPUT seq=${nextOutputId}: ${sig}`)
+
+          // Wait for delegation sync to PER
+          let synced = false
+          for (let j = 0; j < 15; j++) {
+            await sleep(2000)
+            const check = await per.getAccountInfo(outputEscrow)
+            if (check) { synced = true; break }
+          }
+          if (!synced) {
+            results.push(`OUTPUT seq=${nextOutputId} sync timeout, will retry next iteration`)
+            break
+          }
+        } catch (e: any) {
+          results.push(`PREPARE_OUTPUT seq=${nextOutputId} failed: ${e.message}`)
+          break
         }
-      } catch (e: any) {
-        results.push(`PREPARE_OUTPUT failed: ${e.message}`)
       }
-    }
 
-    // Stage 3: POOL_TO_ESCROW on PER
-    const oeCheck = await per.getAccountInfo(outputEscrow)
-    if (oeCheck) {
+      // POOL_TO_ESCROW on PER (temporal decorrelation enforced on-chain: min 3 heartbeats)
       const p2eData = Buffer.alloc(10)
       p2eData.writeUInt8(0x3E, 0)
-      p2eData.writeBigUInt64LE(seqId, 1)
+      p2eData.writeBigUInt64LE(nextOutputId, 1)
       p2eData.writeUInt8(drBump, 9)
 
-      const p2eIx = new TransactionInstruction({
-        programId: PROGRAM_ID,
-        keys: [
-          { pubkey: payer.publicKey, isSigner: true, isWritable: false },
-          { pubkey: depositRecord, isSigner: false, isWritable: true },
-          { pubkey: poolPda, isSigner: false, isWritable: true },
-          { pubkey: outputEscrow, isSigner: false, isWritable: true },
-        ],
-        data: p2eData,
-      })
-
       try {
-        const sig = await sendAndConfirmTransaction(per, new Transaction().add(p2eIx), [payer], {
-          commitment: 'confirmed', skipPreflight: true,
-        })
-        results.push(`POOL_TO_ESCROW: ${sig}`)
+        const sig = await sendAndConfirmTransaction(per, new Transaction().add(
+          new TransactionInstruction({
+            programId: PROGRAM_ID,
+            keys: [
+              { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+              { pubkey: dr, isSigner: false, isWritable: true },
+              { pubkey: poolPda, isSigner: false, isWritable: true },
+              { pubkey: outputEscrow, isSigner: false, isWritable: true },
+            ],
+            data: p2eData,
+          })
+        ), [payer], { commitment: 'confirmed', skipPreflight: true })
+        results.push(`POOL_TO_ESCROW seq=${nextOutputId}: ${sig}`)
       } catch (e: any) {
-        results.push(`POOL_TO_ESCROW failed: ${e.message}`)
+        // Temporal decorrelation failure is expected for recent deposits
+        const msg = e.message || ''
+        if (msg.includes('temporal') || msg.includes('not old enough')) {
+          results.push(`POOL_TO_ESCROW seq=${nextOutputId}: not mature yet (3+ heartbeats required)`)
+        } else {
+          results.push(`POOL_TO_ESCROW seq=${nextOutputId} failed: ${msg}`)
+        }
+        break
       }
+
+      pool = (await readPool(per, poolPda)) || pool
     }
 
-    return NextResponse.json({ success: true, results })
+    // Final pool state
+    pool = (await readPool(per, poolPda)) || pool
+    return NextResponse.json({
+      success: true,
+      pool: {
+        lastDepositedId: Number(pool.lastDepositedId),
+        nextToProcessId: Number(pool.nextToProcessId),
+        nextOutputId: Number(pool.nextOutputId),
+      },
+      results,
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }

@@ -64,23 +64,15 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
 
     setIsLoadingConfidentialBalances(true)
     try {
-      console.log('[SwapComponent] fetching confidential balances')
-
       const response = await fetch(`/api/v1/confidential/balances?userPublicKey=${publicKey.toString()}`)
 
       if (response.ok) {
         const data = await response.json()
-        console.log('[SwapComponent] confidential balances loaded:', (data.confidentialBalances || []).length)
         setApiConfidentialBalances(data.confidentialBalances || [])
-      } else if (response.status === 401) {
-        console.log('[SwapComponent] Authentication required for confidential balances')
-        setApiConfidentialBalances([])
       } else {
-        console.error('[SwapComponent] Failed to fetch confidential balances:', response.status, response.statusText)
         setApiConfidentialBalances([])
       }
-    } catch (error) {
-      console.error('[SwapComponent] Error fetching confidential balances:', error)
+    } catch {
       setApiConfidentialBalances([])
     } finally {
       setIsLoadingConfidentialBalances(false)
@@ -103,14 +95,14 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   // API function to fetch authenticated confidential balances using Encifher SDK
   const fetchAuthenticatedBalances = async () => {
     if (!publicKey || !signMessage) {
-      console.error('[SwapComponent] Wallet not connected or signing not available')
+      // wallet not connected
       alert('Please connect your wallet and ensure it supports message signing.')
       return
     }
 
     setIsLoadingConfidentialBalances(true)
     try {
-      console.log('[SwapComponent] Initiating authenticated balance fetch')
+      // initiating balance fetch
 
       // Use existing connection from wallet adapter
 
@@ -759,25 +751,14 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
     }
   }, [publicKey, safeInputToken, inputBalance, balances.size])
 
-  // Debug logging and force re-render for positive balances
+  // Force re-render for positive balances
   useEffect(() => {
     if (safeInputToken) {
-      // Show the actual balance being displayed (from local fallback if needed)
       const actualBalance = inputBalance === '0' && localBalances.has(safeInputToken.address)
         ? localBalances.get(safeInputToken.address)!
         : inputBalance
-
       const lamports = parseFloat(actualBalance)
-      const humanReadable = lamports / Math.pow(10, safeInputToken.decimals || 9)
-      const source = actualBalance === inputBalance ? "useSwap hook" : "local fallback"
-
-      console.log(`[Balance Debug] ${safeInputToken.symbol}: ${actualBalance} lamports (${humanReadable} ${safeInputToken.symbol}) [source: ${source}]`)
-
-      // Force a re-render if we detect a positive balance but UI might be showing 0
       if (lamports > 0 && balanceUpdateTrigger === 0) {
-        console.log(`[Balance Debug] ✅ Positive balance detected: ${humanReadable} ${safeInputToken.symbol}`)
-        console.log(`[Balance Debug] Triggering re-render to update UI`)
-        // Force re-render to ensure UI updates (only once)
         setBalanceUpdateTrigger(1)
       }
     }
@@ -787,46 +768,29 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   const inputBalanceFormatted = useMemo(() => {
     if (!safeInputToken) return '0'
 
-    console.log(`[Balance Debug] inputBalance: ${inputBalance}, localBalances.has(${safeInputToken.address}): ${localBalances.has(safeInputToken.address)}, localBalances.size: ${localBalances.size}`)
-
     // Use local balance as fallback if main balance is 0
     const balanceToUse = inputBalance === '0' && localBalances.has(safeInputToken.address)
       ? localBalances.get(safeInputToken.address)!
       : inputBalance
-
-    console.log(`[Balance Debug] Using balance: ${balanceToUse} (source: ${balanceToUse === inputBalance ? 'useSwap hook' : 'local fallback'})`)
 
     try {
       const lamports = parseFloat(balanceToUse)
       const decimals = safeInputToken.decimals || 9
       const humanReadable = lamports / Math.pow(10, decimals)
 
-      if (humanReadable > 0) {
-        const source = balanceToUse === inputBalance ? "useSwap" : "local"
-        console.log(`[Balance Debug] Formatting input balance (${source}): ${lamports} → ${humanReadable}`)
-      }
-
       const formatted = formatTokenAmount(humanReadable, decimals)
 
-      // Ensure we never return '0' when we have a positive balance
       if (lamports > 0 && formatted === '0') {
-        console.warn(`[Balance Debug] Formatted as 0 but lamports > 0. Fallback to raw display: ${humanReadable}`)
         return humanReadable.toString()
       }
 
-      console.log(`[Balance Debug] FINAL inputBalanceFormatted result: ${formatted}`)
       return formatted
-    } catch (error) {
-      console.error('[Balance Debug] Error formatting input balance:', error, balanceToUse)
-      // Fallback to direct conversion if formatting fails
+    } catch {
       try {
         const lamports = parseFloat(balanceToUse)
         const decimals = safeInputToken.decimals || 9
-        const fallback = (lamports / Math.pow(10, decimals)).toString()
-        console.log(`[Balance Debug] FINAL inputBalanceFormatted fallback: ${fallback}`)
-        return fallback
+        return (lamports / Math.pow(10, decimals)).toString()
       } catch {
-        console.log(`[Balance Debug] FINAL inputBalanceFormatted: '0' (all failed)`)
         return '0'
       }
     }
@@ -842,13 +806,11 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
       const formatted = formatTokenAmount(humanReadable, decimals)
 
       if (lamports > 0 && formatted === '0') {
-        console.warn(`[Balance Debug] Output balance formatted as 0 but lamports > 0: ${humanReadable}`)
         return humanReadable.toString()
       }
 
       return formatted
-    } catch (error) {
-      console.error('[Balance Debug] Error formatting output balance:', error, outputBalance)
+    } catch {
       try {
         const lamports = parseFloat(outputBalance)
         const decimals = safeOutputToken.decimals || 9
@@ -906,10 +868,8 @@ export function SwapComponent({ privacyMode }: SwapComponentProps) {
   useEffect(() => {
     const storeBalanceFromHook = () => {
       if (publicKey && safeInputToken && inputBalance !== '0' && parseFloat(inputBalance) > 0) {
-        console.log(`[Balance Storage] Storing correct balance from useSwap hook: ${inputBalance} for ${safeInputToken.symbol}`)
         setLocalBalances(prev => new Map(prev.set(safeInputToken.address, inputBalance)))
       } else if (publicKey && safeInputToken && inputBalance === '0' && localBalances.has(safeInputToken.address)) {
-        console.log(`[Balance Storage] useSwap hook has 0, but we have local balance: ${localBalances.get(safeInputToken.address)}`)
         setBalanceUpdateTrigger(prev => prev + 1) // Force re-render to use local balance
       }
     }

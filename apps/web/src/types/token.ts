@@ -311,7 +311,7 @@ export const CONFIDENTIAL_TOKENS: Token[] = []
  * Get available tokens based on privacy mode using Jupiter Token API v2
  */
 export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]> {
-  console.log('[getAvailableTokens] Starting token loading with privacyMode:', privacyMode)
+  // Token loading - no verbose logging for privacy
   try {
     // Get all available tokens from Jupiter API v2
     const [popularTokens, otherTokens] = await Promise.all([
@@ -321,7 +321,6 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
 
     // Convert JupiterToken to Token format
     const convertJupiterToToken = (jupiterToken: any): Token => {
-      console.log(`[getAvailableTokens] Converting token: ${jupiterToken.symbol} (${jupiterToken.id}), isConfidentialSupported=${jupiterToken.isConfidentialSupported}`)
       return ({
       address: jupiterToken.id, // Use id from Jupiter API
       chainId: 101, // Solana mainnet
@@ -404,7 +403,7 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
     // Confidential tokens should only come from user's actual Encifher account balances
     // This prevents showing hardcoded tokens that the user doesn't actually own
     if (privacyMode) {
-      console.log('[getAvailableTokens] Privacy mode enabled - confidential tokens will be loaded from user account only')
+      // privacy mode active
     }
 
     // Sort: Popular tokens maintain their exact order, others come after
@@ -436,7 +435,7 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
       return a.symbol.localeCompare(b.symbol)
     })
 
-    console.log('[getAvailableTokens] Successfully loaded tokens:', allTokens.length, allTokens.map(t => ({ symbol: t.symbol, address: t.address })))
+    // tokens loaded
     return allTokens
 
   } catch (error) {
@@ -505,7 +504,7 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
     // REMOVED: Do not automatically create confidential tokens in getAvailableTokens (fallback)
     // Confidential tokens should only come from user's actual Encifher account balances
     if (privacyMode) {
-      console.log('[getAvailableTokens] Privacy mode enabled (fallback) - confidential tokens will be loaded from user account only')
+      // privacy mode active (fallback)
     }
 
     // Sort: Popular tokens first, then others
@@ -520,7 +519,7 @@ export async function getAvailableTokens(privacyMode: boolean): Promise<Token[]>
       return a.symbol.localeCompare(b.symbol)
     })
 
-    console.log('[getAvailableTokens] Using fallback tokens:', tokens.length, tokens.map(t => ({ symbol: t.symbol, address: t.address })))
+    // fallback tokens loaded
     return tokens
   }
 }
