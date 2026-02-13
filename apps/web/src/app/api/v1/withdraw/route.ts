@@ -18,7 +18,7 @@ async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string;
       const tokens = await response.json()
       if (Array.isArray(tokens) && tokens.length > 0) {
         const token = tokens[0]
-        console.log(`[TokenMetadata] Found token via Jupiter API: ${token.symbol} (${token.name})`)
+        // log(`[TokenMetadata] Found token via Jupiter API: ${token.symbol} (${token.name})`)
         return {
           symbol: token.symbol || `TOKEN_${tokenAddress.slice(0, 6)}`,
           decimals: token.decimals || 9,
@@ -27,7 +27,7 @@ async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string;
       }
     }
   } catch (error) {
-    console.warn(`[TokenMetadata] Jupiter API failed for ${tokenAddress}:`, error)
+    // warn(`[TokenMetadata] Jupiter API failed for ${tokenAddress}:`, error)
   }
 
   // Fallback: try to get from our local token list
@@ -37,7 +37,7 @@ async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string;
       const tokens = await localResponse.json()
       const token = tokens.find((t: any) => t.address === tokenAddress)
       if (token) {
-        console.log(`[TokenMetadata] Found token via local API: ${token.symbol}`)
+        // log(`[TokenMetadata] Found token via local API: ${token.symbol}`)
         return {
           symbol: token.symbol,
           decimals: token.decimals || 9,
@@ -46,7 +46,7 @@ async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string;
       }
     }
   } catch (error) {
-    console.warn(`[TokenMetadata] Local API failed for ${tokenAddress}:`, error)
+    // warn(`[TokenMetadata] Local API failed for ${tokenAddress}:`, error)
   }
 
   // Final fallback to common hardcoded tokens
@@ -68,12 +68,12 @@ async function getTokenMetadata(tokenAddress: string): Promise<{ symbol: string;
 
   const fallbackToken = commonTokens[tokenAddress]
   if (fallbackToken) {
-    console.log(`[TokenMetadata] Found token in fallback list: ${fallbackToken.symbol}`)
+    // log(`[TokenMetadata] Found token in fallback list: ${fallbackToken.symbol}`)
     return fallbackToken
   }
 
   // Ultimate fallback for unknown tokens
-  console.log(`[TokenMetadata] Using ultimate fallback for unknown token: ${tokenAddress}`)
+  // log(`[TokenMetadata] Using ultimate fallback for unknown token: ${tokenAddress}`)
   return {
     symbol: `TOKEN_${tokenAddress.slice(0, 6)}`,
     decimals: 9, // Most Solana tokens use 9 decimals
@@ -98,7 +98,7 @@ function getTokenLogoURI(tokenAddress: string, tokenSymbol: string): string {
 
     return fallbackLogos[tokenAddress] || `/icons/fallback/token/${tokenSymbol.toLowerCase()}.png`
   } catch (error) {
-    console.warn(`[TokenLogo] Failed to get logo for ${tokenAddress}:`, error)
+    // warn(`[TokenLogo] Failed to get logo for ${tokenAddress}:`, error)
     return `/icons/fallback/token/${tokenSymbol.toLowerCase()}.png`
   }
 }
@@ -123,12 +123,8 @@ export async function POST(
   request: NextRequest
 ) {
   try {
-    console.log('[Withdrawal API] Processing withdrawal request')
-
     // Parse request body
     const body = await request.json()
-    console.log('[Withdrawal API] Request body:', body)
-    console.log('[Withdrawal API] Amount type:', typeof body.amount, 'Amount value:', body.amount)
 
     // Validate required fields
     if (!body.mint || !body.amount || !body.userPublicKey) {
@@ -155,15 +151,12 @@ export async function POST(
       )
     }
 
-    console.log('[Withdrawal API] Initializing Encifher SDK client')
-
     // Initialize Encifher SDK client
     const config = { encifherKey, rpcUrl, mode: 'Mainnet' as const }
     const defiClient = new DefiClient(config)
     const connection = new Connection(rpcUrl)
 
     // Get dynamic token metadata for any SPL token
-    console.log('[Withdrawal API] Fetching token metadata for:', body.mint)
     const tokenMetadata = await getTokenMetadata(body.mint)
     const decimals = await getWithdrawTokenDecimals(body.mint, body.decimals)
 
@@ -172,22 +165,12 @@ export async function POST(
       decimals
     }
 
-    console.log('[Withdrawal API] Withdrawal token details:', {
-      mint: body.mint,
-      decimals,
-      symbol: tokenMetadata.symbol,
-      name: tokenMetadata.name,
-      source: 'dynamic'
-    })
-
     // Create withdrawer public key
     const withdrawerPubkey = new PublicKey(body.userPublicKey)
 
     // CRITICAL: Check if user actually has tokens in Encifher before attempting withdrawal
-    console.log('[Withdrawal API] Checking user actual Encifher token balances...')
     try {
       const userTokenMints = await defiClient.getUserTokenMints(withdrawerPubkey)
-      console.log('[Withdrawal API] User token mints found:', userTokenMints)
 
       // REMOVED: No more hardcoded user-reported tokens
       // We will only use tokens that are actually detected by Encifher SDK
@@ -206,11 +189,6 @@ export async function POST(
           { status: 400 }
         )
       }
-
-      console.log('[Withdrawal API] Available tokens in Encifher account:')
-      userTokenMints.forEach((token: any, index) => {
-        console.log(`  ${index + 1}. ${token.tokenMintAddress || token.mintAddress || token.mint} (${token.tokenSymbol || 'Unknown'})`)
-      })
 
       // CRITICAL: Only allow withdrawals of tokens that are actually detected by Encifher SDK
       // User-reported tokens are NOT sufficient for withdrawal - they must exist in the actual Encifher account
@@ -235,11 +213,9 @@ export async function POST(
       }
 
       // ENHANCED: Check actual token balance before proceeding with withdrawal
-      console.log('[Withdrawal API] Checking actual token balance for withdrawal...')
       try {
         // Get actual balance using the same authentication method as balances API
         const messagePayload = await defiClient.getMessageToSign()
-        console.log('[Withdrawal API] Got message for balance check:', messagePayload)
 
         // Note: In a real implementation, we would need the user's signature here
         // For now, let's try to get balance without authentication
@@ -250,8 +226,6 @@ export async function POST(
           encifherKey
         )
 
-        console.log('[Withdrawal API] Token balance check result:', tokenBalances)
-
         // Check if balance is sufficient
         let actualBalance = '0'
         if (tokenBalances && typeof tokenBalances === 'object') {
@@ -261,13 +235,6 @@ export async function POST(
             actualBalance = tokenBalances[body.mint]?.toString() || '0'
           }
         }
-
-        console.log('[Withdrawal API] Actual balance for withdrawal:', {
-          token: body.mint,
-          balance: actualBalance,
-          requestedAmount: body.amount,
-          isSufficient: parseFloat(actualBalance) >= parseFloat(body.amount)
-        })
 
         // Only proceed if balance is sufficient
         if (parseFloat(actualBalance) < parseFloat(body.amount)) {
@@ -288,19 +255,11 @@ export async function POST(
         }
 
       } catch (balanceCheckError: any) {
-        console.warn('[Withdrawal API] Balance check failed, proceeding with withdrawal:', balanceCheckError.message)
         // Continue with withdrawal even if balance check fails
         // The SDK will provide proper error if balance is insufficient
       }
 
-      console.log('[Withdrawal API] User account verified - token exists in Encifher account')
     } catch (accountCheckError: any) {
-      console.error('[Withdrawal API] Account check failed:', accountCheckError.message)
-      console.error('[Withdrawal API] Account check details:', {
-        error: accountCheckError,
-        stack: accountCheckError.stack,
-        response: accountCheckError.response?.data
-      })
 
       return NextResponse.json(
         {
@@ -324,14 +283,6 @@ export async function POST(
     // No conversion needed since frontend is already sending token units
     const amountForTokenUnits = body.amount
 
-    console.log('[Withdrawal API] Amount processing (no conversion needed):', {
-      inputAmount: body.amount,
-      mint: body.mint,
-      decimals: body.decimals,
-      amountForTokenUnits,
-      note: 'Frontend sends token units directly - no conversion required'
-    })
-
     // Prepare withdrawal parameters according to Encifher docs
     const withdrawParams: WithdrawParams = {
       token,
@@ -339,15 +290,7 @@ export async function POST(
       withdrawer: withdrawerPubkey
     }
 
-    console.log('[Withdrawal API] Getting withdrawal transaction from Encifher SDK', {
-      mint: body.mint,
-      amount: amountForTokenUnits,
-      withdrawer: body.userPublicKey,
-      decimals: body.decimals
-    })
-
     // Get withdrawal transaction from Encifher SDK with retry logic
-    console.log('[Withdrawal API] Getting withdrawal transaction from Encifher SDK', withdrawParams)
 
     let withdrawTxn
     let retryCount = 0
@@ -355,24 +298,18 @@ export async function POST(
 
     while (retryCount < maxRetries) {
       try {
-        console.log(`[Withdrawal API] Attempt ${retryCount + 1}/${maxRetries}`)
         withdrawTxn = await defiClient.getWithdrawTxn(withdrawParams)
-        console.log('[Withdrawal API] Withdrawal transaction received successfully')
         break
       } catch (sdkError: any) {
         retryCount++
-        console.error(`[Withdrawal API] SDK attempt ${retryCount} failed:`, sdkError.message)
 
         if (retryCount >= maxRetries) {
-          console.error('[Withdrawal API] All SDK attempts failed, checking if error is network-related')
 
           // Check if this is a network/fetch error
           if (sdkError.message.includes('fetch failed') ||
               sdkError.message.includes('ENOTFOUND') ||
               sdkError.message.includes('ECONNREFUSED') ||
               sdkError.message.includes('timeout')) {
-
-            console.error('[Withdrawal API] Network error detected - Encifher API may be temporarily unavailable')
 
             // Return a more user-friendly error for network issues
             return NextResponse.json(
@@ -408,8 +345,6 @@ export async function POST(
       verifySignatures: false
     }).toString('base64')
 
-    console.log('[Withdrawal API] Transaction serialized for signing')
-
     const responseData = {
       success: true,
       serializedTransaction,
@@ -425,15 +360,6 @@ export async function POST(
       instructions: `Please sign this transaction to withdraw your confidential ${tokenMetadata.symbol} tokens. The tokens will be sent to your wallet after confirmation.`
     }
 
-    console.log('[Withdrawal API] Withdrawal transaction prepared successfully:', {
-      transactionId: responseData.timestamp,
-      amount: responseData.amount,
-      mint: responseData.mint,
-      tokenSymbol: responseData.tokenSymbol,
-      tokenName: responseData.tokenName,
-      decimals: responseData.tokenDecimals
-    })
-
     // Return successful response
     return NextResponse.json(responseData, {
       status: 200,
@@ -447,13 +373,10 @@ export async function POST(
     })
 
   } catch (error) {
-    console.error('[Withdrawal API] Error processing withdrawal:', error)
-
     return NextResponse.json(
       {
         error: 'Failed to process withdrawal request',
-        details: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
+        details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     )

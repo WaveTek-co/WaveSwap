@@ -151,13 +151,10 @@ export class EncifherClient {
       this.config = config
       this.isInitialized = true
 
-      console.log('Encifher client initialized successfully (simple mode)')
+      // Initialized successfully
     } catch (error) {
-      console.error('Failed to initialize Encifher client:', error)
-
       // Try with fetch interceptor as fallback
       try {
-        console.log('Attempting initialization with fetch interceptor fallback...')
         this.injectFetchInterceptor()
 
         const defiConfig: DefiClientConfig = {
@@ -169,10 +166,7 @@ export class EncifherClient {
         this.client = new DefiClient(defiConfig)
         this.config = config
         this.isInitialized = true
-
-        console.log('Encifher client initialized successfully with fetch interceptor')
       } catch (fallbackError) {
-        console.error('Both simple and interceptor initialization failed:', fallbackError)
         throw new Error('Encifher SDK initialization failed - all attempts exhausted')
       }
     }
@@ -187,7 +181,6 @@ export class EncifherClient {
 
     // Check if interceptor is already injected to avoid multiple interceptors
     if ((window as any).__encifherInterceptorInjected) {
-      console.log('[Fetch Interceptor] Already injected, skipping...')
       return
     }
 
@@ -197,15 +190,8 @@ export class EncifherClient {
       try {
         const url = typeof input === 'string' ? input : input.toString()
 
-        // Log all fetch requests to debug what's happening
-        if (url.includes('authority.encrypt.trade')) {
-          console.log('[Fetch Interceptor] Detected Encifher API call:', url)
-        }
-
         // Intercept Encifher API calls and redirect through our proxy
         if (url.includes('authority.encrypt.trade') && !url.includes('localhost:3000')) {
-          console.log('[Fetch Interceptor] Redirecting Encifher API call through proxy:', url)
-
           // Extract the path from the original URL
           const urlObj = new URL(url)
           const fullPath = urlObj.pathname + urlObj.search
@@ -217,13 +203,6 @@ export class EncifherClient {
           }
 
           const proxyUrl = `/api/v1/encifher/${path}`
-
-          console.log('[Fetch Interceptor] Intercepted:', {
-            originalUrl: url,
-            fullPath,
-            extractedPath: path,
-            proxyUrl
-          })
 
           // Make the request through our proxy
           return originalFetch.call(window, proxyUrl, {
@@ -239,14 +218,10 @@ export class EncifherClient {
 
         // Intercept Jupiter API calls and redirect through our proxy to avoid rate limits
         if (url.includes('jup.ag') && !url.includes('localhost:3000')) {
-          console.log('[Fetch Interceptor] Redirecting Jupiter API call through proxy:', url)
-
           // Extract the path from the original URL
           const urlObj = new URL(url)
           const path = urlObj.pathname + urlObj.search
           const proxyUrl = `/api/v1/jupiter${path}`
-
-          console.log('[Fetch Interceptor] Jupiter Proxy URL:', proxyUrl)
 
           // Make the request through our proxy
           return originalFetch.call(window, proxyUrl, {
@@ -273,8 +248,6 @@ export class EncifherClient {
       const urlString = typeof url === 'string' ? url : url.toString()
 
       if (urlString.includes('authority.encrypt.trade') && !urlString.includes('localhost:3000')) {
-        console.log('[XHR Interceptor] Detected Encifher API call via XMLHttpRequest:', urlString)
-
         // Extract the path from the original URL
         const urlObj = new URL(urlString)
         const fullPath = urlObj.pathname + urlObj.search
@@ -286,11 +259,6 @@ export class EncifherClient {
         }
 
         const proxyUrl = `/api/v1/encifher/${path}`
-
-        console.log('[XHR Interceptor] Redirecting to proxy:', {
-          originalUrl: urlString,
-          proxyUrl
-        })
 
         // Call original XHR open with proxy URL
         return originalXHROpen.call(this, method, proxyUrl, ...args)
@@ -309,7 +277,6 @@ export class EncifherClient {
 
       // Override placeholder API key
       if (name.toLowerCase() === 'x-api-key' && value === 'your_encifher_sdk_key_here') {
-        console.log('[XHR Interceptor] Overriding placeholder API key with environment key')
         value = process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY || process.env.ENCIFHER_API_KEY || 'default-key'
       }
 
@@ -319,14 +286,12 @@ export class EncifherClient {
       }
 
       (this as any)._headers[name.toLowerCase()] = value
-      console.log('[XHR Interceptor] Header set:', name, value)
 
       return originalXHRSetRequestHeader.call(this, name, value)
     }
 
     // Mark interceptor as injected
     ;(window as any).__encifherInterceptorInjected = true
-    console.log('[Fetch Interceptor] Encifher API calls will be routed through proxy (fetch + XMLHttpRequest)')
   }
 
   /**
@@ -368,11 +333,7 @@ export class EncifherClient {
 
       const transaction = await this.client.getDepositTxn(depositParams)
 
-      console.log('Encifher private deposit transaction created:', {
-        token: params.token.tokenMintAddress,
-        amount: params.amount,
-        user: params.userPublicKey.toBase58()
-      })
+      // Transaction created successfully
 
       return { transaction }
     } catch (error) {
@@ -406,11 +367,7 @@ export class EncifherClient {
 
       const transaction = await this.client.getWithdrawTxn(withdrawParams)
 
-      console.log('Encifher private withdrawal transaction created:', {
-        token: params.token.tokenMintAddress,
-        amount: params.amount,
-        user: params.userPublicKey.toBase58()
-      })
+      // Transaction created successfully
 
       return { transaction }
     } catch (error) {
@@ -435,13 +392,6 @@ export class EncifherClient {
     }
 
     return this.retryWithBackoff(async () => {
-      // Note: amountIn should already be in base units as per SDK documentation
-      console.log('[Encifher] Getting swap quote:', {
-        inMint: params.inMint,
-        outMint: params.outMint,
-        amountIn: params.amountIn
-      })
-
       if (!this.client) {
         throw new Error('Encifher client not initialized in retry context')
       }
@@ -452,20 +402,11 @@ export class EncifherClient {
         amountIn: params.amountIn // Already in base units
       })
 
-      console.log('[Encifher] Swap quote received:', quote)
-
       // Handle different response formats from the SDK
       const outAmount = (quote as any).amountOut || (quote as any).outAmount || (quote as any).expectedOutAmount || '0'
       const slippage = (quote as any).slippage || '0.5'
       const route = (quote as any).router || (quote as any).route || 'direct'
       const priceImpact = (quote as any).priceImpact || '0'
-
-      console.log('[Encifher] Processed quote response:', {
-        originalQuote: quote,
-        extractedOutAmount: outAmount,
-        extractedSlippage: slippage,
-        extractedRoute: route
-      })
 
       return {
         expectedOutAmount: outAmount,
@@ -489,13 +430,7 @@ export class EncifherClient {
     try {
       const transaction = await this.client.getSwapTxn(params)
 
-      console.log('Encifher private swap transaction created:', {
-        inMint: params.inMint,
-        outMint: params.outMint,
-        amountIn: params.amountIn,
-        sender: params.senderPubkey.toBase58(),
-        receiver: params.receiverPubkey.toBase58()
-      })
+      // Transaction created successfully
 
       return { transaction }
     } catch (error) {
@@ -538,16 +473,7 @@ export class EncifherClient {
         }
       }
 
-      // Debug check: Log that we're about to call Encifher SDK
-      console.log('[Encifher Debug] About to call executeSwapTxn - fetch interceptor should be active')
-      console.log('[Encifher Debug] Interceptor injected:', (window as any).__encifherInterceptorInjected)
-
       const executeResponse = await this.client.executeSwapTxn(signedSwapParams)
-
-      console.log('Encifher private swap executed:', {
-        orderStatusIdentifier: executeResponse.orderStatusIdentifier,
-        timestamp: (executeResponse as any).timestamp || Date.now()
-      })
 
       // Construct the response to match expected interface
       return {
@@ -703,10 +629,8 @@ export const EncifherUtils = {
 
     // Use the provided API key if available, otherwise use default
     if (encifherKey && encifherKey !== 'your-api-key-here') {
-      console.log('[Encifher] Using configured API key')
       return { encifherKey, rpcUrl }
     } else {
-      console.log('[Encifher] Using default configuration')
       return { encifherKey: 'default-key', rpcUrl }
     }
   },

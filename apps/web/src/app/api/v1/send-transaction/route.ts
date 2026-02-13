@@ -19,8 +19,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('[Send Transaction Proxy] Processing transaction send request')
-
     // Create connection server-side where API key is secure
     const connection = new Connection(RPC_URL, {
       commitment: 'confirmed',
@@ -28,8 +26,6 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       }
     })
-
-    console.log('[Send Transaction Proxy] Sending transaction to Solana network...')
 
     // Send the transaction with server-side timeout
     const signature = await Promise.race([
@@ -46,24 +42,19 @@ export async function POST(request: NextRequest) {
       )
     ])
 
-    console.log('[Send Transaction Proxy] Transaction sent successfully:', signature)
-
     return NextResponse.json({
       success: true,
       signature,
       message: 'Transaction sent successfully'
     })
 
-  } catch (error) {
-    console.error('[Send Transaction Proxy] Error sending transaction:', error)
-
+  } catch (error: any) {
     return NextResponse.json({
       success: false,
       error: error?.message || 'Unknown error',
       details: {
         name: error?.name,
         code: error?.code,
-        stack: error?.stack
       }
     }, { status: 500 })
   }
