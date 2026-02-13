@@ -17,7 +17,7 @@ import {
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
   deriveXWingCiphertextPda,
-  generateStealthKeysFromSignature,
+  generateViewingKeys,
   StealthKeyPair,
   decryptDestinationWallet,
   deriveStealthPubkeyFromSharedSecret,
@@ -117,9 +117,9 @@ const EXPECTED_ENCLAVE_MEASUREMENT = new Uint8Array([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ])
 
-// Scan interval (30 seconds) and timeout (3 seconds max per scan)
+// Scan interval (30 seconds) and timeout (15 seconds max per scan)
 const SCAN_INTERVAL_MS = 30000
-const SCAN_TIMEOUT_MS = 3000
+const SCAN_TIMEOUT_MS = 15000
 
 // RPC endpoints
 // Use HTTP-only endpoints to avoid WebSocket issues
@@ -127,15 +127,86 @@ const SCAN_TIMEOUT_MS = 3000
 const DEVNET_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 const MAGICBLOCK_RPC = 'https://devnet-as.magicblock.app'
 
-// Storage key for stealth keys (cached per wallet address)
+// Storage key for stealth keys (AES-256-GCM encrypted, cached per wallet address)
 const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
+const STORAGE_AES_DOMAIN = 'oceanvault:storage:aes-gcm-v1'
+const AES_IV_LENGTH = 12
 
-// Helper to get cached stealth keys from localStorage (includes X-Wing post-quantum keys)
-function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
+// Stealth key signing message (must match generateStealthKeysFromSignature exactly)
+const STEALTH_SIGN_MESSAGE = `Sign this message to generate your WaveSwap stealth viewing keys.
+
+This signature will be used to derive your private viewing keys. Never share this signature with anyone.
+
+Domain: OceanVault:ViewingKeys:v1`
+
+// Derive AES-256-GCM key from wallet signature for encrypting localStorage
+async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
+  const domain = new TextEncoder().encode(STORAGE_AES_DOMAIN)
+  const input = new Uint8Array(signature.length + domain.length)
+  input.set(signature, 0)
+  input.set(domain, signature.length)
+  const keyMaterial = sha256(input)
+  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+}
+
+function uint8ToBase64(arr: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i])
+  return btoa(binary)
+}
+
+function base64ToUint8(str: string): Uint8Array {
+  const binary = atob(str)
+  const arr = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
+  return arr
+}
+
+async function aesGcmEncrypt(plaintext: string, key: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH))
+  const encoded = new TextEncoder().encode(plaintext)
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
+  const combined = new Uint8Array(AES_IV_LENGTH + ciphertext.byteLength)
+  combined.set(iv, 0)
+  combined.set(new Uint8Array(ciphertext), AES_IV_LENGTH)
+  return uint8ToBase64(combined)
+}
+
+async function aesGcmDecrypt(stored: string, key: CryptoKey): Promise<string> {
+  const combined = base64ToUint8(stored)
+  const iv = combined.slice(0, AES_IV_LENGTH)
+  const ciphertext = combined.slice(AES_IV_LENGTH)
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
+  return new TextDecoder().decode(plaintext)
+}
+
+// Normalize wallet signature format (handles Phantom, ArrayBuffer, plain arrays)
+function normalizeSignature(result: any): Uint8Array {
+  if (result instanceof Uint8Array) return result
+  if (result && typeof result === 'object' && 'signature' in result) {
+    return result.signature instanceof Uint8Array ? result.signature : new Uint8Array(result.signature)
+  }
+  if (result && ArrayBuffer.isView(result)) {
+    return new Uint8Array((result as any).buffer, (result as any).byteOffset, (result as any).byteLength)
+  }
+  if (Array.isArray(result)) return new Uint8Array(result)
+  throw new Error('Unexpected signature format from wallet')
+}
+
+// Decrypt cached stealth keys from AES-GCM encrypted localStorage
+async function getCachedStealthKeys(walletAddress: string, aesKey: CryptoKey): Promise<StealthKeyPair | null> {
   try {
     const stored = localStorage.getItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
     if (!stored) return null
-    const parsed = JSON.parse(stored)
+
+    // Detect legacy plaintext format (JSON object starts with '{')
+    if (stored.startsWith('{')) {
+      localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
+      return null
+    }
+
+    const jsonStr = await aesGcmDecrypt(stored, aesKey)
+    const parsed = JSON.parse(jsonStr)
 
     const keys: StealthKeyPair = {
       spendPrivkey: new Uint8Array(parsed.spendPrivkey),
@@ -144,7 +215,6 @@ function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
       viewPubkey: new Uint8Array(parsed.viewPubkey),
     }
 
-    // Restore X-Wing keys if present (post-quantum security)
     if (parsed.xwingKeys) {
       keys.xwingKeys = {
         publicKey: {
@@ -160,12 +230,13 @@ function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
 
     return keys
   } catch {
+    localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
     return null
   }
 }
 
-// Helper to cache stealth keys in localStorage (includes X-Wing post-quantum keys)
-function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
+// Encrypt and cache stealth keys with AES-256-GCM in localStorage
+async function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair, aesKey: CryptoKey): Promise<void> {
   try {
     const cached: any = {
       spendPrivkey: Array.from(keys.spendPrivkey),
@@ -174,7 +245,6 @@ function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
       viewPubkey: Array.from(keys.viewPubkey),
     }
 
-    // Cache X-Wing keys if present (post-quantum security)
     if (keys.xwingKeys) {
       cached.xwingKeys = {
         publicKey: {
@@ -188,9 +258,10 @@ function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
       }
     }
 
-    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, JSON.stringify(cached))
-  } catch (e) {
-    console.warn('[WAVETEK] cache failed <ENCRYPTED>')
+    const encrypted = await aesGcmEncrypt(JSON.stringify(cached), aesKey)
+    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, encrypted)
+  } catch {
+    // Silent fail - keys still work in memory
   }
 }
 
@@ -244,7 +315,7 @@ export interface DelegatedDeposit {
 
 export interface PendingEscrow {
   escrowAddress: string
-  nonce: Uint8Array
+  nonce?: Uint8Array
   amount: bigint
   stealthPubkey: Uint8Array
   status: 'pending' | 'withdrawing' | 'withdrawn' | 'failed'
@@ -977,6 +1048,11 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
 
     try {
+      // V4 SEQ escrows don't have nonce - must use claimViaTEE instead
+      if (!escrow.nonce) {
+        console.error('[WAVETEK] V4 escrows require claimViaTEE, not withdrawFromEscrow')
+        return false
+      }
       console.log('[WAVETEK] direct claim mode (reduced privacy)')
       console.log('[WAVETEK] processing withdrawal <ENCRYPTED>')
 
@@ -1050,394 +1126,35 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [publicKey, signTransaction, connection])
 
-  // Scan for deposits
+  // Scan for WAVETEK output escrows only (new SEQ flow)
   const scanForDeposits = useCallback(async (keys: StealthKeyPair): Promise<number> => {
     let foundCount = 0
 
     try {
-      // Scan PER deposits (delegated to MagicBlock)
-      const delegationAccounts = await connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-        filters: [{ dataSize: PER_DEPOSIT_SIZE }],
-      }).catch(() => [])
+      // WAVETEK V4: Scan OutputEscrow accounts (91 bytes) using X-Wing decapsulation
+      const v4Escrows = await scanForEscrowsV4(connection, keys, rollupConnection)
 
+      // Only process escrows that belong to us and aren't withdrawn
+      const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
 
-      for (const { pubkey, account } of delegationAccounts) {
-        const data = account.data
-        if (data.slice(0, 8).toString() !== PER_DEPOSIT_DISCRIMINATOR) continue
-
-        const ephemeralPubkey = new Uint8Array(data.slice(PER_OFFSET_EPHEMERAL, PER_OFFSET_EPHEMERAL + 32))
-        const viewTag = data[PER_OFFSET_VIEW_TAG]
-        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
-
-        const stealthPubkey = new Uint8Array(data.slice(PER_OFFSET_STEALTH, PER_OFFSET_STEALTH + 32))
-        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
-
+      for (const escrow of ourEscrows) {
         foundCount++
+        const escrowAddress = escrow.escrowPda.toBase58()
 
-        const nonce = new Uint8Array(data.slice(PER_OFFSET_NONCE, PER_OFFSET_NONCE + 32))
-        const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
-        const vaultInfo = await connection.getAccountInfo(vaultPda)
-
-        if (vaultInfo && vaultInfo.lamports > 0) {
-          const vaultAddress = vaultPda.toBase58()
-          if (!pendingClaims.some(c => c.vaultAddress === vaultAddress)) {
-            setPendingClaims(prev => {
-              if (prev.some(c => c.vaultAddress === vaultAddress)) return prev
-              return [...prev, {
-                vaultAddress,
-                amount: BigInt(vaultInfo.lamports),
-                sender: 'MAGIC_ACTIONS',
-                announcementPda: pubkey.toBase58(),
-                stealthPubkey,
-                status: 'pending' as const,
-              }]
-            })
-          }
-        } else {
-          let amount = BigInt(0)
-          for (let i = 0; i < 8; i++) amount |= BigInt(data[PER_OFFSET_AMOUNT + i]) << BigInt(i * 8)
-
-          if (!delegatedDeposits.some(d => d.depositAddress === pubkey.toBase58())) {
-            setDelegatedDeposits(prev => {
-              if (prev.some(d => d.depositAddress === pubkey.toBase58())) return prev
-              return [...prev, {
-                depositAddress: pubkey.toBase58(),
-                vaultAddress: vaultPda.toBase58(),
-                amount,
-                stealthPubkey,
-                nonce,
-                bump: data[PER_OFFSET_BUMP],
-                executed: false,
-                type: 'per' as const,
-              }]
-            })
-          }
-        }
-      }
-
-      // Scan EXECUTED PER deposits (undelegated back to stealth program)
-      // These have vaults that are ready to claim via CLAIM_STEALTH_PAYMENT
-      const executedPerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: PER_DEPOSIT_SIZE }],
-      }).catch(() => [])
-
-
-      for (const { pubkey, account } of executedPerAccounts) {
-        const data = account.data
-        if (data.slice(0, 8).toString() !== PER_DEPOSIT_DISCRIMINATOR) continue
-
-        // Check if executed
-        if (data[PER_OFFSET_EXECUTED] !== 1) continue
-
-        const ephemeralPubkey = new Uint8Array(data.slice(PER_OFFSET_EPHEMERAL, PER_OFFSET_EPHEMERAL + 32))
-        const viewTag = data[PER_OFFSET_VIEW_TAG]
-        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
-
-        const stealthPubkey = new Uint8Array(data.slice(PER_OFFSET_STEALTH, PER_OFFSET_STEALTH + 32))
-        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
-
-        // Found an executed deposit for us - check if vault has funds
-        const [vaultPda] = deriveStealthVaultPda(stealthPubkey)
-        const vaultInfo = await connection.getAccountInfo(vaultPda)
-
-        if (vaultInfo && vaultInfo.lamports > 0) {
-          foundCount++
-
-          const vaultAddress = vaultPda.toBase58()
-          if (!pendingClaims.some(c => c.vaultAddress === vaultAddress)) {
-            setPendingClaims(prev => {
-              if (prev.some(c => c.vaultAddress === vaultAddress)) return prev
-              return [...prev, {
-                vaultAddress,
-                amount: BigInt(vaultInfo.lamports),
-                sender: 'PER_EXECUTED',
-                announcementPda: pubkey.toBase58(),
-                stealthPubkey,
-                status: 'pending' as const,
-              }]
-            })
-          }
-        }
-      }
-
-      // Scan PER Mixer deposits (IDEAL PRIVACY ARCHITECTURE)
-      // These are the delegated shared pool deposits
-      const perMixerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: PER_MIXER_DEPOSIT_SIZE }],
-      }).catch((err) => {
-        console.error('[WAVETEK] scan failed <ENCRYPTED>')
-        return []
-      })
-
-
-      for (const { pubkey, account } of perMixerAccounts) {
-        const data = account.data
-        if (data.slice(0, 8).toString() !== PER_MIXER_DEPOSIT_DISCRIMINATOR) continue
-
-        // Skip if already executed or claimed
-        if (data[PER_MIXER_OFFSET_IS_EXECUTED] === 1 || data[PER_MIXER_OFFSET_IS_CLAIMED] === 1) continue
-
-        // Check view tag first for fast rejection
-        const ephemeralPubkey = new Uint8Array(data.slice(PER_MIXER_OFFSET_EPHEMERAL, PER_MIXER_OFFSET_EPHEMERAL + 32))
-        const viewTag = data[PER_MIXER_OFFSET_VIEW_TAG]
-        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
-
-        // Full stealth address verification
-        const stealthPubkey = new Uint8Array(data.slice(PER_MIXER_OFFSET_STEALTH, PER_MIXER_OFFSET_STEALTH + 32))
-        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
-
-        foundCount++
-
-        const nonce = new Uint8Array(data.slice(PER_MIXER_OFFSET_NONCE, PER_MIXER_OFFSET_NONCE + 32))
-
-        // Parse amount
-        let amount = BigInt(0)
-        for (let i = 0; i < 8; i++) amount |= BigInt(data[PER_MIXER_OFFSET_AMOUNT + i]) << BigInt(i * 8)
-
-        // Check if escrow already exists (PER executed)
-        const [escrowPda] = deriveClaimEscrowPda(nonce)
-        const escrowInfo = await connection.getAccountInfo(escrowPda)
-
-        if (escrowInfo && escrowInfo.lamports > 0) {
-          // Escrow exists - add to pending escrows for withdrawal
-          const escrowAddress = escrowPda.toBase58()
-          if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
-            setPendingEscrows(prev => {
-              if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
-              return [...prev, {
-                escrowAddress,
-                nonce,
-                amount: BigInt(escrowInfo.lamports),
-                stealthPubkey,
-                status: 'pending' as const,
-              }]
-            })
-          }
-        } else {
-          // No escrow yet - add to delegated deposits (waiting for PER execution)
-          const depositAddr = pubkey.toBase58()
-          setDelegatedDeposits(prev => {
-            if (prev.some(d => d.depositAddress === depositAddr)) {
-              return prev
-            }
-            return [...prev, {
-              depositAddress: depositAddr,
-              vaultAddress: escrowPda.toBase58(),
-              amount,
-              stealthPubkey,
-              nonce,
-              bump: data[PER_MIXER_OFFSET_BUMP],
-              executed: false,
-              type: 'per-mixer' as const,
-            }]
-          })
-        }
-      }
-
-      // Scan mixer deposits
-      const mixerAccounts = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: MIXER_DEPOSIT_SIZE }],
-      }).catch(() => [])
-
-
-      for (const { pubkey, account } of mixerAccounts) {
-        const data = account.data
-        if (data.slice(0, 8).toString() !== MIXER_DEPOSIT_DISCRIMINATOR) continue
-        if (data[MIXER_OFFSET_IS_EXECUTED] === 1) continue
-
-        const announcementBytes = data.slice(MIXER_OFFSET_ANNOUNCEMENT_PDA, MIXER_OFFSET_ANNOUNCEMENT_PDA + 32)
-        const announcementPda = new PublicKey(announcementBytes)
-        const annInfo = await connection.getAccountInfo(announcementPda)
-        if (!annInfo || annInfo.data.length < 150) continue
-
-        const annData = annInfo.data
-        const ephemeralPubkey = new Uint8Array(annData.slice(ANN_OFFSET_EPHEMERAL_PUBKEY, ANN_OFFSET_EPHEMERAL_PUBKEY + 32))
-        const viewTag = annData[ANN_OFFSET_VIEW_TAG]
-        if (!checkViewTag(keys.viewPrivkey, ephemeralPubkey, viewTag)) continue
-
-        const stealthPubkey = new Uint8Array(annData.slice(ANN_OFFSET_STEALTH_PUBKEY, ANN_OFFSET_STEALTH_PUBKEY + 32))
-        if (!isPaymentForUs(keys, ephemeralPubkey, viewTag, stealthPubkey)) continue
-
-        foundCount++
-
-        const nonce = new Uint8Array(data.slice(MIXER_OFFSET_NONCE, MIXER_OFFSET_NONCE + 32))
-        const vaultBytes = data.slice(MIXER_OFFSET_VAULT_PDA, MIXER_OFFSET_VAULT_PDA + 32)
-        const vaultPda = new PublicKey(vaultBytes)
-        const vaultInfo = await connection.getAccountInfo(vaultPda)
-
-        if (vaultInfo && vaultInfo.lamports > 0) {
-          const vaultAddress = vaultPda.toBase58()
-          if (!pendingClaims.some(c => c.vaultAddress === vaultAddress)) {
-            setPendingClaims(prev => {
-              if (prev.some(c => c.vaultAddress === vaultAddress)) return prev
-              return [...prev, {
-                vaultAddress,
-                amount: BigInt(vaultInfo.lamports),
-                sender: 'MIXER_POOL',
-                announcementPda: announcementPda.toBase58(),
-                stealthPubkey,
-                status: 'pending' as const,
-              }]
-            })
-          }
-        } else {
-          let amount = BigInt(0)
-          for (let i = 0; i < 8; i++) amount |= BigInt(data[MIXER_OFFSET_AMOUNT + i]) << BigInt(i * 8)
-
-          if (!delegatedDeposits.some(d => d.depositAddress === pubkey.toBase58())) {
-            setDelegatedDeposits(prev => {
-              if (prev.some(d => d.depositAddress === pubkey.toBase58())) return prev
-              return [...prev, {
-                depositAddress: pubkey.toBase58(),
-                vaultAddress: vaultPda.toBase58(),
-                amount,
-                stealthPubkey,
-                nonce,
-                bump: data[MIXER_OFFSET_BUMP],
-                executed: false,
-                type: 'mixer' as const,
-              }]
-            })
-          }
-        }
-      }
-
-      // Scan claim escrows (created by PER, ready for withdrawal on L1)
-      // Support both V1 (90 bytes) and V3 (171 bytes) escrows
-      const escrowAccountsV1 = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: CLAIM_ESCROW_SIZE_V1 }],
-      }).catch(() => [])
-
-      const escrowAccountsV3 = await connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: CLAIM_ESCROW_SIZE_V3 }],
-      }).catch(() => [])
-
-
-      // Process V1 escrows
-      for (const { pubkey, account } of escrowAccountsV1) {
-        const data = account.data
-
-        // Check if already withdrawn
-        if (data[ESCROW_OFFSET_IS_WITHDRAWN] === 1) continue
-
-        // Read stealth pubkey to verify it's for us
-        const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH, ESCROW_OFFSET_STEALTH + 32))
-        const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32))
-
-        // Verify escrow address matches expected PDA
-        const [expectedEscrow] = deriveClaimEscrowPda(nonce)
-        if (!pubkey.equals(expectedEscrow)) continue
-
-        // Read amount
-        let amount = BigInt(0)
-        for (let i = 0; i < 8; i++) amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8)
-
-        // Check if escrow has funds
-        if (account.lamports === 0) continue
-
-        foundCount++
-
-        const escrowAddress = pubkey.toBase58()
         if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
           setPendingEscrows(prev => {
             if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
             return [...prev, {
               escrowAddress,
-              nonce,
-              amount,
-              stealthPubkey,
+              amount: escrow.amount,
+              stealthPubkey: escrow.stealthPubkey,
               status: 'pending' as const,
-              isV3: false,
+              isV3: true,
+              verifiedDestination: escrow.verifiedDestination,
+              isVerified: escrow.isVerified,
+              sharedSecret: escrow.sharedSecret,
             }]
           })
-        }
-      }
-
-      // WAVETEK TRUE PRIVACY SCANNER
-      // Uses X-Wing decapsulation to identify our escrows
-      // ONLY includes escrows that belong to us (isOurs === true)
-      if (keys.xwingKeys) {
-
-        const v4Escrows = await scanForEscrowsV4(connection, keys, rollupConnection)
-
-        // Only process escrows that belong to us
-        const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
-
-        for (const escrow of ourEscrows) {
-          foundCount++
-          const escrowAddress = escrow.escrowPda.toBase58()
-
-
-          if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
-            setPendingEscrows(prev => {
-              if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
-              return [...prev, {
-                escrowAddress,
-                nonce: escrow.nonce,
-                amount: escrow.amount,
-                stealthPubkey: escrow.stealthPubkey,
-                status: 'pending' as const,
-                isV3: true, // V4 uses same escrow structure as V3
-                encryptedDestination: escrow.encryptedDestination,
-                verifiedDestination: escrow.verifiedDestination,
-                isVerified: escrow.isVerified,
-                sharedSecret: escrow.sharedSecret, // V4: Auto-recovered from XWingCiphertext!
-              }]
-            })
-          }
-        }
-
-      } else {
-        // Fallback: Manual V3 escrow scanning without X-Wing (legacy)
-        for (const { pubkey, account } of escrowAccountsV3) {
-          const data = account.data
-
-          // Check discriminator
-          if (data.slice(0, 8).toString() !== CLAIM_ESCROW_DISCRIMINATOR) continue
-
-          // Check if already withdrawn
-          if (data[ESCROW_V3_OFFSET_IS_WITHDRAWN] === 1) continue
-
-          // Read stealth pubkey and nonce
-          const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH, ESCROW_OFFSET_STEALTH + 32))
-          const nonce = new Uint8Array(data.slice(ESCROW_OFFSET_NONCE, ESCROW_OFFSET_NONCE + 32))
-
-          // Verify escrow address matches expected PDA
-          const [expectedEscrow] = deriveClaimEscrowPda(nonce)
-          if (!pubkey.equals(expectedEscrow)) continue
-
-          // Read amount
-          let amount = BigInt(0)
-          for (let i = 0; i < 8; i++) amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8)
-
-          // Check if escrow has funds
-          if (account.lamports === 0) continue
-
-          // Read V3-specific fields
-          const encryptedDestination = new Uint8Array(data.slice(ESCROW_V3_OFFSET_ENCRYPTED_DEST, ESCROW_V3_OFFSET_ENCRYPTED_DEST + 48))
-          const verifiedDestination = new Uint8Array(data.slice(ESCROW_V3_OFFSET_VERIFIED_DEST, ESCROW_V3_OFFSET_VERIFIED_DEST + 32))
-          const isVerified = data[ESCROW_V3_OFFSET_IS_VERIFIED] === 1
-
-          foundCount++
-
-          const escrowAddress = pubkey.toBase58()
-          if (!pendingEscrows.some(e => e.escrowAddress === escrowAddress)) {
-            setPendingEscrows(prev => {
-              if (prev.some(e => e.escrowAddress === escrowAddress)) return prev
-              return [...prev, {
-                escrowAddress,
-                nonce,
-                amount,
-                stealthPubkey,
-                status: 'pending' as const,
-                isV3: true,
-                encryptedDestination,
-                verifiedDestination,
-                isVerified,
-                // Note: sharedSecret NOT available in legacy mode
-              }]
-            })
-          }
         }
       }
 
@@ -1446,34 +1163,41 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.error('[WAVETEK] scan failed <ENCRYPTED>')
       return 0
     }
-  }, [connection, rollupConnection, pendingClaims, delegatedDeposits, pendingEscrows])
+  }, [connection, rollupConnection, pendingEscrows])
 
-  // Generate stealth keys - uses localStorage cache to avoid repeated wallet popups
+  // Generate stealth keys - AES-GCM encrypted localStorage cache
+  // One wallet signature popup per session: sign → derive AES key → decrypt cache or generate fresh
   const ensureStealthKeys = useCallback(async (): Promise<StealthKeyPair | null> => {
-    // Return existing keys if already loaded
     if (stealthKeys) return stealthKeys
+    if (!signMessage || !publicKey) return null
+    if (keysGeneratedRef.current) return null
 
-    // Check localStorage cache first (keyed by wallet address)
-    if (publicKey) {
+    try {
+      keysGeneratedRef.current = true
       const walletAddress = publicKey.toBase58()
-      const cachedKeys = getCachedStealthKeys(walletAddress)
+
+      // Sign message (one popup per session)
+      const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
+      const result = await signMessage(messageBytes)
+      const signature = normalizeSignature(result)
+      if (signature.length === 0) throw new Error('Empty signature')
+
+      // Derive AES-256-GCM key from signature for localStorage encryption
+      const aesKey = await deriveStorageKey(signature)
+
+      // Try decrypting cached keys (avoids expensive X-Wing generation)
+      const cachedKeys = await getCachedStealthKeys(walletAddress, aesKey)
       if (cachedKeys) {
         setStealthKeys(cachedKeys)
         return cachedKeys
       }
-    }
 
-    // No cached keys - need to request signature (only happens ONCE per wallet)
-    if (!signMessage || !publicKey) return null
-    if (keysGeneratedRef.current) return null // Prevent duplicate requests
-
-    try {
-      keysGeneratedRef.current = true
-      const keys = await generateStealthKeysFromSignature(signMessage)
+      // Cache miss - derive all keys from same signature (includes X-Wing)
+      const keys = generateViewingKeys(signature)
       setStealthKeys(keys)
 
-      // Cache keys in localStorage for this wallet
-      cacheStealthKeys(publicKey.toBase58(), keys)
+      // Encrypt and cache for next session
+      await cacheStealthKeys(walletAddress, keys, aesKey)
 
       return keys
     } catch (err) {
@@ -1483,7 +1207,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
   }, [signMessage, stealthKeys, publicKey])
 
-  // Main scan with 3-second timeout
+  // Main scan with timeout
   const runScan = useCallback(async () => {
     if (!publicKey || !connected || isScanningRef.current) return
 
@@ -1494,7 +1218,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     try {
       const keys = await ensureStealthKeys()
       if (keys) {
-        // Wrap scan with timeout - max 3 seconds
+        // Wrap scan with timeout
         const scanPromise = scanForDeposits(keys)
         const timeoutPromise = new Promise<number>((_, reject) =>
           setTimeout(() => reject(new Error('Scan timeout')), SCAN_TIMEOUT_MS)
