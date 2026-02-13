@@ -114,7 +114,10 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
 
   // Initialize PER Privacy client
   const perClient = useMemo(() => {
-    const client = new PERPrivacyClient()
+    const perRpc = typeof window !== 'undefined'
+      ? `${window.location.origin}/api/v1/per-rpc`
+      : 'https://devnet-as.magicblock.app'
+    const client = new PERPrivacyClient(undefined, perRpc)
 
     // Configure relayer if available
     if (DEFAULT_RELAYER_PUBKEY) {

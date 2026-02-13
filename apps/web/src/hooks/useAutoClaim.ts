@@ -125,7 +125,9 @@ const SCAN_TIMEOUT_MS = 15000
 // Use HTTP-only endpoints to avoid WebSocket issues
 // IMPORTANT: Public devnet RPC is rate-limited. Use Helius/QuickNode for production.
 const DEVNET_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
-const MAGICBLOCK_RPC = process.env.NEXT_PUBLIC_MAGICBLOCK_RPC_URL || '/api/v1/per-rpc'
+const MAGICBLOCK_RPC = typeof window !== 'undefined'
+  ? `${window.location.origin}/api/v1/per-rpc`
+  : 'https://devnet-as.magicblock.app'
 
 // Storage key for stealth keys (AES-256-GCM encrypted, cached per wallet address)
 const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'

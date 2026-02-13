@@ -172,7 +172,7 @@ export const MAGICBLOCK_PER = {
   ROUTER_ENDPOINT: "https://devnet-router.magicblock.app",
   // Direct ephemeral rollup endpoint (use proxy in browser to avoid CORS)
   ER_ENDPOINT: typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_MAGICBLOCK_RPC_URL || '/api/v1/per-rpc')
+    ? `${window.location.origin}/api/v1/per-rpc`
     : 'https://devnet-as.magicblock.app',
   // Default validator for devnet
   DEFAULT_VALIDATOR: new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57"),
