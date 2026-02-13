@@ -35,7 +35,7 @@ export async function POST(
 
     // Get environment variables
     const encifherKey = process.env.ENCIFHER_SDK_KEY || process.env.NEXT_PUBLIC_ENCIFHER_SDK_KEY
-    const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 
     if (!encifherKey) {
       return NextResponse.json(

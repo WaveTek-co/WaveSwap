@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     }
 
     const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(crankKey)))
-    const l1Rpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    const l1Rpc = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com'
     const perRpc = 'https://devnet-as.magicblock.app'
 
     const l1 = new Connection(l1Rpc, 'confirmed')
