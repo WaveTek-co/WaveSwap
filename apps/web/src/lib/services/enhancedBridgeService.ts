@@ -120,9 +120,10 @@ export class EnhancedBridgeService {
     referralCode?: string
   }) {
     // Initialize Solana connection
-    this.connection = new Connection(
-      config.solanaRpc || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
-    )
+    const rpcUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/api/v1/rpc`
+      : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
+    this.connection = new Connection(config.solanaRpc || rpcUrl)
 
     // Initialize Intents SDK if JWT is provided
     if (config.jwtToken) {

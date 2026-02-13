@@ -122,7 +122,9 @@ export function WaveSend({ privacyMode, comingSoon = false }: WaveSendProps) {
       }
 
       try {
-        const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+        const rpcUrl = typeof window !== 'undefined'
+          ? `${window.location.origin}/api/v1/rpc`
+          : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
         const devnetConnection = new Connection(rpcUrl, 'confirmed')
         const balances: { [key: string]: string } = { wave: '0', wealth: '0', sol: '0', usdc: '0' }
 

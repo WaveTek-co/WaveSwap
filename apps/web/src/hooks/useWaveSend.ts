@@ -194,7 +194,9 @@ export function useWaveSend(): UseWaveSendReturn {
   // Initialize the stealth client with DEVNET connection
   // Uses Helius RPC if configured, falls back to public devnet
   const devnetConnection = useMemo(() => {
-    const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    const rpcUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/api/v1/rpc`
+      : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
     return new Connection(rpcUrl, 'confirmed')
   }, [])
 

@@ -124,7 +124,9 @@ const SCAN_TIMEOUT_MS = 15000
 // RPC endpoints
 // Use HTTP-only endpoints to avoid WebSocket issues
 // IMPORTANT: Public devnet RPC is rate-limited. Use Helius/QuickNode for production.
-const DEVNET_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+const DEVNET_RPC = typeof window !== 'undefined'
+  ? `${window.location.origin}/api/v1/rpc`
+  : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
 const MAGICBLOCK_RPC = typeof window !== 'undefined'
   ? `${window.location.origin}/api/v1/per-rpc`
   : 'https://devnet-as.magicblock.app'

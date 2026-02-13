@@ -184,7 +184,9 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
 
     try {
       // Get recipient's registry to get their spend/view pubkeys
-      const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+      const rpcUrl = typeof window !== 'undefined'
+        ? `${window.location.origin}/api/v1/rpc`
+        : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
       const connection = new Connection(rpcUrl, 'confirmed')
       const [registryPda] = deriveRegistryPda(recipientWallet)
 
@@ -309,7 +311,9 @@ export function usePERPrivacy(): UsePERPrivacyReturn {
     try {
       console.log('[WAVETEK] scanning <ENCRYPTED>')
 
-      const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+      const rpcUrl = typeof window !== 'undefined'
+        ? `${window.location.origin}/api/v1/rpc`
+        : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
       const connection = new Connection(rpcUrl, 'confirmed')
 
       // Fetch all announcements

@@ -551,6 +551,9 @@ export class WaveStakeClient {
 }
 
 // Export singleton instance
+const _stakingRpcUrl = typeof window !== 'undefined'
+  ? `${window.location.origin}/api/v1/rpc`
+  : (process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
 export const waveStakeClient = new WaveStakeClient(
-  new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com')
+  new Connection(_stakingRpcUrl)
 )
