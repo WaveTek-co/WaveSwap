@@ -2,9 +2,11 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
+import { sha256 } from '@noble/hashes/sha256'
 import { useWallet, useConnection } from './useWalletAdapter'
 import {
   WaveStealthClient,
+  generateViewingKeys,
   StealthKeyPair,
   WaveSendParams,
   SendResult,
@@ -13,15 +15,82 @@ import {
   RegistrationStep,
 } from '@/lib/stealth'
 
-// Storage key for stealth keys (cached per wallet address for seamless UX)
+// Storage key for stealth keys (AES-256-GCM encrypted, shared with useAutoClaim)
 const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
+const STORAGE_AES_DOMAIN = 'oceanvault:storage:aes-gcm-v1'
+const AES_IV_LENGTH = 12
 
-// Helper to get cached stealth keys from localStorage (includes X-Wing keys)
-function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
+// Stealth key signing message (must match generateStealthKeysFromSignature exactly)
+const STEALTH_SIGN_MESSAGE = `Sign this message to generate your WaveSwap stealth viewing keys.
+
+This signature will be used to derive your private viewing keys. Never share this signature with anyone.
+
+Domain: OceanVault:ViewingKeys:v1`
+
+async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
+  const domain = new TextEncoder().encode(STORAGE_AES_DOMAIN)
+  const input = new Uint8Array(signature.length + domain.length)
+  input.set(signature, 0)
+  input.set(domain, signature.length)
+  const keyMaterial = sha256(input)
+  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+}
+
+function uint8ToBase64(arr: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i])
+  return btoa(binary)
+}
+
+function base64ToUint8(str: string): Uint8Array {
+  const binary = atob(str)
+  const arr = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
+  return arr
+}
+
+async function aesGcmEncrypt(plaintext: string, key: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH))
+  const encoded = new TextEncoder().encode(plaintext)
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
+  const combined = new Uint8Array(AES_IV_LENGTH + ciphertext.byteLength)
+  combined.set(iv, 0)
+  combined.set(new Uint8Array(ciphertext), AES_IV_LENGTH)
+  return uint8ToBase64(combined)
+}
+
+async function aesGcmDecrypt(stored: string, key: CryptoKey): Promise<string> {
+  const combined = base64ToUint8(stored)
+  const iv = combined.slice(0, AES_IV_LENGTH)
+  const ciphertext = combined.slice(AES_IV_LENGTH)
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
+  return new TextDecoder().decode(plaintext)
+}
+
+function normalizeSignature(result: any): Uint8Array {
+  if (result instanceof Uint8Array) return result
+  if (result && typeof result === 'object' && 'signature' in result) {
+    return result.signature instanceof Uint8Array ? result.signature : new Uint8Array(result.signature)
+  }
+  if (result && ArrayBuffer.isView(result)) {
+    return new Uint8Array((result as any).buffer, (result as any).byteOffset, (result as any).byteLength)
+  }
+  if (Array.isArray(result)) return new Uint8Array(result)
+  throw new Error('Unexpected signature format from wallet')
+}
+
+async function getCachedStealthKeys(walletAddress: string, aesKey: CryptoKey): Promise<StealthKeyPair | null> {
   try {
     const stored = localStorage.getItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
     if (!stored) return null
-    const parsed = JSON.parse(stored)
+
+    if (stored.startsWith('{')) {
+      localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
+      return null
+    }
+
+    const jsonStr = await aesGcmDecrypt(stored, aesKey)
+    const parsed = JSON.parse(jsonStr)
 
     const keys: StealthKeyPair = {
       spendPrivkey: new Uint8Array(parsed.spendPrivkey),
@@ -30,7 +99,6 @@ function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
       viewPubkey: new Uint8Array(parsed.viewPubkey),
     }
 
-    // Restore X-Wing keys if present (post-quantum security)
     if (parsed.xwingKeys) {
       keys.xwingKeys = {
         publicKey: {
@@ -46,12 +114,12 @@ function getCachedStealthKeys(walletAddress: string): StealthKeyPair | null {
 
     return keys
   } catch {
+    localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
     return null
   }
 }
 
-// Helper to cache stealth keys in localStorage (includes X-Wing keys)
-function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
+async function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair, aesKey: CryptoKey): Promise<void> {
   try {
     const cached: any = {
       spendPrivkey: Array.from(keys.spendPrivkey),
@@ -60,7 +128,6 @@ function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
       viewPubkey: Array.from(keys.viewPubkey),
     }
 
-    // Cache X-Wing keys if present (post-quantum security)
     if (keys.xwingKeys) {
       cached.xwingKeys = {
         publicKey: {
@@ -74,9 +141,10 @@ function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair): void {
       }
     }
 
-    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, JSON.stringify(cached))
-  } catch (e) {
-    console.warn('[WAVETEK] cache failed <ENCRYPTED>')
+    const encrypted = await aesGcmEncrypt(JSON.stringify(cached), aesKey)
+    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, encrypted)
+  } catch {
+    // Silent fail - keys still work in memory
   }
 }
 
@@ -150,24 +218,15 @@ export function useWaveSend(): UseWaveSendReturn {
     }
   }, [publicKey, signTransaction, signAllTransactions, signMessage])
 
-  // Auto-initialize from cache and check registration when wallet connects
+  // Check registration status when wallet connects
+  // Note: encrypted cache requires signature, so auto-init deferred to initializeKeys
   useEffect(() => {
-    const initFromCache = async () => {
+    const checkStatus = async () => {
       if (!connected || !publicKey) {
         setIsRegistered(false)
         setIsInitialized(false)
         setStealthKeys(null)
         return
-      }
-
-      // Try to restore cached stealth keys (no signature required!)
-      const walletAddress = publicKey.toBase58()
-      const cachedKeys = getCachedStealthKeys(walletAddress)
-      if (cachedKeys) {
-        console.log('[WAVETEK] Auto-initialized from cache for: <ENCRYPTED>')
-        setStealthKeys(cachedKeys)
-        client.setKeys(cachedKeys)
-        setIsInitialized(true)
       }
 
       // Check registration status (legacy registry)
@@ -189,28 +248,13 @@ export function useWaveSend(): UseWaveSendReturn {
       }
     }
 
-    initFromCache()
+    checkStatus()
   }, [connected, publicKey, client])
 
-  // Initialize stealth keys - uses localStorage cache to avoid repeated wallet popups
+  // Initialize stealth keys - AES-GCM encrypted localStorage cache
+  // One wallet signature popup per session: sign → derive AES key → decrypt cache or generate fresh
   const initializeKeys = useCallback(async (): Promise<boolean> => {
-    console.log('[WAVETEK] initializing keys')
-
-    // Check localStorage cache first (keyed by wallet address)
-    if (publicKey) {
-      const walletAddress = publicKey.toBase58()
-      const cachedKeys = getCachedStealthKeys(walletAddress)
-      if (cachedKeys) {
-        console.log('[WAVETEK] using cached keys <ENCRYPTED>')
-        setStealthKeys(cachedKeys)
-        client.setKeys(cachedKeys)
-        setIsInitialized(true)
-        return true
-      }
-    }
-
     if (!signMessage || !publicKey) {
-      console.error('[WAVETEK] wallet not ready')
       setError('Wallet does not support message signing')
       return false
     }
@@ -219,17 +263,35 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
 
     try {
-      console.log('[WAVETEK] generating stealth keys')
-      const keys = await client.initializeKeys(signMessage)
-      console.log('[WAVETEK] keys generated <ENCRYPTED>')
+      const walletAddress = publicKey.toBase58()
 
+      // Sign message (one popup per session)
+      const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
+      const result = await signMessage(messageBytes)
+      const signature = normalizeSignature(result)
+      if (signature.length === 0) throw new Error('Empty signature')
+
+      // Derive AES-256-GCM key from signature
+      const aesKey = await deriveStorageKey(signature)
+
+      // Try decrypting cached keys (avoids expensive X-Wing generation)
+      const cachedKeys = await getCachedStealthKeys(walletAddress, aesKey)
+      if (cachedKeys) {
+        setStealthKeys(cachedKeys)
+        client.setKeys(cachedKeys)
+        setIsInitialized(true)
+        return true
+      }
+
+      // Cache miss - derive all keys from same signature (includes X-Wing)
+      const keys = generateViewingKeys(signature)
       setStealthKeys(keys)
+      client.setKeys(keys)
       setIsInitialized(true)
 
-      // Cache keys in localStorage for this wallet (full keys including privkeys for scanning)
-      cacheStealthKeys(publicKey.toBase58(), keys)
+      // Encrypt and cache for next session
+      await cacheStealthKeys(walletAddress, keys, aesKey)
 
-      console.log('[WAVETEK] keys cached')
       return true
     } catch (err) {
       console.error('[WAVETEK] initialization failed <ENCRYPTED>')
@@ -330,6 +392,11 @@ export function useWaveSend(): UseWaveSendReturn {
         return { success: false, error: 'Wallet not connected' }
       }
 
+      if (!stealthKeys?.xwingKeys) {
+        setError('Please initialize stealth keys first')
+        return { success: false, error: 'Please initialize stealth keys first' }
+      }
+
       setIsSending(true)
       setError(null)
 
@@ -351,14 +418,12 @@ export function useWaveSend(): UseWaveSendReturn {
         }
 
         // Convert to lamports/smallest unit
-        // For SOL: multiply by LAMPORTS_PER_SOL (10^9)
-        // For SPL tokens: would need to fetch decimals from mint
         const isSol = !params.tokenMint || params.tokenMint === NATIVE_SOL_MINT.toBase58()
         const amount = isSol
           ? BigInt(Math.floor(amountFloat * LAMPORTS_PER_SOL))
-          : BigInt(Math.floor(amountFloat * 1e6)) // Assume 6 decimals for SPL tokens
+          : BigInt(Math.floor(amountFloat * 1e6))
 
-        console.log('[WAVETEK] sending transfer <ENCRYPTED>')
+        console.log('[WAVETEK] sending via SEQ privacy flow <ENCRYPTED>')
 
         const sendParams: WaveSendParams = {
           recipientWallet,
@@ -366,7 +431,9 @@ export function useWaveSend(): UseWaveSendReturn {
           mint: params.tokenMint && !isSol ? new PublicKey(params.tokenMint) : undefined,
         }
 
-        const result = await client.waveSend(walletAdapter, sendParams)
+        // WAVETEK SEQ: CREATE_SEQ → UPLOAD_CIPHERTEXT → COMPLETE_SEQ (single wallet popup)
+        // Crank automatically handles: REGISTER → INPUT_TO_POOL → PREPARE_OUTPUT → POOL_TO_ESCROW
+        const result = await client.waveSendV4(walletAdapter, sendParams)
         console.log('[WAVETEK] send result <ENCRYPTED>')
 
         if (!result.success) {
@@ -383,7 +450,7 @@ export function useWaveSend(): UseWaveSendReturn {
         setIsSending(false)
       }
     },
-    [walletAdapter, client]
+    [walletAdapter, client, stealthKeys]
   )
 
   // Clear error
