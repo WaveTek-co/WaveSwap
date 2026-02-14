@@ -24,7 +24,7 @@ export const XWING_CIPHERTEXT_SIZE = MLKEM768_CIPHERTEXT_SIZE + X25519_KEY_SIZE;
 export const XWING_SHARED_SECRET_SIZE = 32;
 
 // X-Wing label for hybrid key derivation (from IETF spec)
-const XWING_LABEL = new Uint8Array([0x5c, 0x2e, 0x2f, 0x2f, 0x5e, 0x5c]); // "\.//^\"
+const XWING_LABEL = new Uint8Array([0x5c, 0x2e, 0x2f, 0x2f, 0x5e, 0x5c]); // "\.//^\" (X-Wing v1 — versioned label for algorithm agility)
 
 // Convert Ed25519 private key (seed) to X25519 private key
 // Ed25519 and X25519 share curve25519 - conversion is deterministic

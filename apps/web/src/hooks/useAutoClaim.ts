@@ -144,14 +144,21 @@ This signature will be used to derive your private viewing keys. Never share thi
 
 Domain: OceanVault:ViewingKeys:v1`
 
-// Derive AES-256-GCM key from wallet signature for encrypting localStorage
+// Derive AES-256-GCM key from wallet signature using HKDF-SHA256 (NIST SP 800-56C compliant)
 async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
-  const domain = new TextEncoder().encode(STORAGE_AES_DOMAIN)
-  const input = new Uint8Array(signature.length + domain.length)
-  input.set(signature, 0)
-  input.set(domain, signature.length)
-  const keyMaterial = sha256(input)
-  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  const baseKey = await crypto.subtle.importKey('raw', signature, 'HKDF', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new TextEncoder().encode(STORAGE_AES_DOMAIN),
+      info: new TextEncoder().encode('aes-256-gcm-storage-v1'),
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
 }
 
 function uint8ToBase64(arr: Uint8Array): string {

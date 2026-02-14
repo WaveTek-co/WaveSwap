@@ -31,7 +31,7 @@ export { cryptoDeriveStealthPubkey as deriveStealthPubkeyFromSharedSecret };
 
 // WAVETEK V4: OutputEscrow discriminator and size (created by POOL_TO_ESCROW_V4)
 // OutputEscrow is the privacy-preserving output - derived from stealth_pubkey, NOT nonce
-const OUTPUT_ESCROW_DISCRIMINATOR = "OUTPUTES";
+const OUTPUT_ESCROW_DISCRIMINATOR = new Uint8Array([0x4f, 0x55, 0x54, 0x50, 0x55, 0x54, 0x45, 0x53]); // "OUTPUTES" as bytes
 const OUTPUT_ESCROW_SIZE = 91;
 
 // OutputEscrow layout offsets (from per_mixer.rs)
@@ -46,11 +46,11 @@ const ESCROW_OFFSET_IS_VERIFIED = 81;     // 49 + 32 = 81
 const ESCROW_OFFSET_IS_WITHDRAWN = 82;    // 81 + 1 = 82
 
 // Legacy ClaimEscrow (for backwards compatibility with V3)
-const CLAIM_ESCROW_DISCRIMINATOR = "CLAIMESC";
+const CLAIM_ESCROW_DISCRIMINATOR = new Uint8Array([0x43, 0x4c, 0x41, 0x49, 0x4d, 0x45, 0x53, 0x43]); // "CLAIMESC"
 const CLAIM_ESCROW_SIZE = 171;
 
 // XWingCiphertextAccount discriminator and size
-const XWING_CT_DISCRIMINATOR = "XWINGCT\0";
+const XWING_CT_DISCRIMINATOR = new Uint8Array([0x58, 0x57, 0x49, 0x4e, 0x47, 0x43, 0x54, 0x00]); // "XWINGCT\0"
 const XWING_CT_SIZE = 1160;
 const XWING_CT_OFFSET_ESCROW_PDA = 8;
 const XWING_CT_OFFSET_CIPHERTEXT = 40;
@@ -108,10 +108,12 @@ export function verifyStealthPubkey(
 ): boolean {
   const derived = cryptoDeriveStealthPubkey(sharedSecret);
   if (derived.length !== expectedStealthPubkey.length) return false;
+  // Constant-time comparison (prevents timing side-channel)
+  let diff = 0;
   for (let i = 0; i < derived.length; i++) {
-    if (derived[i] !== expectedStealthPubkey[i]) return false;
+    diff |= derived[i] ^ expectedStealthPubkey[i];
   }
-  return true;
+  return diff === 0;
 }
 
 /**
@@ -177,6 +179,7 @@ const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaA
 
 // Deposit record layout (PerDepositRecord base=210 + ciphertext=1120 + sender=32 + flag=2 = 1364)
 const DEPOSIT_RECORD_SIZE = 1364;
+const DEPOSIT_RECORD_DISCRIMINATOR = new Uint8Array([0x50, 0x45, 0x52, 0x44, 0x45, 0x50, 0x52, 0x43]); // "PERDEPRC"
 const DEPOSIT_RECORD_CT_OFFSET = 210; // Ciphertext starts right after 210-byte base struct
 const DEPOSIT_RECORD_STEALTH_OFFSET = 57; // stealth_pubkey at offset 57 in base struct
 
@@ -195,8 +198,12 @@ function parseOutputEscrow(
 } | null {
   if (data.length < OUTPUT_ESCROW_SIZE) return null;
 
-  const discriminator = Buffer.from(data.slice(0, 8)).toString();
-  if (discriminator !== OUTPUT_ESCROW_DISCRIMINATOR) return null;
+  // Byte-level discriminator comparison (not string — avoids encoding ambiguity)
+  const disc = new Uint8Array(data.slice(0, 8));
+  if (disc.length !== OUTPUT_ESCROW_DISCRIMINATOR.length) return null;
+  for (let i = 0; i < 8; i++) {
+    if (disc[i] !== OUTPUT_ESCROW_DISCRIMINATOR[i]) return null;
+  }
 
   const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH_PUBKEY, ESCROW_OFFSET_STEALTH_PUBKEY + 32));
 
@@ -257,11 +264,26 @@ export async function scanForEscrowsV4(
         const data = account.data;
         if (data.length < DEPOSIT_RECORD_SIZE) continue;
 
+        // Verify deposit record discriminator ("PERDEPRC")
+        let validDisc = true;
+        for (let i = 0; i < 8; i++) {
+          if (data[i] !== DEPOSIT_RECORD_DISCRIMINATOR[i]) { validDisc = false; break; }
+        }
+        if (!validDisc) continue;
+
         const stealthPubkey = new Uint8Array(data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32));
+
+        // Reject zero stealth_pubkey
+        let isZero = true;
+        for (let i = 0; i < 32; i++) { if (stealthPubkey[i] !== 0) { isZero = false; break; } }
+        if (isZero) continue;
+
         const ciphertext = new Uint8Array(data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH));
 
         // Skip empty ciphertexts
-        if (ciphertext.every(b => b === 0)) continue;
+        let ctEmpty = true;
+        for (let i = 0; i < 32; i++) { if (ciphertext[i] !== 0) { ctEmpty = false; break; } }
+        if (ctEmpty) continue;
 
         const hex = Buffer.from(stealthPubkey).toString('hex');
         ctMap.set(hex, ciphertext);
@@ -375,8 +397,10 @@ export async function scanForEscrowsV4(
             const [xwingCtPda] = deriveXWingCiphertextPda(pubkey);
             const ctInfo = await connection.getAccountInfo(xwingCtPda);
             if (ctInfo && ctInfo.data.length >= XWING_CT_SIZE) {
-              const disc = Buffer.from(ctInfo.data.slice(0, 8)).toString();
-              if (disc === XWING_CT_DISCRIMINATOR) {
+              const ctDisc = new Uint8Array(ctInfo.data.slice(0, 8));
+              let ctDiscMatch = true;
+              for (let i = 0; i < 8; i++) { if (ctDisc[i] !== XWING_CT_DISCRIMINATOR[i]) { ctDiscMatch = false; break; } }
+              if (ctDiscMatch) {
                 xwingCiphertext = new Uint8Array(ctInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH));
               }
             }
