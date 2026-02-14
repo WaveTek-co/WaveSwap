@@ -8,6 +8,7 @@ import { useWallet } from './useWalletAdapter'
 import {
   PROGRAM_IDS,
   MASTER_AUTHORITY,
+  KORA_CONFIG,
   StealthDiscriminators,
   deriveStealthVaultPda,
   deriveTestMixerPoolPda,
@@ -972,16 +973,38 @@ export function useAutoClaim(): UseAutoClaimReturn {
           if (escrowData.length >= 91 && escrowData[OUTPUT_ESCROW_OFFSET_IS_VERIFIED] === 1) {
             console.log('[WAVETEK] settlement confirmed')
 
-            // V4: Call WITHDRAW_FROM_OUTPUT_ESCROW on L1 (uses stealth_pubkey, NOT nonce)
-            // Data: stealth_pubkey(32) = 32 bytes
+            // V4: KORA GASLESS WITHDRAW - receiver pays NOTHING
+            // Kora signs and pays the L1 transaction fee
+            // On-chain WITHDRAW accepts ANY signer, only enforces destination == verified_destination
+            const koraUrl = KORA_CONFIG.RPC_URL
+
+            // 1. Get Kora's fee payer
+            const payerResponse = await fetch(koraUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getPayerSigner', params: [] }),
+            })
+            const payerJson = await payerResponse.json() as { result?: { signer_address: string }, error?: { message: string } }
+            if (payerJson.error) throw new Error(`Kora getPayerSigner: ${payerJson.error.message}`)
+            const koraFeePayer = new PublicKey(payerJson.result!.signer_address)
+
+            // 2. Get blockhash from Kora
+            const blockhashResponse = await fetch(koraUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBlockhash', params: [] }),
+            })
+            const blockhashJson = await blockhashResponse.json() as { result?: { blockhash: string }, error?: { message: string } }
+            if (blockhashJson.error) throw new Error(`Kora getBlockhash: ${blockhashJson.error.message}`)
+            const l1Blockhash = blockhashJson.result!.blockhash
+
+            // 3. Build WITHDRAW instruction with Kora as signer
             const withdrawData = Buffer.alloc(33)
             withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_OUTPUT_ESCROW
             Buffer.from(escrow.stealthPubkey).copy(withdrawData, 1)
 
-            // Build accounts list
-            // Order: claimer, output_escrow, destination, master_authority, system, [optional: xwing_ct]
             const withdrawAccounts = [
-              { pubkey: publicKey, isSigner: true, isWritable: false },
+              { pubkey: koraFeePayer, isSigner: true, isWritable: false },
               { pubkey: escrowPda, isSigner: false, isWritable: true },
               { pubkey: destination, isSigner: false, isWritable: true },
               { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
@@ -989,7 +1012,6 @@ export function useAutoClaim(): UseAutoClaimReturn {
             ]
 
             // Check if XWingCiphertext account exists on L1 and add it for cleanup
-            // V4 SEQ escrows don't have XWingCT, but check anyway
             const [withdrawXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
             const xwingCtInfo = await connection.getAccountInfo(withdrawXwingCtPda)
             if (xwingCtInfo && xwingCtInfo.data.length > 0) {
@@ -998,21 +1020,38 @@ export function useAutoClaim(): UseAutoClaimReturn {
             }
 
             const withdrawTx = new Transaction()
+            withdrawTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }))
             withdrawTx.add(new TransactionInstruction({
               keys: withdrawAccounts,
               programId: PROGRAM_IDS.STEALTH,
               data: withdrawData,
             }))
-
-            withdrawTx.feePayer = publicKey
-            const { blockhash: l1Blockhash } = await connection.getLatestBlockhash()
             withdrawTx.recentBlockhash = l1Blockhash
+            withdrawTx.feePayer = koraFeePayer
 
-            const signedWithdrawTx = await signTransaction!(withdrawTx)
-            const withdrawSig = await connection.sendRawTransaction(signedWithdrawTx.serialize())
+            // 4. Send unsigned TX to Kora - it signs and broadcasts
+            const txBase64 = Buffer.from(withdrawTx.serialize({ requireAllSignatures: false })).toString('base64')
+            const signResponse = await fetch(koraUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'signAndSendTransaction', params: [txBase64] }),
+            })
+            const signJson = await signResponse.json() as { result?: { signed_transaction: string }, error?: { message: string } }
+            if (signJson.error) throw new Error(`Kora signAndSend: ${signJson.error.message}`)
+
+            // 5. Extract signature from Kora's signed TX
+            const signedTxBytes = Buffer.from(signJson.result!.signed_transaction, 'base64')
+            const signatureBytes = signedTxBytes.slice(1, 65)
+            const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+            let withdrawSig = ''
+            let num = BigInt(0)
+            for (const byte of signatureBytes) num = num * BigInt(256) + BigInt(byte)
+            while (num > 0) { withdrawSig = bs58Chars[Number(num % BigInt(58))] + withdrawSig; num = num / BigInt(58) }
+
+            // Wait for L1 confirmation
             await confirmTransactionPolling(connection, withdrawSig)
 
-            console.log('[WAVETEK] withdrawal complete <ENCRYPTED>')
+            console.log('[WAVETEK] gasless withdrawal complete <ENCRYPTED>')
 
             setPendingEscrows(prev => prev.map(e =>
               e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -1041,78 +1080,100 @@ export function useAutoClaim(): UseAutoClaimReturn {
       ))
       return false
     }
-  }, [publicKey, stealthKeys, connection, rollupConnection])
+  }, [publicKey, stealthKeys, signTransaction, connection, rollupConnection])
 
-  // LEGACY: Withdraw from claim escrow (breaks privacy - receiver signs)
-  // Use claimViaTEE instead for full privacy
+  // LEGACY: Withdraw from claim escrow via Kora gasless
   const withdrawFromEscrow = useCallback(async (escrow: PendingEscrow): Promise<boolean> => {
-    if (!publicKey || !signTransaction) {
+    if (!publicKey) {
       console.log('[WAVETEK] wallet not connected')
       return false
     }
 
     try {
-      // V4 SEQ escrows don't have nonce - must use claimViaTEE instead
       if (!escrow.nonce) {
-        console.error('[WAVETEK] V4 escrows require claimViaTEE, not withdrawFromEscrow')
+        console.error('[WAVETEK] V4 escrows require claimViaTEE')
         return false
       }
-      console.log('[WAVETEK] direct claim mode (reduced privacy)')
-      console.log('[WAVETEK] processing withdrawal <ENCRYPTED>')
+      console.log('[WAVETEK] processing gasless withdrawal <ENCRYPTED>')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
       ))
 
       const escrowPda = new PublicKey(escrow.escrowAddress)
+      const koraUrl = KORA_CONFIG.RPC_URL
 
-      // Build withdraw_from_escrow instruction
-      // Data: discriminator(1) + nonce(32) + stealth_pubkey(32) = 65 bytes
-      // Rent goes to MASTER_AUTHORITY as service fee
+      // Get Kora's fee payer
+      const payerResponse = await fetch(koraUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getPayerSigner', params: [] }),
+      })
+      const payerJson = await payerResponse.json() as { result?: { signer_address: string }, error?: { message: string } }
+      if (payerJson.error) throw new Error(`Kora: ${payerJson.error.message}`)
+      const koraFeePayer = new PublicKey(payerJson.result!.signer_address)
+
+      // Get blockhash from Kora
+      const blockhashResponse = await fetch(koraUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBlockhash', params: [] }),
+      })
+      const blockhashJson = await blockhashResponse.json() as { result?: { blockhash: string }, error?: { message: string } }
+      if (blockhashJson.error) throw new Error(`Kora: ${blockhashJson.error.message}`)
+
+      // Build withdraw instruction with Kora as signer
       const data = Buffer.alloc(65)
       let offset = 0
       data[offset++] = StealthDiscriminators.WITHDRAW_FROM_ESCROW
       Buffer.from(escrow.nonce).copy(data, offset); offset += 32
       Buffer.from(escrow.stealthPubkey).copy(data, offset)
 
-      // Derive XWingCiphertext PDA for V3 cleanup
       const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda)
 
-      // Build accounts list
-      // Order: claimer, escrow, destination, master_authority, system, [optional: xwing_ct]
       const withdrawAccounts = [
-        { pubkey: publicKey, isSigner: true, isWritable: false },
+        { pubkey: koraFeePayer, isSigner: true, isWritable: false },
         { pubkey: escrowPda, isSigner: false, isWritable: true },
-        { pubkey: publicKey, isSigner: false, isWritable: true }, // destination
-        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true }, // Receives rent as fee
+        { pubkey: publicKey, isSigner: false, isWritable: true },
+        { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ]
 
-      // Check if XWingCiphertext account exists and add it for cleanup
       const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
       if (xwingCtInfo && xwingCtInfo.data.length > 0) {
-        console.log('[WAVETEK] including X-Wing ciphertext')
         withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
       }
 
       const tx = new Transaction()
+      tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }))
       tx.add(new TransactionInstruction({
         keys: withdrawAccounts,
         programId: PROGRAM_IDS.STEALTH,
         data,
       }))
+      tx.recentBlockhash = blockhashJson.result!.blockhash
+      tx.feePayer = koraFeePayer
 
-      tx.feePayer = publicKey
-      const { blockhash } = await connection.getLatestBlockhash()
-      tx.recentBlockhash = blockhash
+      // Send unsigned TX to Kora
+      const txBase64 = Buffer.from(tx.serialize({ requireAllSignatures: false })).toString('base64')
+      const signResponse = await fetch(koraUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'signAndSendTransaction', params: [txBase64] }),
+      })
+      const signJson = await signResponse.json() as { result?: { signed_transaction: string }, error?: { message: string } }
+      if (signJson.error) throw new Error(`Kora: ${signJson.error.message}`)
 
-      console.log('[WAVETEK] signing withdrawal <ENCRYPTED>')
-      const signedTx = await signTransaction(tx)
+      const signedTxBytes = Buffer.from(signJson.result!.signed_transaction, 'base64')
+      const signatureBytes = signedTxBytes.slice(1, 65)
+      const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+      let signature = ''
+      let sigNum = BigInt(0)
+      for (const byte of signatureBytes) sigNum = sigNum * BigInt(256) + BigInt(byte)
+      while (sigNum > 0) { signature = bs58Chars[Number(sigNum % BigInt(58))] + signature; sigNum = sigNum / BigInt(58) }
 
-      console.log('[WAVETEK] submitting <ENCRYPTED>')
-      const signature = await connection.sendRawTransaction(signedTx.serialize())
       await confirmTransactionPolling(connection, signature)
-      console.log('[WAVETEK] withdrawal confirmed <ENCRYPTED>')
+      console.log('[WAVETEK] gasless withdrawal confirmed <ENCRYPTED>')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -1128,7 +1189,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       ))
       return false
     }
-  }, [publicKey, signTransaction, connection])
+  }, [publicKey, connection])
 
   // Scan for WAVETEK output escrows only (new SEQ flow)
   const scanForDeposits = useCallback(async (keys: StealthKeyPair): Promise<number> => {
