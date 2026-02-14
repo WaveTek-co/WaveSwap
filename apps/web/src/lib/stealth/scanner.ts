@@ -1,12 +1,11 @@
 // WAVETEK Privacy Scanner for WaveSwap
 // Scans for OutputEscrow accounts (91 bytes) created by POOL_TO_ESCROW_SEQ flow
 //
-// SCANNING FLOW:
-// 1. Fetch all OutputEscrow accounts (91 bytes, disc "OUTPUTES")
-// 2. For each: derive XWingCiphertextPda, fetch ciphertext from PER/L1
-// 3. Attempt X-Wing decapsulation with receiver's secret key
-// 4. Verify: SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
-// 5. If match → escrow belongs to us
+// TWO-PHASE SCANNING FLOW:
+// Phase 1: Find deposit records (1364 bytes) on L1+PER → extract embedded ciphertext (offset 210)
+// Phase 2: Derive output escrow PDAs from stealth_pubkey → fetch via getAccountInfo (PER) + L1
+// Phase 3: X-Wing decapsulate ciphertext → verify SHA256(sharedSecret || "stealth-derive") == stealth_pubkey
+// If match → escrow belongs to us
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha256";
@@ -166,47 +165,15 @@ export function isEscrowForUs(
 /**
  * WAVETEK SEQ Privacy Scanner
  *
- * Scans all OutputEscrow accounts (91 bytes) and identifies which belong to us.
- * Uses X-Wing post-quantum decapsulation for ownership verification.
+ * TWO-PHASE APPROACH:
+ * Phase 1: Find deposit records (1364 bytes) → extract ciphertext + stealth_pubkey
+ * Phase 2: Derive output escrow PDAs → fetch from PER (getAccountInfo) and L1
+ *
+ * This is more robust than getProgramAccounts on PER (which may not work on
+ * MagicBlock ephemeral rollups). Uses getAccountInfo which is universally supported.
  */
 // Delegation program ID (accounts delegated to MagicBlock PER)
 const DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
-
-/**
- * Fetch XWingCiphertext from L1 (committed by PER heartbeat)
- * Checks both stealth program and delegation program ownership
- */
-async function fetchXWingCiphertext(
-  connection: Connection,
-  escrowPda: PublicKey
-): Promise<Uint8Array | undefined> {
-  try {
-    const [xwingCtPda] = deriveXWingCiphertextPda(escrowPda);
-    const accountInfo = await connection.getAccountInfo(xwingCtPda);
-
-    if (!accountInfo || accountInfo.data.length < XWING_CT_SIZE) {
-      return undefined;
-    }
-
-    // Verify discriminator
-    const discriminator = Buffer.from(accountInfo.data.slice(0, 8)).toString();
-    if (discriminator !== XWING_CT_DISCRIMINATOR) {
-      return undefined;
-    }
-
-    // Verify escrow_pda backlink matches
-    const storedEscrowPda = new PublicKey(accountInfo.data.slice(XWING_CT_OFFSET_ESCROW_PDA, XWING_CT_OFFSET_ESCROW_PDA + 32));
-    if (!storedEscrowPda.equals(escrowPda)) {
-      return undefined;
-    }
-
-    // Extract ciphertext (1120 bytes starting at offset 40)
-    const ciphertext = new Uint8Array(accountInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH));
-    return ciphertext;
-  } catch {
-    return undefined;
-  }
-}
 
 // Deposit record layout (PerDepositRecord base=210 + ciphertext=1120 + sender=32 + flag=2 = 1364)
 const DEPOSIT_RECORD_SIZE = 1364;
@@ -214,55 +181,41 @@ const DEPOSIT_RECORD_CT_OFFSET = 210; // Ciphertext starts right after 210-byte 
 const DEPOSIT_RECORD_STEALTH_OFFSET = 57; // stealth_pubkey at offset 57 in base struct
 
 /**
- * Fetch X-Wing ciphertext from deposit records
- * Queries L1 first, then PER (where delegated deposit records live with ciphertext data)
- * Returns map of stealth_pubkey_hex → ciphertext
+ * Parse an OutputEscrow from account data (91 bytes)
  */
-async function fetchCiphertextsFromDepositRecords(
-  connection: Connection,
-  perConnection?: Connection
-): Promise<Map<string, Uint8Array>> {
-  const ctMap = new Map<string, Uint8Array>();
-  try {
-    // Query L1: stealth program (undelegated) + delegation program (delegated but stale)
-    const l1Queries = [
-      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-      }).catch(() => []),
-      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-      }).catch(() => []),
-    ];
+function parseOutputEscrow(
+  pubkey: PublicKey,
+  data: Buffer | Uint8Array
+): {
+  stealthPubkey: Uint8Array;
+  amount: bigint;
+  verifiedDestination: Uint8Array;
+  isVerified: boolean;
+  isWithdrawn: boolean;
+} | null {
+  if (data.length < OUTPUT_ESCROW_SIZE) return null;
 
-    // Query PER: deposit records with fresh data (ciphertext uploaded before delegation)
-    if (perConnection) {
-      l1Queries.push(
-        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-          filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-        }).catch(() => [])
-      );
-    }
+  const discriminator = Buffer.from(data.slice(0, 8)).toString();
+  if (discriminator !== OUTPUT_ESCROW_DISCRIMINATOR) return null;
 
-    const allResults = await Promise.all(l1Queries);
+  const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH_PUBKEY, ESCROW_OFFSET_STEALTH_PUBKEY + 32));
 
-    for (const records of allResults) {
-      for (const { account } of records) {
-        const data = account.data;
-        if (data.length < DEPOSIT_RECORD_SIZE) continue;
+  // Verify PDA derivation
+  const [expectedPda] = deriveOutputEscrowPda(stealthPubkey);
+  if (!pubkey.equals(expectedPda)) return null;
 
-        const stealthPubkey = Buffer.from(data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32));
-        const ciphertext = new Uint8Array(data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH));
-
-        // Skip empty ciphertexts
-        if (ciphertext.every(b => b === 0)) continue;
-
-        ctMap.set(Buffer.from(stealthPubkey).toString('hex'), ciphertext);
-      }
-    }
-  } catch {
-    // Best-effort
+  let amount = BigInt(0);
+  for (let i = 0; i < 8; i++) {
+    amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8);
   }
-  return ctMap;
+
+  return {
+    stealthPubkey,
+    amount,
+    verifiedDestination: new Uint8Array(data.slice(ESCROW_OFFSET_VERIFIED_DEST, ESCROW_OFFSET_VERIFIED_DEST + 32)),
+    isVerified: data[ESCROW_OFFSET_IS_VERIFIED] === 1,
+    isWithdrawn: data[ESCROW_OFFSET_IS_WITHDRAWN] === 1,
+  };
 }
 
 export async function scanForEscrowsV4(
@@ -273,101 +226,181 @@ export async function scanForEscrowsV4(
   const escrows: DetectedEscrowV4[] = [];
 
   try {
-    // Query L1: stealth program (undelegated) + delegation program (delegated, stale data)
-    const queries: Promise<{ pubkey: PublicKey; account: { data: Buffer; lamports: number } }[]>[] = [
-      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }),
-      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] }),
+    // ================================================================
+    // PHASE 1: Find deposit records → extract ciphertext + stealth_pubkey
+    // Deposit records have the X-Wing ciphertext embedded (offset 210, 1120 bytes)
+    // They exist on L1 (owned by delegation program) with ciphertext from before delegation
+    // ================================================================
+    const depositQueries = [
+      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
+      }).catch(() => []),
+      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
+        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
+      }).catch(() => []),
     ];
 
-    // Query PER: delegated output escrows with FRESH data (correct amounts)
     if (perConnection) {
-      queries.push(
-        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, { filters: [{ dataSize: OUTPUT_ESCROW_SIZE }] })
+      depositQueries.push(
+        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+          filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
+        }).catch(() => [])
       );
     }
 
-    const allResults = await Promise.all(queries);
+    const depositResults = await Promise.all(depositQueries);
 
-    // Deduplicate by pubkey - PER data overrides L1 stale data
-    const accountMap = new Map<string, { pubkey: PublicKey; account: { data: Buffer; lamports: number } }>();
+    // Build map: stealth_pubkey_hex → ciphertext
+    const ctMap = new Map<string, Uint8Array>();
+    for (const records of depositResults) {
+      for (const { account } of records) {
+        const data = account.data;
+        if (data.length < DEPOSIT_RECORD_SIZE) continue;
 
-    // L1 stealth accounts first
-    for (const { pubkey, account } of allResults[0]) {
-      accountMap.set(pubkey.toBase58(), { pubkey, account });
-    }
-    // L1 delegation accounts (don't override stealth program data)
-    for (const { pubkey, account } of allResults[1]) {
-      if (!accountMap.has(pubkey.toBase58())) {
-        accountMap.set(pubkey.toBase58(), { pubkey, account });
+        const stealthPubkey = new Uint8Array(data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32));
+        const ciphertext = new Uint8Array(data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH));
+
+        // Skip empty ciphertexts
+        if (ciphertext.every(b => b === 0)) continue;
+
+        const hex = Buffer.from(stealthPubkey).toString('hex');
+        ctMap.set(hex, ciphertext);
       }
     }
-    // PER accounts OVERRIDE L1 data (PER has fresh amounts for delegated accounts)
-    if (allResults[2]) {
-      for (const { pubkey, account } of allResults[2]) {
-        accountMap.set(pubkey.toBase58(), { pubkey, account });
+
+    // ================================================================
+    // PHASE 2: For each deposit record, derive output escrow PDA
+    // and fetch it directly from PER (getAccountInfo) + L1
+    // This avoids reliance on getProgramAccounts on PER
+    // ================================================================
+    const accountMap = new Map<string, { pubkey: PublicKey; data: Buffer | Uint8Array }>();
+
+    // 2a: Direct PDA lookups from deposit records (most reliable path)
+    const escrowLookups: Promise<void>[] = [];
+    for (const [stealthHex] of ctMap) {
+      const stealthBytes = new Uint8Array(Buffer.from(stealthHex, 'hex'));
+      const [escrowPda] = deriveOutputEscrowPda(stealthBytes);
+      const key = escrowPda.toBase58();
+
+      // Fetch from PER first (has fresh data), then L1 as fallback
+      escrowLookups.push(
+        (async () => {
+          // Try PER first (delegated escrow with correct amount)
+          if (perConnection) {
+            try {
+              const perInfo = await perConnection.getAccountInfo(escrowPda);
+              if (perInfo && perInfo.data.length >= OUTPUT_ESCROW_SIZE) {
+                accountMap.set(key, { pubkey: escrowPda, data: perInfo.data });
+                return;
+              }
+            } catch {
+              // PER lookup failed, fall through to L1
+            }
+          }
+          // Fallback: L1 (may be delegated with stale data, or undelegated)
+          try {
+            const l1Info = await connection.getAccountInfo(escrowPda);
+            if (l1Info && l1Info.data.length >= OUTPUT_ESCROW_SIZE) {
+              accountMap.set(key, { pubkey: escrowPda, data: l1Info.data });
+            }
+          } catch {
+            // L1 lookup failed
+          }
+        })()
+      );
+    }
+
+    // 2b: Also try broad getProgramAccounts on L1 + PER (catches escrows without deposit records)
+    const escrowQueries = [
+      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+        filters: [{ dataSize: OUTPUT_ESCROW_SIZE }],
+      }).catch(() => []),
+      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
+        filters: [{ dataSize: OUTPUT_ESCROW_SIZE }],
+      }).catch(() => []),
+    ];
+    if (perConnection) {
+      escrowQueries.push(
+        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
+          filters: [{ dataSize: OUTPUT_ESCROW_SIZE }],
+        }).catch(() => [])
+      );
+    }
+
+    // Run direct lookups + broad queries in parallel
+    const [, broadResults] = await Promise.all([
+      Promise.allSettled(escrowLookups),
+      Promise.all(escrowQueries),
+    ]);
+
+    // Merge broad query results (L1 first, then delegation, then PER overrides)
+    for (const { pubkey, account } of broadResults[0]) {
+      const key = pubkey.toBase58();
+      if (!accountMap.has(key)) {
+        accountMap.set(key, { pubkey, data: account.data });
+      }
+    }
+    for (const { pubkey, account } of broadResults[1]) {
+      const key = pubkey.toBase58();
+      if (!accountMap.has(key)) {
+        accountMap.set(key, { pubkey, data: account.data });
+      }
+    }
+    // PER broad results OVERRIDE (fresh data)
+    if (broadResults[2]) {
+      for (const { pubkey, account } of broadResults[2]) {
+        accountMap.set(pubkey.toBase58(), { pubkey, data: account.data });
       }
     }
 
-    const allAccounts = Array.from(accountMap.values());
-
-    // Pre-fetch deposit record ciphertexts (queries both L1 and PER)
-    let depositRecordCTs: Map<string, Uint8Array> | null = null;
-
-    let oursCount = 0;
-    for (const { pubkey, account } of allAccounts) {
-      const data = account.data;
-
-      const discriminator = Buffer.from(data.slice(ESCROW_OFFSET_DISCRIMINATOR, ESCROW_OFFSET_DISCRIMINATOR + 8)).toString();
-      if (discriminator !== OUTPUT_ESCROW_DISCRIMINATOR) continue;
-
-      const isWithdrawn = data[ESCROW_OFFSET_IS_WITHDRAWN] === 1;
-      if (isWithdrawn) continue;
-
-      const stealthPubkey = new Uint8Array(data.slice(ESCROW_OFFSET_STEALTH_PUBKEY, ESCROW_OFFSET_STEALTH_PUBKEY + 32));
-      const verifiedDestination = new Uint8Array(data.slice(ESCROW_OFFSET_VERIFIED_DEST, ESCROW_OFFSET_VERIFIED_DEST + 32));
-      const isVerified = data[ESCROW_OFFSET_IS_VERIFIED] === 1;
-
-      const [expectedPda] = deriveOutputEscrowPda(stealthPubkey);
-      if (!pubkey.equals(expectedPda)) continue;
-
-      let amount = BigInt(0);
-      for (let i = 0; i < 8; i++) {
-        amount |= BigInt(data[ESCROW_OFFSET_AMOUNT + i]) << BigInt(i * 8);
-      }
+    // ================================================================
+    // PHASE 3: Parse escrows and verify ownership via X-Wing decapsulation
+    // ================================================================
+    for (const { pubkey, data } of accountMap.values()) {
+      const parsed = parseOutputEscrow(pubkey, data);
+      if (!parsed) continue;
+      if (parsed.isWithdrawn) continue;
 
       let sharedSecret: Uint8Array | undefined;
       let isOurs = false;
 
       if (keys.xwingKeys) {
-        // Try XWingCiphertext account on L1 first
-        let xwingCiphertext = await fetchXWingCiphertext(connection, pubkey);
+        // Get ciphertext from deposit record map
+        const stealthHex = Buffer.from(parsed.stealthPubkey).toString('hex');
+        let xwingCiphertext = ctMap.get(stealthHex);
 
-        // Fallback: read ciphertext from deposit records (L1 + PER)
+        // Fallback: try legacy XWingCiphertext account on L1
         if (!xwingCiphertext) {
-          if (!depositRecordCTs) {
-            depositRecordCTs = await fetchCiphertextsFromDepositRecords(connection, perConnection);
+          try {
+            const [xwingCtPda] = deriveXWingCiphertextPda(pubkey);
+            const ctInfo = await connection.getAccountInfo(xwingCtPda);
+            if (ctInfo && ctInfo.data.length >= XWING_CT_SIZE) {
+              const disc = Buffer.from(ctInfo.data.slice(0, 8)).toString();
+              if (disc === XWING_CT_DISCRIMINATOR) {
+                xwingCiphertext = new Uint8Array(ctInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH));
+              }
+            }
+          } catch {
+            // Legacy path failed, continue without ciphertext
           }
-          const stealthHex = Buffer.from(stealthPubkey).toString('hex');
-          xwingCiphertext = depositRecordCTs.get(stealthHex) || undefined;
         }
 
         if (xwingCiphertext) {
-          const result = isEscrowForUs(keys, stealthPubkey, xwingCiphertext);
+          const result = isEscrowForUs(keys, parsed.stealthPubkey, xwingCiphertext);
           if (result.isOurs) {
             isOurs = true;
             sharedSecret = result.sharedSecret;
-            oursCount++;
           }
         }
       }
 
       escrows.push({
         escrowPda: pubkey,
-        amount,
-        stealthPubkey,
-        verifiedDestination: isVerified ? verifiedDestination : undefined,
-        isVerified,
-        isWithdrawn,
+        amount: parsed.amount,
+        stealthPubkey: parsed.stealthPubkey,
+        verifiedDestination: parsed.isVerified ? parsed.verifiedDestination : undefined,
+        isVerified: parsed.isVerified,
+        isWithdrawn: parsed.isWithdrawn,
         sharedSecret,
         isOurs,
       });
