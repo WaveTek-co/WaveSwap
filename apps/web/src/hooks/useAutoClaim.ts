@@ -274,8 +274,8 @@ async function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair, aes
 async function confirmTransactionPolling(
   connection: Connection,
   signature: string,
-  maxAttempts = 30,
-  intervalMs = 2000
+  maxAttempts = 6,
+  intervalMs = 500
 ): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
@@ -500,12 +500,12 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.log('[WAVETEK] submitted <ENCRYPTED>')
 
         // Use HTTP polling instead of WebSocket confirmation
-        const confirmed = await confirmTransactionPolling(rollupConnection, signature, 15, 1000)
+        const confirmed = await confirmTransactionPolling(rollupConnection, signature)
         console.log('[WAVETEK] confirmed <ENCRYPTED>')
 
-        // Poll mainnet for escrow
-        for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 2000))
+        // Poll mainnet for escrow (PER settlement is near-instant)
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 500))
           const escrowInfo = await connection.getAccountInfo(escrowPda)
           if (escrowInfo && escrowInfo.lamports > 0) {
             console.log('[WAVETEK] settlement confirmed')
@@ -614,20 +614,19 @@ export function useAutoClaim(): UseAutoClaimReturn {
           const executeSignature = await rollupConnection.sendRawTransaction(signedExecuteTx.serialize(), { skipPreflight: true })
           console.log('[WAVETEK] submitted <ENCRYPTED>')
 
-          await confirmTransactionPolling(rollupConnection, executeSignature, 15, 1000)
+          await confirmTransactionPolling(rollupConnection, executeSignature)
           console.log('[WAVETEK] awaiting settlement <ENCRYPTED>')
 
-          // Wait for deposit to be undelegated back to L1
+          // Wait for deposit to be undelegated back to L1 (PER settlement is near-instant)
           let undelegated = false
-          for (let i = 0; i < 20; i++) {
-            await new Promise(r => setTimeout(r, 2000))
+          for (let i = 0; i < 6; i++) {
+            await new Promise(r => setTimeout(r, 500))
             const checkInfo = await connection.getAccountInfo(depositPda)
             if (checkInfo && checkInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
               console.log('[WAVETEK] settlement confirmed')
               undelegated = true
               break
             }
-            console.log('[WAVETEK] awaiting... <ENCRYPTED>')
           }
 
           if (!undelegated) {
@@ -887,7 +886,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.log('[WAVETEK] funded <ENCRYPTED>')
 
         // Wait for confirmation
-        const poolConfirmed = await confirmTransactionPolling(rollupConnection, poolToEscrowSig, 20, 2000)
+        const poolConfirmed = await confirmTransactionPolling(rollupConnection, poolToEscrowSig)
         if (!poolConfirmed) {
           console.warn('[WAVETEK] confirmation timeout')
         }
@@ -953,19 +952,18 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.log('[WAVETEK] submitted <ENCRYPTED>')
 
       // Wait for PER confirmation
-      const confirmed = await confirmTransactionPolling(rollupConnection, signature, 20, 2000)
+      const confirmed = await confirmTransactionPolling(rollupConnection, signature)
       if (!confirmed) {
-        console.warn('[WAVETEK] confirmation timeout')
         throw new Error('PER confirmation timeout')
       }
 
       console.log('[WAVETEK] awaiting settlement <ENCRYPTED>')
 
-      // Wait for escrow to be undelegated and verified
+      // Wait for escrow to be undelegated and verified (PER settlement is near-instant)
       // V4 OutputEscrow: 91 bytes, is_verified at offset 81 (is_withdrawn at 82)
       const OUTPUT_ESCROW_OFFSET_IS_VERIFIED = 81
-      for (let i = 0; i < 15; i++) {
-        await new Promise(r => setTimeout(r, 2000))
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 500))
         const escrowInfo = await connection.getAccountInfo(escrowPda)
         if (escrowInfo && escrowInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
           const escrowData = escrowInfo.data
