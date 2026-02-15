@@ -290,7 +290,9 @@ export class WaveStealthClient {
   // Check if recipient is registered for stealth payments
   async isRecipientRegistered(recipientWallet: PublicKey): Promise<boolean> {
     const registry = await this.getRegistry(recipientWallet);
-    return registry !== null && registry.isFinalized;
+    if (!registry || !registry.isFinalized) return false;
+    // WAVETEK requires X-Wing keys — SIMPREG (old format) users are NOT ready to receive
+    return registry.xwingPubkey.length >= XWING_PUBLIC_KEY_SIZE && registry.xwingPubkey.some(b => b !== 0);
   }
 
   // Register stealth meta-address on-chain
@@ -324,15 +326,28 @@ export class WaveStealthClient {
 
     // Check if already registered
     console.log('[WAVETEK] checking existing state <ENCRYPTED>');
-    const existing = await this.connection.getAccountInfo(registryPda);
+    let existing = await this.connection.getAccountInfo(registryPda);
     if (existing) {
-      // Check if finalized
       const existingRegistry = await this.getRegistry(wallet.publicKey);
       if (existingRegistry?.isFinalized) {
-        console.log('[WAVETEK] already registered');
-        return { success: false, error: "Already registered" };
+        // Check if this is a SIMPREG (old format without X-Wing keys) — allow upgrade
+        const hasXWing = existingRegistry.xwingPubkey.length >= XWING_PUBLIC_KEY_SIZE
+          && existingRegistry.xwingPubkey.some(b => b !== 0);
+        if (hasXWing) {
+          console.log('[WAVETEK] already registered with X-Wing keys');
+          return { success: false, error: "Already registered" };
+        }
+        // SIMPREG or corrupt registry — close old account, then re-create with X-Wing
+        console.log('[WAVETEK] upgrading old registry to full X-Wing format');
+        reportProgress('initializing', 0, 1, 'Upgrading registry to X-Wing format...');
+        const closeResult = await this.closeRegistry(wallet);
+        if (!closeResult.success) {
+          return { success: false, error: `Failed to close old registry: ${closeResult.error}` };
+        }
+        existing = null; // Account is now closed, proceed with fresh creation
+      } else {
+        console.log('[WAVETEK] resuming registration <ENCRYPTED>');
       }
-      console.log('[WAVETEK] resuming registration <ENCRYPTED>');
     }
 
     // Registry stores X-Wing public key (1216 bytes total)
@@ -341,16 +356,21 @@ export class WaveStealthClient {
     // - Bytes 1184-1215: X25519 public key (32 bytes)
     //
     // This format is used directly by the sender during xwingEncapsulate
-    const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
 
-    if (keysToUse.xwingKeys) {
-      // Serialize X-Wing public key in standard format
-      const serialized = serializeXWingPublicKey(keysToUse.xwingKeys.publicKey);
-      Buffer.from(serialized).copy(fullKeyData, 0);
-      console.log('[WAVETEK] storing X-Wing key <ENCRYPTED>');
-    } else {
-      console.warn('[WAVETEK] X-Wing keys unavailable <ENCRYPTED>');
+    // CRITICAL: X-Wing keys are REQUIRED for privacy flow - reject registration without them
+    if (!keysToUse.xwingKeys) {
+      return { success: false, error: "X-Wing post-quantum keys required for registration. Please re-initialize stealth keys." };
     }
+
+    const fullKeyData = Buffer.alloc(XWING_PUBLIC_KEY_SIZE);
+    const serialized = serializeXWingPublicKey(keysToUse.xwingKeys.publicKey);
+    Buffer.from(serialized).copy(fullKeyData, 0);
+
+    // Verify key is not all zeros (sanity check)
+    if (!fullKeyData.some(b => b !== 0)) {
+      return { success: false, error: "X-Wing key serialization produced zero key. Key generation may have failed." };
+    }
+    console.log('[WAVETEK] storing X-Wing key <ENCRYPTED>');
 
     // Split into multiple transactions to avoid tx size limits
     // Tx 1: Initialize + first chunk (600 bytes to leave room)
@@ -786,13 +806,24 @@ export class WaveStealthClient {
       // Read full X-Wing public key (1216 bytes at offset 44)
       const xwingPubkey = new Uint8Array(data.slice(44, Math.min(44 + XWING_PUBLIC_KEY_SIZE, data.length)));
 
-      // spendPubkey and viewPubkey are not stored separately in new format
-      // They're only needed for legacy Ed25519-based operations
-      // For X-Wing operations, we use the xwingPubkey directly
+      // Validate X-Wing key is not all zeros (corrupt or incomplete registration)
+      const keyHasData = xwingPubkey.length >= XWING_PUBLIC_KEY_SIZE && xwingPubkey.some(b => b !== 0);
+      if (!keyHasData) {
+        console.log('[WAVETEK] registry has zero X-Wing key - treating as unregistered <ENCRYPTED>');
+        return {
+          owner: new PublicKey(data.slice(9, 41)),
+          spendPubkey: new Uint8Array(32),
+          viewPubkey: new Uint8Array(32),
+          xwingPubkey: new Uint8Array(0), // Empty = forces hasXWingKeys check to fail
+          createdAt: 0,
+          isFinalized: false, // Treat as not finalized to trigger re-registration
+        };
+      }
+
       return {
         owner: new PublicKey(data.slice(9, 41)),
-        spendPubkey: new Uint8Array(32), // Not stored in X-Wing format
-        viewPubkey: new Uint8Array(32),  // Not stored in X-Wing format
+        spendPubkey: new Uint8Array(32),
+        viewPubkey: new Uint8Array(32),
         xwingPubkey,
         createdAt: 0,
         isFinalized,
@@ -2320,19 +2351,28 @@ export class WaveStealthClient {
 
     try {
       // X-Wing encapsulation for encrypted destination
+      // CRITICAL: Reject if recipient has no valid X-Wing key (prevents unrecoverable deposits)
       const hasXWingKeys = registry.xwingPubkey && registry.xwingPubkey.length >= 1216;
-      let sharedSecret: Uint8Array;
-      let xwingCiphertext: Uint8Array;
+      if (!hasXWingKeys) {
+        return {
+          success: false,
+          error: "Recipient does not have X-Wing post-quantum keys. They must re-register with full stealth keys before receiving private payments."
+        };
+      }
 
-      if (hasXWingKeys) {
-        const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
-        console.log('[WAVETEK] recipient key loaded <ENCRYPTED>');
-        const encapResult = xwingEncapsulate(recipientXWingPk);
-        xwingCiphertext = encapResult.ciphertext;
-        sharedSecret = encapResult.sharedSecret;
-      } else {
-        sharedSecret = randomBytes(32);
-        xwingCiphertext = new Uint8Array(1120);
+      const recipientXWingPk = deserializeXWingPublicKey(registry.xwingPubkey);
+      console.log('[WAVETEK] recipient key loaded <ENCRYPTED>');
+      const encapResult = xwingEncapsulate(recipientXWingPk);
+      const xwingCiphertext = encapResult.ciphertext;
+      const sharedSecret = encapResult.sharedSecret;
+
+      // Verify ciphertext is not all zeros (sanity check)
+      const ctNonZero = xwingCiphertext.some(b => b !== 0);
+      if (!ctNonZero) {
+        return {
+          success: false,
+          error: "X-Wing encapsulation produced zero ciphertext. This should never happen - contact support."
+        };
       }
 
       // Derive stealth pubkey using SHA256 (MUST match on-chain)

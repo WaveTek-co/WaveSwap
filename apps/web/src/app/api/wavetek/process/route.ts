@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(crankKey)))
     const l1Rpc = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com'
-    const perRpc = 'https://devnet-as.magicblock.app'
+    const perRpc = process.env.MAGICBLOCK_PER_RPC_URL || 'https://devnet-as.magicblock.app'
 
     const l1 = new Connection(l1Rpc, 'confirmed')
     const per = new Connection(perRpc, 'confirmed')
@@ -277,36 +277,48 @@ export async function POST(req: NextRequest) {
       }
 
       // POOL_TO_ESCROW on PER (temporal decorrelation enforced on-chain: min 3 heartbeats)
+      // Retry with delays to wait for maturity (3 heartbeats × 1s commit = ~4s minimum)
       const p2eData = Buffer.alloc(10)
       p2eData.writeUInt8(0x3E, 0)
       p2eData.writeBigUInt64LE(nextOutputId, 1)
       p2eData.writeUInt8(drBump, 9)
 
-      try {
-        const sig = await sendAndConfirmTransaction(per, new Transaction().add(
-          new TransactionInstruction({
-            programId: PROGRAM_ID,
-            keys: [
-              { pubkey: payer.publicKey, isSigner: true, isWritable: false },
-              { pubkey: dr, isSigner: false, isWritable: true },
-              { pubkey: poolPda, isSigner: false, isWritable: true },
-              { pubkey: outputEscrow, isSigner: false, isWritable: true },
-            ],
-            data: p2eData,
-          })
-        ), [payer], { commitment: 'confirmed', skipPreflight: true })
-        results.push(`POOL_TO_ESCROW seq=${nextOutputId}: ${sig}`)
-      } catch (e: any) {
-        // Temporal decorrelation failure is expected for recent deposits
-        const msg = e.message || ''
-        if (msg.includes('temporal') || msg.includes('not old enough')) {
-          results.push(`POOL_TO_ESCROW seq=${nextOutputId}: not mature yet (3+ heartbeats required)`)
-        } else {
-          results.push(`POOL_TO_ESCROW seq=${nextOutputId} failed: ${msg}`)
+      let p2eSuccess = false
+      for (let retry = 0; retry < 8; retry++) {
+        try {
+          const sig = await sendAndConfirmTransaction(per, new Transaction().add(
+            new TransactionInstruction({
+              programId: PROGRAM_ID,
+              keys: [
+                { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+                { pubkey: dr, isSigner: false, isWritable: true },
+                { pubkey: poolPda, isSigner: false, isWritable: true },
+                { pubkey: outputEscrow, isSigner: false, isWritable: true },
+              ],
+              data: p2eData,
+            })
+          ), [payer], { commitment: 'confirmed', skipPreflight: true })
+          results.push(`POOL_TO_ESCROW seq=${nextOutputId}: ${sig}`)
+          p2eSuccess = true
+          break
+        } catch (e: any) {
+          const msg = e.message || ''
+          const isTemporalFail = msg.includes('temporal') || msg.includes('not old enough') || msg.includes('custom program error')
+          if (isTemporalFail && retry < 7) {
+            // Wait for heartbeats to mature (1s commit frequency × ~2 heartbeats per retry)
+            await sleep(2000)
+            continue
+          }
+          if (isTemporalFail) {
+            results.push(`POOL_TO_ESCROW seq=${nextOutputId}: not mature after ${retry + 1} retries`)
+          } else {
+            results.push(`POOL_TO_ESCROW seq=${nextOutputId} failed: ${msg}`)
+          }
+          break
         }
-        break
       }
 
+      if (!p2eSuccess) break
       pool = (await readPool(per, poolPda)) || pool
     }
 

@@ -231,10 +231,10 @@ export function useWaveSend(): UseWaveSendReturn {
         return
       }
 
-      // Check registration status (legacy registry)
+      // Check registration status — must have X-Wing keys for WAVETEK privacy flow
       try {
-        const registry = await client.getRegistry(publicKey)
-        setIsRegistered(registry !== null && registry.isFinalized)
+        const registered = await client.isRecipientRegistered(publicKey)
+        setIsRegistered(registered)
       } catch (err) {
         console.error('[WAVETEK] Error checking registration: <ENCRYPTED>')
         setIsRegistered(false)
