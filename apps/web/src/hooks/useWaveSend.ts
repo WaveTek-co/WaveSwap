@@ -329,8 +329,6 @@ export function useWaveSend(): UseWaveSendReturn {
   // Uploads full X-Wing public key (1216 bytes) in chunks
   // User batch-signs all chunk transactions at once
   const register = useCallback(async (): Promise<boolean> => {
-    console.log('[WAVETEK] initiating X-Wing registration')
-
     if (!walletAdapter) {
       console.error('[WAVETEK] wallet not ready')
       setError('Wallet not connected')
@@ -344,7 +342,6 @@ export function useWaveSend(): UseWaveSendReturn {
     }
 
     const hasXWing = !!stealthKeys.xwingKeys
-    console.log('[WAVETEK] registration starting <ENCRYPTED>')
 
     setIsLoading(true)
     setError(null)
@@ -353,20 +350,15 @@ export function useWaveSend(): UseWaveSendReturn {
     try {
       // Use full X-Wing registration (uploads 1216-byte public key in chunks)
       // User batch-signs all transactions for post-quantum security
-      console.log('[WAVETEK] submitting registration <ENCRYPTED>')
       const result = await client.register(
         walletAdapter,
         stealthKeys,
         undefined, // xwingPubkey already in stealthKeys
         (progress) => {
-          console.log('[WAVETEK] Registration progress: <ENCRYPTED>')
           setRegistrationProgress(progress)
         }
       )
-      console.log('[WAVETEK] register result: <ENCRYPTED>')
-
       if (result.success) {
-        console.log('[WAVETEK] registration complete <ENCRYPTED>')
         setIsRegistered(true)
         setRegistrationProgress(null)
         return true
@@ -407,8 +399,6 @@ export function useWaveSend(): UseWaveSendReturn {
       amount: string
       tokenMint?: string
     }): Promise<SendResult> => {
-      console.log('[WAVETEK] initiating send <ENCRYPTED>')
-
       if (!walletAdapter) {
         console.error('[WAVETEK] wallet not ready')
         return { success: false, error: 'Wallet not connected' }
@@ -445,8 +435,6 @@ export function useWaveSend(): UseWaveSendReturn {
           ? BigInt(Math.floor(amountFloat * LAMPORTS_PER_SOL))
           : BigInt(Math.floor(amountFloat * 1e6))
 
-        console.log('[WAVETEK] sending via SEQ privacy flow <ENCRYPTED>')
-
         const sendParams: WaveSendParams = {
           recipientWallet,
           amount,
@@ -456,7 +444,6 @@ export function useWaveSend(): UseWaveSendReturn {
         // WAVETEK SEQ: CREATE_SEQ → UPLOAD_CIPHERTEXT → COMPLETE_SEQ (single wallet popup)
         // Crank automatically handles: REGISTER → INPUT_TO_POOL → PREPARE_OUTPUT → POOL_TO_ESCROW
         const result = await client.waveSendV4(walletAdapter, sendParams)
-        console.log('[WAVETEK] send result <ENCRYPTED>')
 
         if (!result.success) {
           setError(result.error || 'Send failed')
@@ -497,7 +484,6 @@ export function useWaveSend(): UseWaveSendReturn {
 
       try {
         const result = await client.claimByVaultAddress(walletAdapter, vaultAddress, stealthPubkey)
-        console.log('[WAVETEK] claim result: <ENCRYPTED>')
 
         if (!result.success) {
           setError(result.error || 'Claim failed')
@@ -542,7 +528,6 @@ export function useWaveSend(): UseWaveSendReturn {
       setError(null)
 
       try {
-        console.log('[WAVETEK] registering for pool <ENCRYPTED>')
         const result = await client.registerPoolRegistry(
           walletAdapter,
           stealthKeys,
@@ -558,7 +543,6 @@ export function useWaveSend(): UseWaveSendReturn {
 
         if (result.success) {
           setIsPoolRegistered(true)
-          console.log('[WAVETEK] pool registration complete')
         } else {
           setError(result.error || 'Pool Registry registration failed')
         }
@@ -599,20 +583,16 @@ export function useWaveSend(): UseWaveSendReturn {
       setError(null)
 
       try {
-        console.log('[WAVETEK] sending via pool <ENCRYPTED>')
         const result = await client.sendViaPoolDeposit(
           walletAdapter,
           recipientPubkey,
           lamports,
           (msg, step, total) => {
-            console.log('[WAVETEK] Progress: <ENCRYPTED>')
           }
         )
 
         if (!result.success) {
           setError(result.error || 'Send failed')
-        } else {
-          console.log('[WAVETEK] pool deposit created <ENCRYPTED>')
         }
 
         return result

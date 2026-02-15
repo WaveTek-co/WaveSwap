@@ -134,13 +134,11 @@ export function isEscrowForUs(
 ): { isOurs: boolean; sharedSecret?: Uint8Array } {
   // Must have X-Wing keys
   if (!keys.xwingKeys) {
-    console.log('[WAVETEK] No X-Wing keys available');
     return { isOurs: false };
   }
 
   // Validate ciphertext length
   if (xwingCiphertext.length !== XWING_CIPHERTEXT_LENGTH) {
-    console.warn('[WAVETEK] Invalid ciphertext length: <ENCRYPTED>');
     return { isOurs: false };
   }
 
@@ -327,7 +325,7 @@ export async function scanForEscrowsV4(
       cache.lastScannedSeq = lastDepositedId;
     }
 
-    console.log(`[WAVETEK] Phase 1: pool seq=${lastDepositedId}, cached=${startSeq > 1n ? Number(startSeq) - 1 : 0}, new=${newDeposits}, total=${ctMap.size}`);
+    if (newDeposits > 0) console.debug(`[scanner] +${newDeposits} deposits`);
 
     // ================================================================
     // PHASE 2: For each deposit record, derive output escrow PDA
