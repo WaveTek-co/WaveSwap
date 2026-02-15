@@ -11,7 +11,10 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha256";
 import { sha3_256 } from "js-sha3";
 import { ed25519 } from "@noble/curves/ed25519";
-import { PROGRAM_IDS, deriveOutputEscrowPda, deriveXWingCiphertextPda } from "./config";
+import {
+  PROGRAM_IDS, deriveOutputEscrowPda, deriveXWingCiphertextPda,
+  deriveDepositRecordSeqPda, derivePerMixerPoolPda, readBigUint64LE,
+} from "./config";
 import {
   StealthKeyPair,
   xwingDecapsulate,
@@ -235,60 +238,77 @@ export async function scanForEscrowsV4(
   try {
     // ================================================================
     // PHASE 1: Find deposit records → extract ciphertext + stealth_pubkey
-    // Deposit records have the X-Wing ciphertext embedded (offset 210, 1120 bytes)
-    // They exist on L1 (owned by delegation program) with ciphertext from before delegation
+    // Uses sequential PDA derivation (getAccountInfo) instead of getProgramAccounts
+    // which times out for 1364-byte records on both L1 and PER RPC proxies
     // ================================================================
-    const depositQueries = [
-      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-      }).catch(() => []),
-      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-        filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-      }).catch(() => []),
-    ];
 
-    if (perConnection) {
-      depositQueries.push(
-        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-          filters: [{ dataSize: DEPOSIT_RECORD_SIZE }],
-        }).catch(() => [])
-      );
-    }
+    // Step 1: Read pool state from PER to get lastDepositedId
+    const [poolPda] = derivePerMixerPoolPda();
+    let lastDepositedId = 0n;
 
-    const depositResults = await Promise.all(depositQueries);
-
-    // Build map: stealth_pubkey_hex → ciphertext
-    const ctMap = new Map<string, Uint8Array>();
-    for (const records of depositResults) {
-      for (const { account } of records) {
-        const data = account.data;
-        if (data.length < DEPOSIT_RECORD_SIZE) continue;
-
-        // Verify deposit record discriminator ("PERDEPRC")
-        let validDisc = true;
-        for (let i = 0; i < 8; i++) {
-          if (data[i] !== DEPOSIT_RECORD_DISCRIMINATOR[i]) { validDisc = false; break; }
+    // Try PER first (live pool state), then L1 (stale but better than nothing)
+    for (const conn of [perConnection, connection].filter(Boolean) as Connection[]) {
+      try {
+        const poolInfo = await conn.getAccountInfo(poolPda);
+        if (poolInfo && poolInfo.data.length >= 103) {
+          lastDepositedId = readBigUint64LE(new Uint8Array(poolInfo.data), 79);
+          if (lastDepositedId > 0n) break;
         }
-        if (!validDisc) continue;
-
-        const stealthPubkey = new Uint8Array(data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32));
-
-        // Reject zero stealth_pubkey
-        let isZero = true;
-        for (let i = 0; i < 32; i++) { if (stealthPubkey[i] !== 0) { isZero = false; break; } }
-        if (isZero) continue;
-
-        const ciphertext = new Uint8Array(data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH));
-
-        // Skip empty ciphertexts
-        let ctEmpty = true;
-        for (let i = 0; i < 32; i++) { if (ciphertext[i] !== 0) { ctEmpty = false; break; } }
-        if (ctEmpty) continue;
-
-        const hex = Buffer.from(stealthPubkey).toString('hex');
-        ctMap.set(hex, ciphertext);
+      } catch {
+        // Try next connection
       }
     }
+
+    // Step 2: Fetch deposit records by sequential PDA (getAccountInfo - reliable, never times out)
+    const ctMap = new Map<string, Uint8Array>();
+
+    if (lastDepositedId > 0n) {
+      const BATCH_SIZE = 20;
+      for (let batchStart = 1n; batchStart <= lastDepositedId; batchStart += BigInt(BATCH_SIZE)) {
+        const batch: Promise<void>[] = [];
+        for (let seqId = batchStart; seqId <= lastDepositedId && seqId < batchStart + BigInt(BATCH_SIZE); seqId++) {
+          const [drPda] = deriveDepositRecordSeqPda(seqId);
+          batch.push(
+            (async () => {
+              // Try PER first (live data), then L1 (delegated but has ciphertext from before delegation)
+              for (const conn of [perConnection, connection].filter(Boolean) as Connection[]) {
+                try {
+                  const info = await conn.getAccountInfo(drPda);
+                  if (!info || info.data.length < DEPOSIT_RECORD_SIZE) continue;
+
+                  const data = new Uint8Array(info.data);
+                  // Verify discriminator ("PERDEPRC")
+                  let validDisc = true;
+                  for (let i = 0; i < 8; i++) {
+                    if (data[i] !== DEPOSIT_RECORD_DISCRIMINATOR[i]) { validDisc = false; break; }
+                  }
+                  if (!validDisc) continue;
+
+                  const stealthPubkey = data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32);
+                  let isZero = true;
+                  for (let i = 0; i < 32; i++) { if (stealthPubkey[i] !== 0) { isZero = false; break; } }
+                  if (isZero) continue;
+
+                  const ciphertext = data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH);
+                  let ctEmpty = true;
+                  for (let i = 0; i < 32; i++) { if (ciphertext[i] !== 0) { ctEmpty = false; break; } }
+                  if (ctEmpty) continue;
+
+                  const hex = Buffer.from(stealthPubkey).toString('hex');
+                  ctMap.set(hex, new Uint8Array(ciphertext));
+                  return; // Found valid data, stop trying other connections
+                } catch {
+                  // Try next connection
+                }
+              }
+            })()
+          );
+        }
+        await Promise.allSettled(batch);
+      }
+    }
+
+    console.log(`[WAVETEK] Phase 1: pool lastDepositedId=${lastDepositedId}, found ${ctMap.size} deposit records`);
 
     // ================================================================
     // PHASE 2: For each deposit record, derive output escrow PDA
