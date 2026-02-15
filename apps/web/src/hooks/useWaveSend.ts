@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
-import { sha256 } from '@noble/hashes/sha256'
+// sha256 import removed - deriveStorageKey now uses HKDF via crypto.subtle
 import { useWallet, useConnection } from './useWalletAdapter'
 import {
   WaveStealthClient,
@@ -27,13 +27,29 @@ This signature will be used to derive your private viewing keys. Never share thi
 
 Domain: OceanVault:ViewingKeys:v1`
 
+// Session-level signature cache: avoids duplicate wallet popups between useWaveSend and useAutoClaim
+// Key: wallet base58 address → Value: raw signature bytes
+// Stored on window so both hooks can share without React context
+const SESSION_SIG_CACHE = typeof window !== 'undefined'
+  ? ((window as any).__wavetek_sig_cache ??= new Map<string, Uint8Array>()) as Map<string, Uint8Array>
+  : new Map<string, Uint8Array>()
+
+// Derive AES-256-GCM key from wallet signature using HKDF-SHA256 (NIST SP 800-56C compliant)
+// MUST match useAutoClaim's deriveStorageKey exactly so both hooks share the same encrypted cache
 async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
-  const domain = new TextEncoder().encode(STORAGE_AES_DOMAIN)
-  const input = new Uint8Array(signature.length + domain.length)
-  input.set(signature, 0)
-  input.set(domain, signature.length)
-  const keyMaterial = sha256(input)
-  return crypto.subtle.importKey('raw', keyMaterial, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  const baseKey = await crypto.subtle.importKey('raw', signature, 'HKDF', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new TextEncoder().encode(STORAGE_AES_DOMAIN),
+      info: new TextEncoder().encode('aes-256-gcm-storage-v1'),
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
 }
 
 function uint8ToBase64(arr: Uint8Array): string {
@@ -267,11 +283,15 @@ export function useWaveSend(): UseWaveSendReturn {
     try {
       const walletAddress = publicKey.toBase58()
 
-      // Sign message (one popup per session)
-      const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
-      const result = await signMessage(messageBytes)
-      const signature = normalizeSignature(result)
-      if (signature.length === 0) throw new Error('Empty signature')
+      // Check session cache first (avoids duplicate popup if useAutoClaim already signed)
+      let signature = SESSION_SIG_CACHE.get(walletAddress)
+      if (!signature) {
+        const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
+        const result = await signMessage(messageBytes)
+        signature = normalizeSignature(result)
+        if (signature.length === 0) throw new Error('Empty signature')
+        SESSION_SIG_CACHE.set(walletAddress, signature)
+      }
 
       // Derive AES-256-GCM key from signature
       const aesKey = await deriveStorageKey(signature)

@@ -228,10 +228,15 @@ function parseOutputEscrow(
   };
 }
 
+/**
+ * @param cache Optional persistent cache across scans. Stores ctMap entries and last scanned seqId.
+ *              Dramatically speeds up repeated scans by only fetching NEW deposit records.
+ */
 export async function scanForEscrowsV4(
   connection: Connection,
   keys: StealthKeyPair,
-  perConnection?: Connection
+  perConnection?: Connection,
+  cache?: { ctMap: Map<string, Uint8Array>; lastScannedSeq: bigint }
 ): Promise<DetectedEscrowV4[]> {
   const escrows: DetectedEscrowV4[] = [];
 
@@ -239,14 +244,13 @@ export async function scanForEscrowsV4(
     // ================================================================
     // PHASE 1: Find deposit records → extract ciphertext + stealth_pubkey
     // Uses sequential PDA derivation (getAccountInfo) instead of getProgramAccounts
-    // which times out for 1364-byte records on both L1 and PER RPC proxies
+    // Incremental: only fetches NEW deposits since last scan (via cache)
     // ================================================================
 
     // Step 1: Read pool state from PER to get lastDepositedId
     const [poolPda] = derivePerMixerPoolPda();
     let lastDepositedId = 0n;
 
-    // Try PER first (live pool state), then L1 (stale but better than nothing)
     for (const conn of [perConnection, connection].filter(Boolean) as Connection[]) {
       try {
         const poolInfo = await conn.getAccountInfo(poolPda);
@@ -259,25 +263,34 @@ export async function scanForEscrowsV4(
       }
     }
 
-    // Step 2: Fetch deposit records by sequential PDA (getAccountInfo - reliable, never times out)
+    // Step 2: Build ctMap — use cache for already-scanned deposits, only fetch NEW ones
     const ctMap = new Map<string, Uint8Array>();
 
-    if (lastDepositedId > 0n) {
+    // Restore cached entries (already verified deposit records from previous scans)
+    const startSeq = cache ? cache.lastScannedSeq + 1n : 1n;
+    if (cache) {
+      for (const [hex, ct] of cache.ctMap) {
+        ctMap.set(hex, ct);
+      }
+    }
+
+    // Only fetch deposit records we haven't seen before
+    const newDeposits = lastDepositedId >= startSeq ? Number(lastDepositedId - startSeq) + 1 : 0;
+
+    if (newDeposits > 0) {
       const BATCH_SIZE = 20;
-      for (let batchStart = 1n; batchStart <= lastDepositedId; batchStart += BigInt(BATCH_SIZE)) {
+      for (let batchStart = startSeq; batchStart <= lastDepositedId; batchStart += BigInt(BATCH_SIZE)) {
         const batch: Promise<void>[] = [];
         for (let seqId = batchStart; seqId <= lastDepositedId && seqId < batchStart + BigInt(BATCH_SIZE); seqId++) {
           const [drPda] = deriveDepositRecordSeqPda(seqId);
           batch.push(
             (async () => {
-              // Try PER first (live data), then L1 (delegated but has ciphertext from before delegation)
               for (const conn of [perConnection, connection].filter(Boolean) as Connection[]) {
                 try {
                   const info = await conn.getAccountInfo(drPda);
                   if (!info || info.data.length < DEPOSIT_RECORD_SIZE) continue;
 
                   const data = new Uint8Array(info.data);
-                  // Verify discriminator ("PERDEPRC")
                   let validDisc = true;
                   for (let i = 0; i < 8; i++) {
                     if (data[i] !== DEPOSIT_RECORD_DISCRIMINATOR[i]) { validDisc = false; break; }
@@ -296,7 +309,7 @@ export async function scanForEscrowsV4(
 
                   const hex = Buffer.from(stealthPubkey).toString('hex');
                   ctMap.set(hex, new Uint8Array(ciphertext));
-                  return; // Found valid data, stop trying other connections
+                  return;
                 } catch {
                   // Try next connection
                 }
@@ -308,7 +321,13 @@ export async function scanForEscrowsV4(
       }
     }
 
-    console.log(`[WAVETEK] Phase 1: pool lastDepositedId=${lastDepositedId}, found ${ctMap.size} deposit records`);
+    // Update cache for next scan
+    if (cache && lastDepositedId > 0n) {
+      cache.ctMap = ctMap;
+      cache.lastScannedSeq = lastDepositedId;
+    }
+
+    console.log(`[WAVETEK] Phase 1: pool seq=${lastDepositedId}, cached=${startSeq > 1n ? Number(startSeq) - 1 : 0}, new=${newDeposits}, total=${ctMap.size}`);
 
     // ================================================================
     // PHASE 2: For each deposit record, derive output escrow PDA
@@ -352,48 +371,9 @@ export async function scanForEscrowsV4(
       );
     }
 
-    // 2b: Also try broad getProgramAccounts on L1 + PER (catches escrows without deposit records)
-    const escrowQueries = [
-      connection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-        filters: [{ dataSize: OUTPUT_ESCROW_SIZE }],
-      }).catch(() => []),
-      connection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
-        filters: [{ dataSize: OUTPUT_ESCROW_SIZE }],
-      }).catch(() => []),
-    ];
-    if (perConnection) {
-      escrowQueries.push(
-        perConnection.getProgramAccounts(PROGRAM_IDS.STEALTH, {
-          filters: [{ dataSize: OUTPUT_ESCROW_SIZE }],
-        }).catch(() => [])
-      );
-    }
-
-    // Run direct lookups + broad queries in parallel
-    const [, broadResults] = await Promise.all([
-      Promise.allSettled(escrowLookups),
-      Promise.all(escrowQueries),
-    ]);
-
-    // Merge broad query results (L1 first, then delegation, then PER overrides)
-    for (const { pubkey, account } of broadResults[0]) {
-      const key = pubkey.toBase58();
-      if (!accountMap.has(key)) {
-        accountMap.set(key, { pubkey, data: account.data });
-      }
-    }
-    for (const { pubkey, account } of broadResults[1]) {
-      const key = pubkey.toBase58();
-      if (!accountMap.has(key)) {
-        accountMap.set(key, { pubkey, data: account.data });
-      }
-    }
-    // PER broad results OVERRIDE (fresh data)
-    if (broadResults[2]) {
-      for (const { pubkey, account } of broadResults[2]) {
-        accountMap.set(pubkey.toBase58(), { pubkey, data: account.data });
-      }
-    }
+    // Run direct PDA lookups (Phase 2a is sufficient — every OutputEscrow
+    // can be derived deterministically from stealth_pubkey in the deposit record)
+    await Promise.allSettled(escrowLookups);
 
     // ================================================================
     // PHASE 3: Parse escrows and verify ownership via X-Wing decapsulation

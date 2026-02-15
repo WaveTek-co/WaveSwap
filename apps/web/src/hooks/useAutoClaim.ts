@@ -118,8 +118,8 @@ const EXPECTED_ENCLAVE_MEASUREMENT = new Uint8Array([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ])
 
-// Scan interval (30 seconds) and timeout (15 seconds max per scan)
-const SCAN_INTERVAL_MS = 30000
+// Scan interval (10 seconds - fast because incremental scans are <2s) and timeout
+const SCAN_INTERVAL_MS = 10000
 const SCAN_TIMEOUT_MS = 15000
 
 // RPC endpoints
@@ -143,6 +143,11 @@ const STEALTH_SIGN_MESSAGE = `Sign this message to generate your WaveSwap stealt
 This signature will be used to derive your private viewing keys. Never share this signature with anyone.
 
 Domain: OceanVault:ViewingKeys:v1`
+
+// Session-level signature cache: shared with useWaveSend to avoid duplicate wallet popups
+const SESSION_SIG_CACHE = typeof window !== 'undefined'
+  ? ((window as any).__wavetek_sig_cache ??= new Map<string, Uint8Array>()) as Map<string, Uint8Array>
+  : new Map<string, Uint8Array>()
 
 // Derive AES-256-GCM key from wallet signature using HKDF-SHA256 (NIST SP 800-56C compliant)
 async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
@@ -399,6 +404,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
   const isScanningRef = useRef(false)
   const processedDepositsRef = useRef<Set<string>>(new Set())
   const keysGeneratedRef = useRef(false)
+  const scanCacheRef = useRef<{ ctMap: Map<string, Uint8Array>; lastScannedSeq: bigint }>({ ctMap: new Map(), lastScannedSeq: 0n })
 
   // Connections
   const connection = useMemo(() => new Connection(DEVNET_RPC, { commitment: 'confirmed' }), [])
@@ -1011,8 +1017,19 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // V4 SEQ escrows: no nonce means no XWingCT account (ciphertext in deposit record)
       const isSeqEscrow = !escrow.nonce || escrow.nonce.every((b: number) => b === 0)
 
+      // Get Kora fee payer for gasless CLAIM on PER (no wallet popup)
+      const claimKoraUrl = KORA_CONFIG.RPC_URL
+      const claimPayerResp = await fetch(claimKoraUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getPayerSigner', params: [] }),
+      })
+      const claimPayerJson = await claimPayerResp.json() as { result?: { signer_address: string }, error?: { message: string } }
+      if (claimPayerJson.error) throw new Error(`Kora getPayerSigner: ${claimPayerJson.error.message}`)
+      const claimKoraPayer = new PublicKey(claimPayerJson.result!.signer_address)
+
       const claimAccounts = [
-        { pubkey: publicKey, isSigner: true, isWritable: true },      // claimer
+        { pubkey: claimKoraPayer, isSigner: true, isWritable: true },  // claimer = Kora (gasless, no wallet popup)
         { pubkey: escrowPda, isSigner: false, isWritable: true },     // escrow (delegated)
         { pubkey: destination, isSigner: false, isWritable: false },  // destination (read-only)
         { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: false }, // master_authority (read-only)
@@ -1037,15 +1054,26 @@ export function useAutoClaim(): UseAutoClaimReturn {
         data,
       }))
 
-      tx.feePayer = publicKey
+      // Use PER blockhash (not L1), Kora as fee payer
       const { blockhash } = await rollupConnection.getLatestBlockhash()
       tx.recentBlockhash = blockhash
+      tx.feePayer = claimKoraPayer
 
-      console.log('[WAVETEK] signing claim <ENCRYPTED>')
-      const signedTx = await signTransaction!(tx)
+      // Kora signTransaction (sign-only, no send) — then we submit to PER ourselves
+      console.log('[WAVETEK] signing claim via Kora <ENCRYPTED>')
+      const claimTxBase64 = Buffer.from(tx.serialize({ requireAllSignatures: false })).toString('base64')
+      const claimSignResp = await fetch(claimKoraUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'signTransaction', params: [claimTxBase64] }),
+      })
+      const claimSignJson = await claimSignResp.json() as { result?: { signed_transaction: string }, error?: { message: string } }
+      if (claimSignJson.error) throw new Error(`Kora signTransaction: ${claimSignJson.error.message}`)
 
-      console.log('[WAVETEK] submitting <ENCRYPTED>')
-      const signature = await rollupConnection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true })
+      const claimSignedBytes = Buffer.from(claimSignJson.result!.signed_transaction, 'base64')
+
+      console.log('[WAVETEK] submitting to PER <ENCRYPTED>')
+      const signature = await rollupConnection.sendRawTransaction(claimSignedBytes, { skipPreflight: true })
       console.log('[WAVETEK] submitted <ENCRYPTED>')
 
       // Wait for PER confirmation
@@ -1296,7 +1324,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
     try {
       // WAVETEK V4: Scan OutputEscrow accounts (91 bytes) using X-Wing decapsulation
-      const v4Escrows = await scanForEscrowsV4(connection, keys, rollupConnection)
+      const v4Escrows = await scanForEscrowsV4(connection, keys, rollupConnection, scanCacheRef.current)
 
       // Only process escrows that belong to us and aren't withdrawn
       const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
@@ -1340,11 +1368,15 @@ export function useAutoClaim(): UseAutoClaimReturn {
       keysGeneratedRef.current = true
       const walletAddress = publicKey.toBase58()
 
-      // Sign message (one popup per session)
-      const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
-      const result = await signMessage(messageBytes)
-      const signature = normalizeSignature(result)
-      if (signature.length === 0) throw new Error('Empty signature')
+      // Check session cache first (avoids duplicate popup if useWaveSend already signed)
+      let signature = SESSION_SIG_CACHE.get(walletAddress)
+      if (!signature) {
+        const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
+        const result = await signMessage(messageBytes)
+        signature = normalizeSignature(result)
+        if (signature.length === 0) throw new Error('Empty signature')
+        SESSION_SIG_CACHE.set(walletAddress, signature)
+      }
 
       // Derive AES-256-GCM key from signature for localStorage encryption
       const aesKey = await deriveStorageKey(signature)

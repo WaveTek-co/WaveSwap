@@ -385,17 +385,18 @@ export class WaveStealthClient {
       });
     }
 
-    const totalTx = chunks.length + 1; // +1 for init
     let signatures: string[] = [];
 
     try {
-      // Transaction 1: Initialize registry + first chunk
-      if (!existing) {
-        reportProgress('initializing', 1, totalTx, 'Initializing registry...');
+      // Build ALL transactions upfront, then sign once with signAllTransactions (1 wallet popup)
+      const allTxs: Transaction[] = [];
+      const { blockhash } = await this.connection.getLatestBlockhash();
+      const startChunkIdx = existing ? 0 : 1; // Skip chunk 0 if bundled with init
 
+      // Transaction 1: Initialize registry + first chunk (only if fresh registration)
+      if (!existing) {
         const tx1 = new Transaction();
 
-        // Initialize registry instruction
         const initData = Buffer.alloc(9);
         RegistryDiscriminators.INITIALIZE_REGISTRY.copy(initData, 0);
         initData.writeUInt8(bump, 8);
@@ -412,7 +413,6 @@ export class WaveStealthClient {
           })
         );
 
-        // Add first chunk to init transaction
         const firstChunk = chunks[0];
         const chunkData1 = Buffer.alloc(8 + 2 + firstChunk.data.length);
         RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData1, 0);
@@ -431,30 +431,16 @@ export class WaveStealthClient {
         );
 
         tx1.feePayer = wallet.publicKey;
-        tx1.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-        const signedTx1 = await wallet.signTransaction(tx1);
-        const sig1 = await this.connection.sendRawTransaction(signedTx1.serialize(), { skipPreflight: true });
-        await confirmTransactionPolling(this.connection, sig1, 30, 2000);
-        signatures.push(sig1);
-        console.log('[WAVETEK] confirmed <ENCRYPTED>');
+        tx1.recentBlockhash = blockhash;
+        allTxs.push(tx1);
       }
 
-      // Remaining chunks
-      for (let i = existing ? 0 : 1; i < chunks.length; i++) {
+      // Remaining chunk transactions
+      for (let i = startChunkIdx; i < chunks.length; i++) {
         const chunk = chunks[i];
         const isLastChunk = i === chunks.length - 1;
-        const stepName = `uploading-chunk-${i + 1}` as RegistrationStep;
-
-        reportProgress(
-          stepName,
-          i + (existing ? 1 : 2),
-          totalTx,
-          `Uploading keys (${i + 1}/${chunks.length})...`
-        );
-
         const tx = new Transaction();
 
-        // Upload chunk
         const chunkData = Buffer.alloc(8 + 2 + chunk.data.length);
         RegistryDiscriminators.UPLOAD_KEY_CHUNK.copy(chunkData, 0);
         chunkData.writeUInt16LE(chunk.offset, 8);
@@ -471,9 +457,7 @@ export class WaveStealthClient {
           })
         );
 
-        // Add finalize to last chunk transaction
         if (isLastChunk) {
-          reportProgress('finalizing', totalTx, totalTx, 'Finalizing registration...');
           tx.add(
             new TransactionInstruction({
               keys: [
@@ -487,9 +471,25 @@ export class WaveStealthClient {
         }
 
         tx.feePayer = wallet.publicKey;
-        tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-        const signedTx = await wallet.signTransaction(tx);
-        const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+        tx.recentBlockhash = blockhash;
+        allTxs.push(tx);
+      }
+
+      const totalTx = allTxs.length;
+      reportProgress('initializing', 1, totalTx, 'Sign once to register...');
+
+      // Single wallet popup — sign all transactions at once
+      const signedTxs = await wallet.signAllTransactions(allTxs);
+
+      // Submit and confirm sequentially (each depends on previous)
+      for (let i = 0; i < signedTxs.length; i++) {
+        reportProgress(
+          i === 0 ? 'initializing' : i === signedTxs.length - 1 ? 'finalizing' : `uploading-chunk-${i + 1}` as RegistrationStep,
+          i + 1,
+          totalTx,
+          `Confirming transaction ${i + 1}/${totalTx}...`
+        );
+        const sig = await this.connection.sendRawTransaction(signedTxs[i].serialize(), { skipPreflight: true });
         await confirmTransactionPolling(this.connection, sig, 30, 2000);
         signatures.push(sig);
         console.log('[WAVETEK] confirmed <ENCRYPTED>');
@@ -500,7 +500,7 @@ export class WaveStealthClient {
 
     } catch (error) {
       console.error('[WAVETEK] registration failed <ENCRYPTED>');
-      reportProgress('error', 0, totalTx, error instanceof Error ? error.message : 'Registration failed');
+      reportProgress('error', 0, chunks.length, error instanceof Error ? error.message : 'Registration failed');
       return {
         success: false,
         error: error instanceof Error ? error.message : "Registration failed",
