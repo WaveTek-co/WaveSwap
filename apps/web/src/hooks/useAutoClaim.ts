@@ -450,13 +450,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
         const useV2 = escrowInfo && escrowInfo.lamports > 0
         console.log('[WAVETEK] Escrow pre-exists: <ENCRYPTED>')
 
-        // MagicBlock Ephemeral Rollups program and context
-        const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
-        // Magic context PDA - derived from ER program (not delegation program!)
-        const [magicContext] = PublicKey.findProgramAddressSync(
-          [Buffer.from('magic_context')],
-          MAGICBLOCK_ER_PROGRAM
-        )
+        // MagicBlock PER system accounts (hardcoded, NOT PDA-derived)
+        const MAGICBLOCK_ER_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111')
+        const magicContext = new PublicKey('MagicContext1111111111111111111111111111111')
 
         // Data: pool_bump(1) + nonce(32) + escrow_bump(1) = 34 bytes
         const data = Buffer.alloc(35)
@@ -827,13 +823,107 @@ export function useAutoClaim(): UseAutoClaimReturn {
       console.log('[WAVETEK] verification passed')
 
       // =====================================================
+      // STEP -1: Check if escrow is ALREADY verified on L1
+      // This handles the case where CLAIM succeeded on PER but settlement
+      // took >3s on previous attempt. Skip straight to WITHDRAW.
+      // =====================================================
+      const escrowPda = new PublicKey(escrow.escrowAddress)
+      {
+        const l1EscrowInfo = await connection.getAccountInfo(escrowPda).catch(() => null)
+        if (l1EscrowInfo && l1EscrowInfo.owner.equals(PROGRAM_IDS.STEALTH) && l1EscrowInfo.data.length >= 91) {
+          const isAlreadyVerified = l1EscrowInfo.data[81] === 1 // is_verified offset
+          const isAlreadyWithdrawn = l1EscrowInfo.data[82] === 1 // is_withdrawn offset
+          if (isAlreadyVerified && !isAlreadyWithdrawn) {
+            console.log('[WAVETEK] escrow already verified on L1, skipping to WITHDRAW')
+
+            // Jump directly to Kora gasless WITHDRAW
+            const koraUrl = KORA_CONFIG.RPC_URL
+            const payerResponse = await fetch(koraUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getPayerSigner', params: [] }),
+            })
+            const payerJson = await payerResponse.json() as { result?: { signer_address: string }, error?: { message: string } }
+            if (payerJson.error) throw new Error(`Kora getPayerSigner: ${payerJson.error.message}`)
+            const koraFeePayer = new PublicKey(payerJson.result!.signer_address)
+
+            const blockhashResponse = await fetch(koraUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBlockhash', params: [] }),
+            })
+            const blockhashJson = await blockhashResponse.json() as { result?: { blockhash: string }, error?: { message: string } }
+            if (blockhashJson.error) throw new Error(`Kora getBlockhash: ${blockhashJson.error.message}`)
+
+            const withdrawData = Buffer.alloc(33)
+            withdrawData[0] = StealthDiscriminators.WITHDRAW_FROM_OUTPUT_ESCROW
+            Buffer.from(escrow.stealthPubkey).copy(withdrawData, 1)
+
+            const withdrawAccounts = [
+              { pubkey: koraFeePayer, isSigner: true, isWritable: false },
+              { pubkey: escrowPda, isSigner: false, isWritable: true },
+              { pubkey: destination, isSigner: false, isWritable: true },
+              { pubkey: MASTER_AUTHORITY, isSigner: false, isWritable: true },
+              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            ]
+
+            const [withdrawXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
+            const xwingCtInfo = await connection.getAccountInfo(withdrawXwingCtPda)
+            if (xwingCtInfo && xwingCtInfo.data.length > 0) {
+              withdrawAccounts.push({ pubkey: withdrawXwingCtPda, isSigner: false, isWritable: true })
+            }
+
+            const withdrawTx = new Transaction()
+            withdrawTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }))
+            withdrawTx.add(new TransactionInstruction({
+              keys: withdrawAccounts,
+              programId: PROGRAM_IDS.STEALTH,
+              data: withdrawData,
+            }))
+            withdrawTx.recentBlockhash = blockhashJson.result!.blockhash
+            withdrawTx.feePayer = koraFeePayer
+
+            const txBase64 = Buffer.from(withdrawTx.serialize({ requireAllSignatures: false })).toString('base64')
+            const signResponse = await fetch(koraUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'signAndSendTransaction', params: [txBase64] }),
+            })
+            const signJson = await signResponse.json() as { result?: { signed_transaction: string }, error?: { message: string } }
+            if (signJson.error) throw new Error(`Kora signAndSend: ${signJson.error.message}`)
+
+            const signedTxBytes = Buffer.from(signJson.result!.signed_transaction, 'base64')
+            const signatureBytes = signedTxBytes.slice(1, 65)
+            const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+            let withdrawSig = ''
+            let num = BigInt(0)
+            for (const byte of signatureBytes) num = num * BigInt(256) + BigInt(byte)
+            while (num > 0) { withdrawSig = bs58Chars[Number(num % BigInt(58))] + withdrawSig; num = num / BigInt(58) }
+
+            await confirmTransactionPolling(connection, withdrawSig)
+
+            setPendingEscrows(prev => prev.map(e =>
+              e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
+            ))
+            setClaimHistory(prev => [...prev, {
+              signature: withdrawSig,
+              amount: escrow.amount,
+              timestamp: Date.now(),
+              sender: 'WAVETEK_V4_RETRY_WITHDRAW'
+            }])
+            showClaimSuccess({ signature: withdrawSig, amount: escrow.amount, symbol: 'SOL' })
+            return true
+          }
+        }
+      }
+
+      // =====================================================
       // STEP 0: POOL_TO_ESCROW_V4 - Fund escrow from pool (ALWAYS for V4!)
       // =====================================================
       // V4 architecture: complete_v4_deposit sends funds to POOL, not escrow
       // The escrow only has RENT, the actual amount is in the pool
       // We MUST call POOL_TO_ESCROW_V4 on MagicBlock PER to move funds POOL→ESCROW
       // This breaks the sender→escrow on-chain link (sender NOT in this TX)
-      const escrowPda = new PublicKey(escrow.escrowAddress)
 
       // Check escrow state on PER (not L1!) - escrow is delegated
       const escrowInfoPER = await rollupConnection.getAccountInfo(escrowPda).catch(() => null)
@@ -905,11 +995,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
       // Build CLAIM_ESCROW_WAVETEK instruction
       // V4 SEQ: 6 accounts (no xwing_ct - ciphertext in deposit record)
       // Legacy: 7 accounts (with xwing_ct)
-      const MAGICBLOCK_ER_PROGRAM = new PublicKey('ERdXRZQiAooqHBRQqhr6ZxppjUfuXsgPijBZaZLiZPfL')
-      const [magicContext] = PublicKey.findProgramAddressSync(
-        [Buffer.from('magic_context')],
-        MAGICBLOCK_ER_PROGRAM
-      )
+      // CRITICAL: Must use Magic Program system addresses on PER (NOT ERdXR...)
+      const MAGIC_PROGRAM_PER = new PublicKey('Magic11111111111111111111111111111111111111')
+      const MAGIC_CONTEXT_PER = new PublicKey('MagicContext1111111111111111111111111111111')
 
       // WAVETEK V4 Data: stealth_pubkey(32) + shared_secret(32) = 64 bytes
       const data = Buffer.alloc(65)
@@ -935,8 +1023,8 @@ export function useAutoClaim(): UseAutoClaimReturn {
       }
 
       claimAccounts.push(
-        { pubkey: magicContext, isSigner: false, isWritable: true },  // magic_context
-        { pubkey: MAGICBLOCK_ER_PROGRAM, isSigner: false, isWritable: false }, // magic_program
+        { pubkey: MAGIC_CONTEXT_PER, isSigner: false, isWritable: true },  // magic_context
+        { pubkey: MAGIC_PROGRAM_PER, isSigner: false, isWritable: false }, // magic_program
       )
 
       const tx = new Transaction()
@@ -966,15 +1054,16 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       console.log('[WAVETEK] awaiting settlement <ENCRYPTED>')
 
-      // Wait for escrow to be undelegated and verified (PER settlement is near-instant)
+      // Wait for escrow to be undelegated and verified on L1
+      // MagicBlock undelegation typically takes 1-8 seconds
       // V4 OutputEscrow: 91 bytes, is_verified at offset 81 (is_withdrawn at 82)
       const OUTPUT_ESCROW_OFFSET_IS_VERIFIED = 81
-      for (let i = 0; i < 6; i++) {
-        await new Promise(r => setTimeout(r, 500))
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 750))
         const escrowInfo = await connection.getAccountInfo(escrowPda)
         if (escrowInfo && escrowInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
           const escrowData = escrowInfo.data
-          // V4 OutputEscrow is 91 bytes, check is_verified at offset 82
+          // V4 OutputEscrow is 91 bytes, check is_verified at offset 81
           if (escrowData.length >= 91 && escrowData[OUTPUT_ESCROW_OFFSET_IS_VERIFIED] === 1) {
             console.log('[WAVETEK] settlement confirmed')
 
