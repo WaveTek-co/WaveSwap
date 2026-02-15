@@ -869,7 +869,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
             const [withdrawXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
             const xwingCtInfo = await connection.getAccountInfo(withdrawXwingCtPda)
-            if (xwingCtInfo && xwingCtInfo.data.length > 0) {
+            // Only include XWingCT if owned by our program (NOT delegation program)
+            // After CLAIM undelegates escrow, the XWingCT may still be delegated
+            if (xwingCtInfo && xwingCtInfo.data.length > 0 && xwingCtInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
               withdrawAccounts.push({ pubkey: withdrawXwingCtPda, isSigner: false, isWritable: true })
             }
 
@@ -1105,11 +1107,13 @@ export function useAutoClaim(): UseAutoClaimReturn {
               { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
             ]
 
-            // Check if XWingCiphertext account exists on L1 and add it for cleanup
+            // Check if XWingCiphertext account exists on L1 and is owned by our program
+            // After CLAIM undelegates escrow, the XWingCT may still be delegated (owned by delegation program)
+            // Only include it for cleanup if our program owns it
             const [withdrawXwingCtPda] = deriveXWingCiphertextPda(escrowPda)
             const xwingCtInfo = await connection.getAccountInfo(withdrawXwingCtPda)
-            if (xwingCtInfo && xwingCtInfo.data.length > 0) {
-              console.log('[WAVETEK] including X-Wing ciphertext')
+            if (xwingCtInfo && xwingCtInfo.data.length > 0 && xwingCtInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
+              console.log('[WAVETEK] including X-Wing ciphertext for cleanup')
               withdrawAccounts.push({ pubkey: withdrawXwingCtPda, isSigner: false, isWritable: true })
             }
 
@@ -1233,8 +1237,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ]
 
+      // Only include XWingCT if owned by our program (may still be delegated)
       const xwingCtInfo = await connection.getAccountInfo(xwingCtPda)
-      if (xwingCtInfo && xwingCtInfo.data.length > 0) {
+      if (xwingCtInfo && xwingCtInfo.data.length > 0 && xwingCtInfo.owner.equals(PROGRAM_IDS.STEALTH)) {
         withdrawAccounts.push({ pubkey: xwingCtPda, isSigner: false, isWritable: true })
       }
 

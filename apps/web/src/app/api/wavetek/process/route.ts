@@ -84,7 +84,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Crank not configured' }, { status: 503 })
     }
 
-    const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(crankKey)))
+    let payer: Keypair
+    try {
+      // Strip whitespace/newlines that Vercel env var copy-paste can introduce
+      const cleaned = crankKey.replace(/\s+/g, '')
+      payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(cleaned)))
+    } catch (parseErr: any) {
+      return NextResponse.json({
+        error: `CRANK_PRIVATE_KEY parse error: ${parseErr.message}. Must be JSON array like [1,2,3,...] with no line breaks.`,
+      }, { status: 500 })
+    }
     const l1Rpc = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com'
     const perRpc = process.env.MAGICBLOCK_PER_RPC_URL || 'https://devnet-as.magicblock.app'
 
