@@ -292,7 +292,7 @@ async function confirmTransactionPolling(
         return true
       }
       if (status?.value?.err) {
-        console.error('[WAVETEK] transaction failed <ENCRYPTED>')
+        console.error('[WAVETEK] transaction failed:', JSON.stringify(status?.value?.err))
         return false
       }
     } catch (e) {
@@ -300,7 +300,7 @@ async function confirmTransactionPolling(
     }
     await new Promise(r => setTimeout(r, intervalMs))
   }
-  console.warn('[WAVETEK] confirmation timeout <ENCRYPTED>')
+  console.warn('[WAVETEK] confirmation timeout for:', signature.slice(0, 16))
   return true // Optimistically return true on timeout
 }
 
@@ -770,7 +770,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         return false
       }
     } catch (err: any) {
-      console.error('[WAVETEK] failed <ENCRYPTED>')
+      console.error('[WAVETEK] legacy claim failed:', err?.message || err)
       return false
     }
   }, [publicKey, signTransaction, connection, rollupConnection])
@@ -1168,7 +1168,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       return false
 
     } catch (err: any) {
-      console.error('[WAVETEK] failed <ENCRYPTED>')
+      console.error('[WAVETEK] claim/withdraw failed:', err?.message || err)
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'failed' as const } : e
       ))
@@ -1277,7 +1277,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       return true
 
     } catch (err: any) {
-      console.error('[WAVETEK] withdrawal failed <ENCRYPTED>')
+      console.error('[WAVETEK] withdrawal failed:', err?.message || err)
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'failed' as const } : e
       ))
@@ -1319,7 +1319,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return foundCount
     } catch (err) {
-      console.error('[WAVETEK] scan failed <ENCRYPTED>')
+      console.error('[WAVETEK] scan failed:', err instanceof Error ? err.message : err)
       return 0
     }
   }, [connection, rollupConnection, pendingEscrows])
@@ -1360,7 +1360,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return keys
     } catch (err) {
-      console.error('[WAVETEK] key generation failed <ENCRYPTED>')
+      console.error('[WAVETEK] key generation failed:', err instanceof Error ? err.message : err)
       keysGeneratedRef.current = false
       return null
     }
@@ -1457,7 +1457,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       setClaimHistory(prev => [...prev, { signature, amount: BigInt(vaultInfo.lamports), timestamp: Date.now() }])
       return true
     } catch (err: any) {
-      console.error('[WAVETEK] claim failed <ENCRYPTED>')
+      console.error('[WAVETEK] claim failed:', err?.message || err)
       setPendingClaims(prev => prev.map(c =>
         c.vaultAddress === vaultAddress ? { ...c, status: 'failed' as const } : c
       ))

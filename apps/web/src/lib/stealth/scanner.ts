@@ -382,6 +382,8 @@ export async function scanForEscrowsV4(
       const parsed = parseOutputEscrow(pubkey, data);
       if (!parsed) continue;
       if (parsed.isWithdrawn) continue;
+      // Skip escrows with zero amount (PREPARE_OUTPUT created but POOL_TO_ESCROW not yet run)
+      if (parsed.amount === BigInt(0)) continue;
 
       let sharedSecret: Uint8Array | undefined;
       let isOurs = false;
@@ -431,8 +433,8 @@ export async function scanForEscrowsV4(
     }
 
     return escrows;
-  } catch (err) {
-    console.error("[WAVETEK] scan error <ENCRYPTED>");
+  } catch (err: any) {
+    console.error("[WAVETEK] scan error:", err?.message || err);
     return [];
   }
 }

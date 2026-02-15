@@ -4,6 +4,11 @@ import {
   sendAndConfirmTransaction, SystemProgram, ComputeBudgetProgram,
 } from '@solana/web3.js'
 
+// Vercel serverless function timeout (seconds)
+// Hobby: max 60s, Pro: max 300s
+export const maxDuration = 60
+export const dynamic = 'force-dynamic'
+
 const PROGRAM_ID = new PublicKey('4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX')
 const DELEGATION_PROGRAM_ID = new PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh')
 const VALIDATOR = new PublicKey('MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57')
@@ -91,13 +96,14 @@ export async function POST(req: NextRequest) {
     const results: string[] = []
 
     // Wait for target deposit to appear on PER (delegation sync ~3-10s)
+    // Reduced to 12s max to stay within Vercel timeout
     if (targetSeqId > 0n) {
       const [targetEscrow] = deriveInputEscrow(targetSeqId)
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 6; i++) {
         const info = await per.getAccountInfo(targetEscrow)
         if (info) break
-        if (i === 14) {
-          results.push(`target seq=${seqIdNum} not on PER after 30s`)
+        if (i === 5) {
+          results.push(`target seq=${seqIdNum} not on PER after 12s, processing available`)
         }
         await sleep(2000)
       }
@@ -259,15 +265,15 @@ export async function POST(req: NextRequest) {
           })
           results.push(`PREPARE_OUTPUT seq=${nextOutputId}: ${sig}`)
 
-          // Wait for delegation sync to PER
+          // Wait for delegation sync to PER (reduced to 12s for Vercel timeout)
           let synced = false
-          for (let j = 0; j < 15; j++) {
+          for (let j = 0; j < 6; j++) {
             await sleep(2000)
             const check = await per.getAccountInfo(outputEscrow)
             if (check) { synced = true; break }
           }
           if (!synced) {
-            results.push(`OUTPUT seq=${nextOutputId} sync timeout, will retry next iteration`)
+            results.push(`OUTPUT seq=${nextOutputId} sync timeout, will retry next call`)
             break
           }
         } catch (e: any) {
@@ -284,7 +290,7 @@ export async function POST(req: NextRequest) {
       p2eData.writeUInt8(drBump, 9)
 
       let p2eSuccess = false
-      for (let retry = 0; retry < 8; retry++) {
+      for (let retry = 0; retry < 5; retry++) {
         try {
           const sig = await sendAndConfirmTransaction(per, new Transaction().add(
             new TransactionInstruction({
@@ -304,13 +310,12 @@ export async function POST(req: NextRequest) {
         } catch (e: any) {
           const msg = e.message || ''
           const isTemporalFail = msg.includes('temporal') || msg.includes('not old enough') || msg.includes('custom program error')
-          if (isTemporalFail && retry < 7) {
-            // Wait for heartbeats to mature (1s commit frequency × ~2 heartbeats per retry)
+          if (isTemporalFail && retry < 4) {
             await sleep(2000)
             continue
           }
           if (isTemporalFail) {
-            results.push(`POOL_TO_ESCROW seq=${nextOutputId}: not mature after ${retry + 1} retries`)
+            results.push(`POOL_TO_ESCROW seq=${nextOutputId}: not mature after ${retry + 1} retries, next call will retry`)
           } else {
             results.push(`POOL_TO_ESCROW seq=${nextOutputId} failed: ${msg}`)
           }

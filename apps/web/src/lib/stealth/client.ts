@@ -1153,7 +1153,7 @@ export class WaveStealthClient {
         vaultPda,
       };
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1282,7 +1282,7 @@ export class WaveStealthClient {
         vaultPda,
       };
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1450,7 +1450,7 @@ export class WaveStealthClient {
         delegated: true, // Indicates deposit is delegated to MagicBlock TEE
       } as SendResult;
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1576,7 +1576,7 @@ export class WaveStealthClient {
         nonce: Buffer.from(nonce).toString('hex'),
       } as SendResult;
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -1778,7 +1778,7 @@ export class WaveStealthClient {
         delegated: true,
       } as SendResult;
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Send failed",
@@ -2590,16 +2590,18 @@ export class WaveStealthClient {
       // Receiver scans L1 for committed output escrows
       reportProgress('Sent! Crank will process through mixer.', 2, 2);
 
-      // Trigger server-side crank to process this deposit
-      try {
+      // Trigger server-side crank to process this deposit (with retry)
+      const triggerCrank = () => {
         fetch('/api/wavetek/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ seqId: Number(seqId) }),
-        }).catch(() => {}); // Fire-and-forget, don't block sender
-      } catch {
-        // Crank trigger is best-effort
-      }
+        }).catch(() => {});
+      };
+      triggerCrank();
+      // Retry after 15s and 45s in case first call times out or deposit wasn't on PER yet
+      setTimeout(triggerCrank, 15000);
+      setTimeout(triggerCrank, 45000);
 
       const [outputEscrowPda] = deriveOutputEscrowPda(stealthPubkey);
 
@@ -2619,7 +2621,7 @@ export class WaveStealthClient {
 
     } catch (error) {
       const msg = error instanceof Error ? error.message : "V4 send failed";
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return { success: false, error: msg };
     }
   }
@@ -2824,7 +2826,7 @@ export class WaveStealthClient {
       };
 
     } catch (error) {
-      console.error('[WAVETEK] send failed <ENCRYPTED>');
+      console.error('[WAVETEK] send failed:', error instanceof Error ? error.message : error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Send failed',
