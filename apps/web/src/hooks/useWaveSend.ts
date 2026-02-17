@@ -144,7 +144,7 @@ export function useWaveSend(): UseWaveSendReturn {
         setWorkerReady(false)
         // Wipe Worker keys on disconnect
         if (StealthWorkerClient.hasInstance()) {
-          StealthWorkerClient.getInstance().wipe().catch(() => {})
+          StealthWorkerClient.getInstance()?.wipe().catch(() => {})
         }
         return
       }
@@ -185,6 +185,9 @@ export function useWaveSend(): UseWaveSendReturn {
     try {
       // Get or create singleton Worker
       const workerClient = StealthWorkerClient.getInstance()
+      if (!workerClient) {
+        throw new Error('Stealth Worker unavailable — please refresh the page')
+      }
 
       // Check if Worker already initialized (by useAutoClaim) — avoids duplicate popup
       const alreadyReady = await workerClient.isReady()
@@ -248,6 +251,7 @@ export function useWaveSend(): UseWaveSendReturn {
     try {
       // Get public keys from Worker for registration (private keys stay in Worker)
       const workerClient = StealthWorkerClient.getInstance()
+      if (!workerClient) throw new Error('Stealth Worker unavailable')
       const pubkeys = await workerClient.getPublicKeys()
       const publicOnlyKeys = buildPublicOnlyKeys(pubkeys.spendPubkey, pubkeys.viewPubkey, pubkeys.xwingPubkey)
 
@@ -490,6 +494,7 @@ export function useWaveSend(): UseWaveSendReturn {
       try {
         // Get public keys from Worker for pool registration
         const workerClient = StealthWorkerClient.getInstance()
+        if (!workerClient) throw new Error('Stealth Worker unavailable')
         const pubkeys = await workerClient.getPublicKeys()
         const publicOnlyKeys = buildPublicOnlyKeys(pubkeys.spendPubkey, pubkeys.viewPubkey, pubkeys.xwingPubkey)
 

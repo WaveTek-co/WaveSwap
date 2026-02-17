@@ -4,8 +4,13 @@
 // All crypto operations (key derivation, X-Wing decapsulation) happen in the Worker.
 // Only PUBLIC keys and per-escrow sharedSecrets cross the Worker boundary.
 //
+// FAIL-SAFE: If Worker creation fails (e.g. Vercel bundling issue, CSP, etc.),
+// the client enters "broken" mode and all methods throw cleanly.
+// This prevents Worker failures from cascading and breaking wallet connection.
+//
 // USAGE:
 //   const client = StealthWorkerClient.getInstance()
+//   if (!client) { /* Worker unavailable, use fallback */ }
 //   const pubkeys = await client.init(signature) // signature wiped after
 //   const matches = await client.checkEscrows(deposits)
 //   await client.wipe() // on wallet disconnect
@@ -32,7 +37,9 @@ export interface EscrowMatch {
 // ═══════════════════════════════════════════════════════════════════
 
 export class StealthWorkerClient {
-  private worker: Worker
+  private worker: Worker | null = null
+  private broken = false
+  private brokenReason = ''
   private nextId = 1
   private pending = new Map<number, {
     resolve: (value: any) => void
@@ -40,51 +47,73 @@ export class StealthWorkerClient {
     timer?: ReturnType<typeof setTimeout>
   }>()
   private static instance: StealthWorkerClient | null = null
+  private static instanceFailed = false
 
   // Default timeout for Worker operations (30s — ML-KEM keygen can be slow on first run)
   private static readonly TIMEOUT_MS = 30_000
 
   private constructor() {
-    this.worker = new Worker(
-      new URL('./stealth-worker.ts', import.meta.url)
-    )
+    try {
+      this.worker = new Worker(
+        new URL('./stealth-worker.ts', import.meta.url)
+      )
 
-    this.worker.onmessage = (event: MessageEvent) => {
-      const msg = event.data
-      const handler = this.pending.get(msg.id)
-      if (!handler) return
+      this.worker.onmessage = (event: MessageEvent) => {
+        const msg = event.data
+        const handler = this.pending.get(msg.id)
+        if (!handler) return
 
-      if (handler.timer) clearTimeout(handler.timer)
-      this.pending.delete(msg.id)
-
-      if (msg.type === 'ERROR') {
-        handler.reject(new Error(msg.error))
-      } else {
-        handler.resolve(msg)
-      }
-    }
-
-    this.worker.onerror = (error) => {
-      console.error('[StealthWorker] fatal error:', error.message)
-      // Reject all pending operations
-      for (const [id, handler] of this.pending) {
         if (handler.timer) clearTimeout(handler.timer)
-        handler.reject(new Error(`Worker crashed: ${error.message}`))
+        this.pending.delete(msg.id)
+
+        if (msg.type === 'ERROR') {
+          handler.reject(new Error(msg.error))
+        } else {
+          handler.resolve(msg)
+        }
       }
-      this.pending.clear()
+
+      this.worker.onerror = (error) => {
+        console.error('[StealthWorker] fatal error:', error.message)
+        this.broken = true
+        this.brokenReason = error.message || 'Worker failed to load'
+        // Reject all pending operations
+        for (const [, handler] of this.pending) {
+          if (handler.timer) clearTimeout(handler.timer)
+          handler.reject(new Error(`Worker crashed: ${error.message}`))
+        }
+        this.pending.clear()
+      }
+    } catch (err: any) {
+      // Worker creation failed — enter broken mode silently
+      // This prevents cascading failures that could break wallet connection
+      console.warn('[StealthWorker] Worker creation failed, falling back to non-Worker mode:', err?.message)
+      this.broken = true
+      this.brokenReason = err?.message || 'Worker creation failed'
+      this.worker = null
     }
   }
 
   /**
    * Get or create the singleton Worker instance.
-   * Only call from client-side (browser) code.
+   * Returns null if Worker is unavailable (SSR, creation failed).
+   * NEVER throws — callers must check for null.
    */
-  static getInstance(): StealthWorkerClient {
+  static getInstance(): StealthWorkerClient | null {
     if (typeof window === 'undefined') {
-      throw new Error('StealthWorkerClient can only be used in browser environment')
+      return null
+    }
+    // If Worker creation previously failed, don't retry
+    if (StealthWorkerClient.instanceFailed) {
+      return null
     }
     if (!StealthWorkerClient.instance) {
       StealthWorkerClient.instance = new StealthWorkerClient()
+      if (StealthWorkerClient.instance.broken) {
+        StealthWorkerClient.instanceFailed = true
+        StealthWorkerClient.instance = null
+        return null
+      }
     }
     return StealthWorkerClient.instance
   }
@@ -100,16 +129,26 @@ export class StealthWorkerClient {
         handler.reject(new Error('Worker destroyed'))
       }
       StealthWorkerClient.instance.pending.clear()
-      StealthWorkerClient.instance.worker.terminate()
+      if (StealthWorkerClient.instance.worker) {
+        StealthWorkerClient.instance.worker.terminate()
+      }
       StealthWorkerClient.instance = null
     }
+    StealthWorkerClient.instanceFailed = false
   }
 
   /**
-   * Check if a Worker instance exists (without creating one).
+   * Check if a Worker instance exists and is healthy (without creating one).
    */
   static hasInstance(): boolean {
-    return StealthWorkerClient.instance !== null
+    return StealthWorkerClient.instance !== null && !StealthWorkerClient.instance.broken
+  }
+
+  /**
+   * Check if Worker is available and not broken.
+   */
+  isAvailable(): boolean {
+    return !this.broken && this.worker !== null
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -117,6 +156,10 @@ export class StealthWorkerClient {
   // ─────────────────────────────────────────────────────────────
 
   private send<T>(msg: any, transfer?: Transferable[], timeoutMs?: number): Promise<T> {
+    if (this.broken || !this.worker) {
+      return Promise.reject(new Error(`Worker unavailable: ${this.brokenReason}`))
+    }
+
     return new Promise((resolve, reject) => {
       const id = this.nextId++
       msg.id = id
@@ -130,9 +173,9 @@ export class StealthWorkerClient {
       this.pending.set(id, { resolve, reject, timer })
 
       if (transfer && transfer.length > 0) {
-        this.worker.postMessage(msg, transfer)
+        this.worker!.postMessage(msg, transfer)
       } else {
-        this.worker.postMessage(msg)
+        this.worker!.postMessage(msg)
       }
     })
   }
@@ -238,6 +281,7 @@ export class StealthWorkerClient {
    * After wipe, init() must be called again before any other operation.
    */
   async wipe(): Promise<void> {
+    if (this.broken || !this.worker) return // No-op if Worker is broken
     await this.send<any>({ type: 'WIPE' })
   }
 
@@ -245,6 +289,7 @@ export class StealthWorkerClient {
    * Check if Worker has keys initialized and ready for operations.
    */
   async isReady(): Promise<boolean> {
+    if (this.broken || !this.worker) return false
     const result = await this.send<any>({ type: 'IS_READY' })
     return result.ready
   }

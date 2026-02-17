@@ -1196,6 +1196,11 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       // Get or create singleton Worker
       const client = StealthWorkerClient.getInstance()
+      if (!client) {
+        console.warn('[WAVETEK] Stealth Worker unavailable — scanning disabled')
+        keysGeneratedRef.current = false
+        return false
+      }
       workerRef.current = client
 
       // Check if Worker already initialized (by useWaveSend) — avoids duplicate popup
