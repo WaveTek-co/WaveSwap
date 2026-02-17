@@ -441,6 +441,249 @@ export async function scanForEscrowsV4(
 export const scanForEscrowsV3 = scanForEscrowsV4;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// WORKER-BASED SCANNER — Delegates X-Wing decapsulation to Stealth Worker
+// X-Wing secret key (2432 bytes) NEVER touches the main thread
+// ═══════════════════════════════════════════════════════════════════════════
+
+import type { StealthWorkerClient } from './stealth-worker-client'
+
+/**
+ * Worker-based scanner: same RPC fetching as scanForEscrowsV4,
+ * but delegates X-Wing decapsulation to the isolated Stealth Worker.
+ *
+ * SECURITY: X-Wing secret key never leaves the Worker thread.
+ * Main thread only receives matched escrow indices + 32-byte sharedSecrets.
+ */
+export async function scanForEscrowsV4Worker(
+  connection: Connection,
+  workerClient: StealthWorkerClient,
+  perConnection?: Connection,
+  cache?: { ctMap: Map<string, Uint8Array>; lastScannedSeq: bigint },
+): Promise<DetectedEscrowV4[]> {
+  const escrows: DetectedEscrowV4[] = []
+
+  try {
+    // ================================================================
+    // PHASE 1: Find deposit records → extract ciphertext + stealth_pubkey
+    // (identical to scanForEscrowsV4)
+    // ================================================================
+
+    const [poolPda] = derivePerMixerPoolPda()
+    let lastDepositedId = 0n
+
+    for (const conn of [perConnection, connection].filter(Boolean) as Connection[]) {
+      try {
+        const poolInfo = await conn.getAccountInfo(poolPda)
+        if (poolInfo && poolInfo.data.length >= 103) {
+          lastDepositedId = readBigUint64LE(new Uint8Array(poolInfo.data), 79)
+          if (lastDepositedId > 0n) break
+        }
+      } catch {
+        // Try next connection
+      }
+    }
+
+    const ctMap = new Map<string, Uint8Array>()
+    const startSeq = cache ? cache.lastScannedSeq + 1n : 1n
+    if (cache) {
+      for (const [hex, ct] of cache.ctMap) {
+        ctMap.set(hex, ct)
+      }
+    }
+
+    const newDeposits = lastDepositedId >= startSeq ? Number(lastDepositedId - startSeq) + 1 : 0
+
+    if (newDeposits > 0) {
+      const BATCH_SIZE = 20
+      for (let batchStart = startSeq; batchStart <= lastDepositedId; batchStart += BigInt(BATCH_SIZE)) {
+        const batch: Promise<void>[] = []
+        for (let seqId = batchStart; seqId <= lastDepositedId && seqId < batchStart + BigInt(BATCH_SIZE); seqId++) {
+          const [drPda] = deriveDepositRecordSeqPda(seqId)
+          batch.push(
+            (async () => {
+              for (const conn of [perConnection, connection].filter(Boolean) as Connection[]) {
+                try {
+                  const info = await conn.getAccountInfo(drPda)
+                  if (!info || info.data.length < DEPOSIT_RECORD_SIZE) continue
+                  const data = new Uint8Array(info.data)
+                  let validDisc = true
+                  for (let i = 0; i < 8; i++) {
+                    if (data[i] !== DEPOSIT_RECORD_DISCRIMINATOR[i]) { validDisc = false; break }
+                  }
+                  if (!validDisc) continue
+                  const stealthPubkey = data.slice(DEPOSIT_RECORD_STEALTH_OFFSET, DEPOSIT_RECORD_STEALTH_OFFSET + 32)
+                  let isZero = true
+                  for (let i = 0; i < 32; i++) { if (stealthPubkey[i] !== 0) { isZero = false; break } }
+                  if (isZero) continue
+                  const ciphertext = data.slice(DEPOSIT_RECORD_CT_OFFSET, DEPOSIT_RECORD_CT_OFFSET + XWING_CIPHERTEXT_LENGTH)
+                  let ctEmpty = true
+                  for (let i = 0; i < 32; i++) { if (ciphertext[i] !== 0) { ctEmpty = false; break } }
+                  if (ctEmpty) continue
+                  const hex = Buffer.from(stealthPubkey).toString('hex')
+                  ctMap.set(hex, new Uint8Array(ciphertext))
+                  return
+                } catch {
+                  // Try next connection
+                }
+              }
+            })(),
+          )
+        }
+        await Promise.allSettled(batch)
+      }
+    }
+
+    if (cache && lastDepositedId > 0n) {
+      cache.ctMap = ctMap
+      cache.lastScannedSeq = lastDepositedId
+    }
+
+    if (newDeposits > 0) console.debug(`[scanner-worker] +${newDeposits} deposits`)
+
+    // ================================================================
+    // PHASE 2: Derive output escrow PDAs → fetch from PER + L1
+    // (identical to scanForEscrowsV4)
+    // ================================================================
+    const accountMap = new Map<string, { pubkey: PublicKey; data: Buffer | Uint8Array }>()
+    const escrowLookups: Promise<void>[] = []
+
+    for (const [stealthHex] of ctMap) {
+      const stealthBytes = new Uint8Array(Buffer.from(stealthHex, 'hex'))
+      const [escrowPda] = deriveOutputEscrowPda(stealthBytes)
+      const key = escrowPda.toBase58()
+
+      escrowLookups.push(
+        (async () => {
+          if (perConnection) {
+            try {
+              const perInfo = await perConnection.getAccountInfo(escrowPda)
+              if (perInfo && perInfo.data.length >= OUTPUT_ESCROW_SIZE) {
+                accountMap.set(key, { pubkey: escrowPda, data: perInfo.data })
+                return
+              }
+            } catch {
+              // PER lookup failed
+            }
+          }
+          try {
+            const l1Info = await connection.getAccountInfo(escrowPda)
+            if (l1Info && l1Info.data.length >= OUTPUT_ESCROW_SIZE) {
+              accountMap.set(key, { pubkey: escrowPda, data: l1Info.data })
+            }
+          } catch {
+            // L1 lookup failed
+          }
+        })(),
+      )
+    }
+    await Promise.allSettled(escrowLookups)
+
+    // ================================================================
+    // PHASE 3: Parse escrows + collect ciphertexts for Worker verification
+    // Instead of calling xwingDecapsulate locally, we send all deposits
+    // to the Worker for batch decapsulation
+    // ================================================================
+
+    // First pass: parse all escrows and collect ciphertext pairs
+    const parsedEscrows: Array<{
+      pubkey: PublicKey
+      stealthPubkey: Uint8Array
+      amount: bigint
+      verifiedDestination: Uint8Array
+      isVerified: boolean
+      isWithdrawn: boolean
+      ciphertext: Uint8Array | null
+    }> = []
+
+    for (const { pubkey, data } of accountMap.values()) {
+      const parsed = parseOutputEscrow(pubkey, data)
+      if (!parsed) continue
+      if (parsed.isWithdrawn) continue
+      if (parsed.amount === BigInt(0)) continue
+
+      const stealthHex = Buffer.from(parsed.stealthPubkey).toString('hex')
+      let xwingCiphertext = ctMap.get(stealthHex) || null
+
+      // Fallback: try legacy XWingCiphertext account on L1
+      if (!xwingCiphertext) {
+        try {
+          const [xwingCtPda] = deriveXWingCiphertextPda(pubkey)
+          const ctInfo = await connection.getAccountInfo(xwingCtPda)
+          if (ctInfo && ctInfo.data.length >= XWING_CT_SIZE) {
+            const ctDisc = new Uint8Array(ctInfo.data.slice(0, 8))
+            let ctDiscMatch = true
+            for (let i = 0; i < 8; i++) { if (ctDisc[i] !== XWING_CT_DISCRIMINATOR[i]) { ctDiscMatch = false; break } }
+            if (ctDiscMatch) {
+              xwingCiphertext = new Uint8Array(ctInfo.data.slice(XWING_CT_OFFSET_CIPHERTEXT, XWING_CT_OFFSET_CIPHERTEXT + XWING_CIPHERTEXT_LENGTH))
+            }
+          }
+        } catch {
+          // Legacy path failed
+        }
+      }
+
+      parsedEscrows.push({
+        pubkey,
+        stealthPubkey: parsed.stealthPubkey,
+        amount: parsed.amount,
+        verifiedDestination: parsed.verifiedDestination,
+        isVerified: parsed.isVerified,
+        isWithdrawn: parsed.isWithdrawn,
+        ciphertext: xwingCiphertext,
+      })
+    }
+
+    // Collect deposits that have ciphertext for Worker batch verification
+    const depositsForWorker: Array<{ stealthPubkey: Uint8Array; ciphertext: Uint8Array }> = []
+    const workerIndexMap: number[] = [] // maps Worker deposit index → parsedEscrows index
+
+    for (let i = 0; i < parsedEscrows.length; i++) {
+      if (parsedEscrows[i].ciphertext) {
+        workerIndexMap.push(i)
+        depositsForWorker.push({
+          stealthPubkey: parsedEscrows[i].stealthPubkey,
+          ciphertext: parsedEscrows[i].ciphertext!,
+        })
+      }
+    }
+
+    // Send to Worker for batch X-Wing decapsulation
+    const matches = depositsForWorker.length > 0
+      ? await workerClient.checkEscrows(depositsForWorker)
+      : []
+
+    // Build match set for quick lookup
+    const matchMap = new Map<number, Uint8Array>() // parsedEscrows index → sharedSecret
+    for (const match of matches) {
+      const escrowIdx = workerIndexMap[match.index]
+      matchMap.set(escrowIdx, match.sharedSecret)
+    }
+
+    // Build final result
+    for (let i = 0; i < parsedEscrows.length; i++) {
+      const pe = parsedEscrows[i]
+      const sharedSecret = matchMap.get(i)
+
+      escrows.push({
+        escrowPda: pe.pubkey,
+        amount: pe.amount,
+        stealthPubkey: pe.stealthPubkey,
+        verifiedDestination: pe.isVerified ? pe.verifiedDestination : undefined,
+        isVerified: pe.isVerified,
+        isWithdrawn: pe.isWithdrawn,
+        sharedSecret,
+        isOurs: !!sharedSecret,
+      })
+    }
+
+    return escrows
+  } catch (err: any) {
+    console.error('[WAVETEK] worker scan error:', err?.message || err)
+    return []
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LEGACY FUNCTIONS (for backwards compatibility with older deposit types)
 // These use Ed25519 view key derivation (NOT X-Wing)
 // WAVETEK TRUE PRIVACY uses X-Wing decapsulation instead

@@ -46,6 +46,8 @@ export const RegistryDiscriminators = {
   CLOSE_REGISTRY: Buffer.from([0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
   // Simplified single-tx registration (Ed25519 viewing keys only)
   REGISTER_SIMPLE: Buffer.from([0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+  // Gasless initialization - separate payer from owner (Kora pays rent)
+  INITIALIZE_REGISTRY_GASLESS: Buffer.from([0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
 };
 
 // Stealth instruction discriminators (must match on-chain program)

@@ -2,23 +2,18 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
-// sha256 import removed - deriveStorageKey now uses HKDF via crypto.subtle
 import { useWallet, useConnection } from './useWalletAdapter'
 import {
   WaveStealthClient,
-  generateViewingKeys,
   StealthKeyPair,
+  StealthWorkerClient,
   WaveSendParams,
   SendResult,
   NATIVE_SOL_MINT,
+  KORA_CONFIG,
   RegistrationProgress,
   RegistrationStep,
 } from '@/lib/stealth'
-
-// Storage key for stealth keys (AES-256-GCM encrypted, shared with useAutoClaim)
-const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
-const STORAGE_AES_DOMAIN = 'oceanvault:storage:aes-gcm-v1'
-const AES_IV_LENGTH = 12
 
 // Stealth key signing message (must match generateStealthKeysFromSignature exactly)
 const STEALTH_SIGN_MESSAGE = `Sign this message to generate your WaveSwap stealth viewing keys.
@@ -27,60 +22,31 @@ This signature will be used to derive your private viewing keys. Never share thi
 
 Domain: OceanVault:ViewingKeys:v1`
 
-// Session-level signature cache: avoids duplicate wallet popups between useWaveSend and useAutoClaim
-// Key: wallet base58 address → Value: raw signature bytes
-// Stored on window so both hooks can share without React context
-const SESSION_SIG_CACHE = typeof window !== 'undefined'
-  ? ((window as any).__wavetek_sig_cache ??= new Map<string, Uint8Array>()) as Map<string, Uint8Array>
-  : new Map<string, Uint8Array>()
+// SESSION_SIG_CACHE REMOVED — Signature no longer cached in main thread.
+// Both hooks share StealthWorkerClient singleton (Worker holds keys, not main thread).
+// PRIVATE KEY CACHING REMOVED — X-Wing SK never touches main thread or localStorage.
 
-// Derive AES-256-GCM key from wallet signature using HKDF-SHA256 (NIST SP 800-56C compliant)
-// MUST match useAutoClaim's deriveStorageKey exactly so both hooks share the same encrypted cache
-async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
-  const baseKey = await crypto.subtle.importKey('raw', signature, 'HKDF', false, ['deriveKey'])
-  return crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new TextEncoder().encode(STORAGE_AES_DOMAIN),
-      info: new TextEncoder().encode('aes-256-gcm-storage-v1'),
+// Build a StealthKeyPair with PUBLIC keys only (private keys zeroed).
+// Used to set client keys for operations that only need public data.
+// Private keys stay in the Stealth Worker and never touch the main thread.
+function buildPublicOnlyKeys(spendPubkey: Uint8Array, viewPubkey: Uint8Array, xwingPubkey: Uint8Array): StealthKeyPair {
+  const MLKEM_PK_SIZE = 1184
+  return {
+    spendPrivkey: new Uint8Array(32), // zeroed — stays in Worker
+    spendPubkey,
+    viewPrivkey: new Uint8Array(32),  // zeroed — stays in Worker
+    viewPubkey,
+    xwingKeys: {
+      publicKey: {
+        mlkem: xwingPubkey.slice(0, MLKEM_PK_SIZE),
+        x25519: xwingPubkey.slice(MLKEM_PK_SIZE, MLKEM_PK_SIZE + 32),
+      },
+      secretKey: {
+        mlkem: new Uint8Array(2400),  // zeroed — stays in Worker
+        x25519: new Uint8Array(32),   // zeroed — stays in Worker
+      },
     },
-    baseKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  )
-}
-
-function uint8ToBase64(arr: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i])
-  return btoa(binary)
-}
-
-function base64ToUint8(str: string): Uint8Array {
-  const binary = atob(str)
-  const arr = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
-  return arr
-}
-
-async function aesGcmEncrypt(plaintext: string, key: CryptoKey): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH))
-  const encoded = new TextEncoder().encode(plaintext)
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
-  const combined = new Uint8Array(AES_IV_LENGTH + ciphertext.byteLength)
-  combined.set(iv, 0)
-  combined.set(new Uint8Array(ciphertext), AES_IV_LENGTH)
-  return uint8ToBase64(combined)
-}
-
-async function aesGcmDecrypt(stored: string, key: CryptoKey): Promise<string> {
-  const combined = base64ToUint8(stored)
-  const iv = combined.slice(0, AES_IV_LENGTH)
-  const ciphertext = combined.slice(AES_IV_LENGTH)
-  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
-  return new TextDecoder().decode(plaintext)
+  }
 }
 
 function normalizeSignature(result: any): Uint8Array {
@@ -93,75 +59,6 @@ function normalizeSignature(result: any): Uint8Array {
   }
   if (Array.isArray(result)) return new Uint8Array(result)
   throw new Error('Unexpected signature format from wallet')
-}
-
-async function getCachedStealthKeys(walletAddress: string, aesKey: CryptoKey): Promise<StealthKeyPair | null> {
-  try {
-    const stored = localStorage.getItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
-    if (!stored) return null
-
-    if (stored.startsWith('{')) {
-      localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
-      return null
-    }
-
-    const jsonStr = await aesGcmDecrypt(stored, aesKey)
-    const parsed = JSON.parse(jsonStr)
-
-    const keys: StealthKeyPair = {
-      spendPrivkey: new Uint8Array(parsed.spendPrivkey),
-      spendPubkey: new Uint8Array(parsed.spendPubkey),
-      viewPrivkey: new Uint8Array(parsed.viewPrivkey),
-      viewPubkey: new Uint8Array(parsed.viewPubkey),
-    }
-
-    if (parsed.xwingKeys) {
-      keys.xwingKeys = {
-        publicKey: {
-          mlkem: new Uint8Array(parsed.xwingKeys.publicKey.mlkem),
-          x25519: new Uint8Array(parsed.xwingKeys.publicKey.x25519),
-        },
-        secretKey: {
-          mlkem: new Uint8Array(parsed.xwingKeys.secretKey.mlkem),
-          x25519: new Uint8Array(parsed.xwingKeys.secretKey.x25519),
-        },
-      }
-    }
-
-    return keys
-  } catch {
-    localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
-    return null
-  }
-}
-
-async function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair, aesKey: CryptoKey): Promise<void> {
-  try {
-    const cached: any = {
-      spendPrivkey: Array.from(keys.spendPrivkey),
-      spendPubkey: Array.from(keys.spendPubkey),
-      viewPrivkey: Array.from(keys.viewPrivkey),
-      viewPubkey: Array.from(keys.viewPubkey),
-    }
-
-    if (keys.xwingKeys) {
-      cached.xwingKeys = {
-        publicKey: {
-          mlkem: Array.from(keys.xwingKeys.publicKey.mlkem),
-          x25519: Array.from(keys.xwingKeys.publicKey.x25519),
-        },
-        secretKey: {
-          mlkem: Array.from(keys.xwingKeys.secretKey.mlkem),
-          x25519: Array.from(keys.xwingKeys.secretKey.x25519),
-        },
-      }
-    }
-
-    const encrypted = await aesGcmEncrypt(JSON.stringify(cached), aesKey)
-    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, encrypted)
-  } catch {
-    // Silent fail - keys still work in memory
-  }
 }
 
 export interface UseWaveSendReturn {
@@ -204,7 +101,8 @@ export function useWaveSend(): UseWaveSendReturn {
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [stealthKeys, setStealthKeys] = useState<StealthKeyPair | null>(null)
+  // Worker-based key management: private keys NEVER in React state
+  const [workerReady, setWorkerReady] = useState(false)
   const [registrationProgress, setRegistrationProgress] = useState<RegistrationProgress | null>(null)
 
   // Initialize the stealth client with DEVNET connection
@@ -243,7 +141,11 @@ export function useWaveSend(): UseWaveSendReturn {
       if (!connected || !publicKey) {
         setIsRegistered(false)
         setIsInitialized(false)
-        setStealthKeys(null)
+        setWorkerReady(false)
+        // Wipe Worker keys on disconnect
+        if (StealthWorkerClient.hasInstance()) {
+          StealthWorkerClient.getInstance().wipe().catch(() => {})
+        }
         return
       }
 
@@ -269,8 +171,8 @@ export function useWaveSend(): UseWaveSendReturn {
     checkStatus()
   }, [connected, publicKey, client])
 
-  // Initialize stealth keys - AES-GCM encrypted localStorage cache
-  // One wallet signature popup per session: sign → derive AES key → decrypt cache or generate fresh
+  // Initialize stealth keys via Worker — private keys NEVER in main thread
+  // One wallet signature popup per session. Worker.isReady() avoids duplicates.
   const initializeKeys = useCallback(async (): Promise<boolean> => {
     if (!signMessage || !publicKey) {
       setError('Wallet does not support message signing')
@@ -281,42 +183,40 @@ export function useWaveSend(): UseWaveSendReturn {
     setError(null)
 
     try {
-      const walletAddress = publicKey.toBase58()
+      // Get or create singleton Worker
+      const workerClient = StealthWorkerClient.getInstance()
 
-      // Check session cache first (avoids duplicate popup if useAutoClaim already signed)
-      let signature = SESSION_SIG_CACHE.get(walletAddress)
-      if (!signature) {
-        const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
-        const result = await signMessage(messageBytes)
-        signature = normalizeSignature(result)
-        if (signature.length === 0) throw new Error('Empty signature')
-        SESSION_SIG_CACHE.set(walletAddress, signature)
-      }
-
-      // Derive AES-256-GCM key from signature
-      const aesKey = await deriveStorageKey(signature)
-
-      // Try decrypting cached keys (avoids expensive X-Wing generation)
-      const cachedKeys = await getCachedStealthKeys(walletAddress, aesKey)
-      if (cachedKeys) {
-        setStealthKeys(cachedKeys)
-        client.setKeys(cachedKeys)
+      // Check if Worker already initialized (by useAutoClaim) — avoids duplicate popup
+      const alreadyReady = await workerClient.isReady()
+      if (alreadyReady) {
+        // Worker has keys — get public keys for client
+        const pubkeys = await workerClient.getPublicKeys()
+        const publicOnlyKeys = buildPublicOnlyKeys(pubkeys.spendPubkey, pubkeys.viewPubkey, pubkeys.xwingPubkey)
+        client.setKeys(publicOnlyKeys)
+        setWorkerReady(true)
         setIsInitialized(true)
         return true
       }
 
-      // Cache miss - derive all keys from same signature (includes X-Wing)
-      const keys = generateViewingKeys(signature)
-      setStealthKeys(keys)
-      client.setKeys(keys)
-      setIsInitialized(true)
+      // Worker not ready — need wallet signature
+      const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
+      const result = await signMessage(messageBytes)
+      const signature = normalizeSignature(result)
+      if (signature.length === 0) throw new Error('Empty signature')
 
-      // Encrypt and cache for next session
-      await cacheStealthKeys(walletAddress, keys, aesKey)
+      // Send signature to Worker (zero-copy transfer, main thread zeroed immediately)
+      const pubkeys = await workerClient.init(signature)
+      // signature is now zeroed by StealthWorkerClient.init()
+
+      // Set client with PUBLIC keys only (private keys stay in Worker)
+      const publicOnlyKeys = buildPublicOnlyKeys(pubkeys.spendPubkey, pubkeys.viewPubkey, pubkeys.xwingPubkey)
+      client.setKeys(publicOnlyKeys)
+      setWorkerReady(true)
+      setIsInitialized(true)
 
       return true
     } catch (err) {
-      console.error('[WAVETEK] initialization failed <ENCRYPTED>')
+      console.error('[WAVETEK] worker initialization failed <ENCRYPTED>')
       const message = err instanceof Error ? err.message : 'Failed to initialize keys'
       setError(message)
       return false
@@ -335,28 +235,93 @@ export function useWaveSend(): UseWaveSendReturn {
       return false
     }
 
-    if (!stealthKeys) {
+    if (!workerReady) {
       console.error('[WAVETEK] keys not initialized')
       setError('Stealth keys not initialized. Please initialize first.')
       return false
     }
-
-    const hasXWing = !!stealthKeys.xwingKeys
 
     setIsLoading(true)
     setError(null)
     setRegistrationProgress(null)
 
     try {
+      // Get public keys from Worker for registration (private keys stay in Worker)
+      const workerClient = StealthWorkerClient.getInstance()
+      const pubkeys = await workerClient.getPublicKeys()
+      const publicOnlyKeys = buildPublicOnlyKeys(pubkeys.spendPubkey, pubkeys.viewPubkey, pubkeys.xwingPubkey)
+
+      // Kora gasless registration — user pays NOTHING
+      let gaslessOptions: {
+        payer: PublicKey;
+        blockhash: string;
+        submitTransaction: (txBase64: string) => Promise<string>;
+      } | undefined
+
+      if (KORA_CONFIG.ENABLED) {
+        try {
+          const koraUrl = KORA_CONFIG.RPC_URL
+
+          // Get Kora fee payer
+          const payerRes = await fetch(koraUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getPayerSigner', params: [] }),
+          })
+          const payerJson = await payerRes.json() as { result?: { signer_address: string }, error?: { message: string } }
+          if (payerJson.error) throw new Error(`Kora getPayerSigner: ${payerJson.error.message}`)
+          const koraFeePayer = new PublicKey(payerJson.result!.signer_address)
+
+          // Get blockhash from Kora
+          const bhRes = await fetch(koraUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBlockhash', params: [] }),
+          })
+          const bhJson = await bhRes.json() as { result?: { blockhash: string }, error?: { message: string } }
+          if (bhJson.error) throw new Error(`Kora getBlockhash: ${bhJson.error.message}`)
+
+          gaslessOptions = {
+            payer: koraFeePayer,
+            blockhash: bhJson.result!.blockhash,
+            submitTransaction: async (txBase64: string): Promise<string> => {
+              const res = await fetch(koraUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'signAndSendTransaction', params: [txBase64] }),
+              })
+              const json = await res.json() as { result?: { signed_transaction: string }, error?: { message: string } }
+              if (json.error) throw new Error(`Kora signAndSend: ${json.error.message}`)
+
+              // Extract TX signature from Kora's signed transaction bytes
+              const signedTxBytes = Buffer.from(json.result!.signed_transaction, 'base64')
+              const signatureBytes = signedTxBytes.slice(1, 65) // byte 0 = sig count, 1-64 = feePayer sig
+              const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+              let sig = ''
+              let num = BigInt(0)
+              for (const byte of signatureBytes) num = num * BigInt(256) + BigInt(byte)
+              while (num > 0) { sig = bs58Chars[Number(num % BigInt(58))] + sig; num = num / BigInt(58) }
+              return sig
+            },
+          }
+        } catch (koraErr) {
+          // Kora unavailable — fall back to user-paid registration
+          console.warn('[WAVETEK] Kora gasless unavailable, falling back to user-paid registration')
+          gaslessOptions = undefined
+        }
+      }
+
       // Use full X-Wing registration (uploads 1216-byte public key in chunks)
-      // User batch-signs all transactions for post-quantum security
+      // With Kora: user signs to prove ownership, Kora pays rent + fees
+      // Without Kora: user pays everything (fallback)
       const result = await client.register(
         walletAdapter,
-        stealthKeys,
-        undefined, // xwingPubkey already in stealthKeys
+        publicOnlyKeys,
+        undefined,
         (progress) => {
           setRegistrationProgress(progress)
-        }
+        },
+        gaslessOptions,
       )
       if (result.success) {
         setIsRegistered(true)
@@ -377,7 +342,7 @@ export function useWaveSend(): UseWaveSendReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [walletAdapter, stealthKeys, client])
+  }, [walletAdapter, workerReady, client])
 
   // Check if recipient is registered
   const checkRecipientRegistered = useCallback(
@@ -404,7 +369,7 @@ export function useWaveSend(): UseWaveSendReturn {
         return { success: false, error: 'Wallet not connected' }
       }
 
-      if (!stealthKeys?.xwingKeys) {
+      if (!workerReady) {
         setError('Please initialize stealth keys first')
         return { success: false, error: 'Please initialize stealth keys first' }
       }
@@ -459,7 +424,7 @@ export function useWaveSend(): UseWaveSendReturn {
         setIsSending(false)
       }
     },
-    [walletAdapter, client, stealthKeys]
+    [walletAdapter, client, workerReady]
   )
 
   // Clear error
@@ -514,13 +479,8 @@ export function useWaveSend(): UseWaveSendReturn {
   // Requires stealth keys with X-Wing to be initialized first
   const registerPoolRegistry = useCallback(
     async (): Promise<boolean> => {
-      if (!walletAdapter || !stealthKeys) {
+      if (!walletAdapter || !workerReady) {
         setError('Please initialize stealth keys first')
-        return false
-      }
-
-      if (!stealthKeys.xwingKeys) {
-        setError('X-Wing keys required for Pool Registry')
         return false
       }
 
@@ -528,9 +488,14 @@ export function useWaveSend(): UseWaveSendReturn {
       setError(null)
 
       try {
+        // Get public keys from Worker for pool registration
+        const workerClient = StealthWorkerClient.getInstance()
+        const pubkeys = await workerClient.getPublicKeys()
+        const publicOnlyKeys = buildPublicOnlyKeys(pubkeys.spendPubkey, pubkeys.viewPubkey, pubkeys.xwingPubkey)
+
         const result = await client.registerPoolRegistry(
           walletAdapter,
-          stealthKeys,
+          publicOnlyKeys,
           (msg, step, total) => {
             setRegistrationProgress({
               step: 'uploading' as RegistrationStep,
@@ -557,7 +522,7 @@ export function useWaveSend(): UseWaveSendReturn {
         setRegistrationProgress(null)
       }
     },
-    [walletAdapter, stealthKeys, client]
+    [walletAdapter, workerReady, client]
   )
 
   // Send via Pool Registry (single signature, TEE encapsulation)

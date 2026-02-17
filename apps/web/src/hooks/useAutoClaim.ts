@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, SYSVAR_INSTRUCTIONS_PUBKEY, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { sha3_256 } from 'js-sha3'
-import { sha256 } from '@noble/hashes/sha256'
 import { useWallet } from './useWalletAdapter'
 import {
   PROGRAM_IDS,
@@ -18,12 +17,11 @@ import {
   derivePerDepositRecordPda,
   deriveClaimEscrowPda,
   deriveXWingCiphertextPda,
-  generateViewingKeys,
-  StealthKeyPair,
+  StealthWorkerClient,
   decryptDestinationWallet,
   deriveStealthPubkeyFromSharedSecret,
 } from '@/lib/stealth'
-import { scanForEscrowsV4, DetectedEscrowV4, checkViewTag, isPaymentForUs } from '@/lib/stealth/scanner'
+import { scanForEscrowsV4Worker, DetectedEscrowV4, checkViewTag, isPaymentForUs } from '@/lib/stealth/scanner'
 import { showPaymentReceived, showClaimSuccess } from '@/components/ui/TransactionToast'
 
 // PER deposit record constants (Magic Actions - delegated to MagicBlock)
@@ -132,10 +130,7 @@ const MAGICBLOCK_RPC = typeof window !== 'undefined'
   ? `${window.location.origin}/api/v1/per-rpc`
   : 'https://devnet-as.magicblock.app'
 
-// Storage key for stealth keys (AES-256-GCM encrypted, cached per wallet address)
-const STEALTH_KEYS_STORAGE_PREFIX = 'waveswap_stealth_keys_'
-const STORAGE_AES_DOMAIN = 'oceanvault:storage:aes-gcm-v1'
-const AES_IV_LENGTH = 12
+// Storage constants removed — private keys no longer cached in localStorage
 
 // Stealth key signing message (must match generateStealthKeysFromSignature exactly)
 const STEALTH_SIGN_MESSAGE = `Sign this message to generate your WaveSwap stealth viewing keys.
@@ -144,58 +139,13 @@ This signature will be used to derive your private viewing keys. Never share thi
 
 Domain: OceanVault:ViewingKeys:v1`
 
-// Session-level signature cache: shared with useWaveSend to avoid duplicate wallet popups
-const SESSION_SIG_CACHE = typeof window !== 'undefined'
-  ? ((window as any).__wavetek_sig_cache ??= new Map<string, Uint8Array>()) as Map<string, Uint8Array>
-  : new Map<string, Uint8Array>()
+// SESSION_SIG_CACHE REMOVED — Signature no longer cached in main thread.
+// Both hooks share StealthWorkerClient singleton (Worker holds keys, not main thread).
+// Worker.isReady() check prevents duplicate signMessage popups.
 
-// Derive AES-256-GCM key from wallet signature using HKDF-SHA256 (NIST SP 800-56C compliant)
-async function deriveStorageKey(signature: Uint8Array): Promise<CryptoKey> {
-  const baseKey = await crypto.subtle.importKey('raw', signature, 'HKDF', false, ['deriveKey'])
-  return crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new TextEncoder().encode(STORAGE_AES_DOMAIN),
-      info: new TextEncoder().encode('aes-256-gcm-storage-v1'),
-    },
-    baseKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  )
-}
-
-function uint8ToBase64(arr: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i])
-  return btoa(binary)
-}
-
-function base64ToUint8(str: string): Uint8Array {
-  const binary = atob(str)
-  const arr = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
-  return arr
-}
-
-async function aesGcmEncrypt(plaintext: string, key: CryptoKey): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH))
-  const encoded = new TextEncoder().encode(plaintext)
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
-  const combined = new Uint8Array(AES_IV_LENGTH + ciphertext.byteLength)
-  combined.set(iv, 0)
-  combined.set(new Uint8Array(ciphertext), AES_IV_LENGTH)
-  return uint8ToBase64(combined)
-}
-
-async function aesGcmDecrypt(stored: string, key: CryptoKey): Promise<string> {
-  const combined = base64ToUint8(stored)
-  const iv = combined.slice(0, AES_IV_LENGTH)
-  const ciphertext = combined.slice(AES_IV_LENGTH)
-  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
-  return new TextDecoder().decode(plaintext)
-}
+// PRIVATE KEY CACHING REMOVED — X-Wing SK never touches main thread or localStorage.
+// Keys are derived in the Stealth Worker on each session from wallet signature.
+// Worker.isReady() check avoids duplicate signMessage popups between hooks.
 
 // Normalize wallet signature format (handles Phantom, ArrayBuffer, plain arrays)
 function normalizeSignature(result: any): Uint8Array {
@@ -208,78 +158,6 @@ function normalizeSignature(result: any): Uint8Array {
   }
   if (Array.isArray(result)) return new Uint8Array(result)
   throw new Error('Unexpected signature format from wallet')
-}
-
-// Decrypt cached stealth keys from AES-GCM encrypted localStorage
-async function getCachedStealthKeys(walletAddress: string, aesKey: CryptoKey): Promise<StealthKeyPair | null> {
-  try {
-    const stored = localStorage.getItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
-    if (!stored) return null
-
-    // Detect legacy plaintext format (JSON object starts with '{')
-    if (stored.startsWith('{')) {
-      localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
-      return null
-    }
-
-    const jsonStr = await aesGcmDecrypt(stored, aesKey)
-    const parsed = JSON.parse(jsonStr)
-
-    const keys: StealthKeyPair = {
-      spendPrivkey: new Uint8Array(parsed.spendPrivkey),
-      spendPubkey: new Uint8Array(parsed.spendPubkey),
-      viewPrivkey: new Uint8Array(parsed.viewPrivkey),
-      viewPubkey: new Uint8Array(parsed.viewPubkey),
-    }
-
-    if (parsed.xwingKeys) {
-      keys.xwingKeys = {
-        publicKey: {
-          mlkem: new Uint8Array(parsed.xwingKeys.publicKey.mlkem),
-          x25519: new Uint8Array(parsed.xwingKeys.publicKey.x25519),
-        },
-        secretKey: {
-          mlkem: new Uint8Array(parsed.xwingKeys.secretKey.mlkem),
-          x25519: new Uint8Array(parsed.xwingKeys.secretKey.x25519),
-        },
-      }
-    }
-
-    return keys
-  } catch {
-    localStorage.removeItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress)
-    return null
-  }
-}
-
-// Encrypt and cache stealth keys with AES-256-GCM in localStorage
-async function cacheStealthKeys(walletAddress: string, keys: StealthKeyPair, aesKey: CryptoKey): Promise<void> {
-  try {
-    const cached: any = {
-      spendPrivkey: Array.from(keys.spendPrivkey),
-      spendPubkey: Array.from(keys.spendPubkey),
-      viewPrivkey: Array.from(keys.viewPrivkey),
-      viewPubkey: Array.from(keys.viewPubkey),
-    }
-
-    if (keys.xwingKeys) {
-      cached.xwingKeys = {
-        publicKey: {
-          mlkem: Array.from(keys.xwingKeys.publicKey.mlkem),
-          x25519: Array.from(keys.xwingKeys.publicKey.x25519),
-        },
-        secretKey: {
-          mlkem: Array.from(keys.xwingKeys.secretKey.mlkem),
-          x25519: Array.from(keys.xwingKeys.secretKey.x25519),
-        },
-      }
-    }
-
-    const encrypted = await aesGcmEncrypt(JSON.stringify(cached), aesKey)
-    localStorage.setItem(STEALTH_KEYS_STORAGE_PREFIX + walletAddress, encrypted)
-  } catch {
-    // Silent fail - keys still work in memory
-  }
 }
 
 // HTTP polling-based confirmation (avoids WebSocket issues)
@@ -398,13 +276,15 @@ export function useAutoClaim(): UseAutoClaimReturn {
   const [claimHistory, setClaimHistory] = useState<{ signature: string; amount: bigint; timestamp: number; sender?: string }[]>([])
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [stealthKeys, setStealthKeys] = useState<StealthKeyPair | null>(null)
+  // Worker-based key management: private keys NEVER in React state
+  const [workerReady, setWorkerReady] = useState(false)
 
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isScanningRef = useRef(false)
   const processedDepositsRef = useRef<Set<string>>(new Set())
   const keysGeneratedRef = useRef(false)
   const scanCacheRef = useRef<{ ctMap: Map<string, Uint8Array>; lastScannedSeq: bigint }>({ ctMap: new Map(), lastScannedSeq: 0n })
+  const workerRef = useRef<StealthWorkerClient | null>(null)
 
   // Connections
   const connection = useMemo(() => new Connection(DEVNET_RPC, { commitment: 'confirmed' }), [])
@@ -778,7 +658,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
     destinationWallet?: PublicKey,
     sharedSecretInput?: Uint8Array
   ): Promise<boolean> => {
-    if (!publicKey || !stealthKeys) {
+    if (!publicKey || !workerReady) {
 
       return false
     }
@@ -1145,7 +1025,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       ))
       return false
     }
-  }, [publicKey, stealthKeys, signTransaction, connection, rollupConnection])
+  }, [publicKey, workerReady, signTransaction, connection, rollupConnection])
 
   // LEGACY: Withdraw from claim escrow via Kora gasless
   const withdrawFromEscrow = useCallback(async (escrow: PendingEscrow): Promise<boolean> => {
@@ -1258,12 +1138,19 @@ export function useAutoClaim(): UseAutoClaimReturn {
   }, [publicKey, connection])
 
   // Scan for WAVETEK output escrows only (new SEQ flow)
-  const scanForDeposits = useCallback(async (keys: StealthKeyPair): Promise<number> => {
+  // Worker-based scan: X-Wing decapsulation happens in isolated Worker thread
+  const scanForDeposits = useCallback(async (): Promise<number> => {
+    if (!workerRef.current) return 0
     let foundCount = 0
 
     try {
-      // WAVETEK V4: Scan OutputEscrow accounts (91 bytes) using X-Wing decapsulation
-      const v4Escrows = await scanForEscrowsV4(connection, keys, rollupConnection, scanCacheRef.current)
+      // WAVETEK V4: Scan via Worker — X-Wing SK never leaves Worker thread
+      const v4Escrows = await scanForEscrowsV4Worker(
+        connection,
+        workerRef.current,
+        rollupConnection,
+        scanCacheRef.current,
+      )
 
       // Only process escrows that belong to us and aren't withdrawn
       const ourEscrows = v4Escrows.filter(e => e.isOurs && !e.isWithdrawn)
@@ -1291,58 +1178,53 @@ export function useAutoClaim(): UseAutoClaimReturn {
 
       return foundCount
     } catch (err) {
-      console.error('[WAVETEK] scan failed:', err instanceof Error ? err.message : err)
+      console.error('[WAVETEK] worker scan failed:', err instanceof Error ? err.message : err)
       return 0
     }
   }, [connection, rollupConnection, pendingEscrows])
 
-  // Generate stealth keys - AES-GCM encrypted localStorage cache
-  // One wallet signature popup per session: sign → derive AES key → decrypt cache or generate fresh
-  const ensureStealthKeys = useCallback(async (): Promise<StealthKeyPair | null> => {
-    if (stealthKeys) return stealthKeys
-    if (!signMessage || !publicKey) return null
-    if (keysGeneratedRef.current) return null
+  // Initialize Stealth Worker — one wallet signature popup per session
+  // Private keys derived and held INSIDE Worker thread (never in React state/localStorage)
+  // If useWaveSend already initialized the Worker, isReady() returns true (no popup needed)
+  const ensureStealthKeys = useCallback(async (): Promise<boolean> => {
+    if (workerReady) return true
+    if (!signMessage || !publicKey) return false
+    if (keysGeneratedRef.current) return false
 
     try {
       keysGeneratedRef.current = true
-      const walletAddress = publicKey.toBase58()
 
-      // Check session cache first (avoids duplicate popup if useWaveSend already signed)
-      let signature = SESSION_SIG_CACHE.get(walletAddress)
-      if (!signature) {
-        const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
-        const result = await signMessage(messageBytes)
-        signature = normalizeSignature(result)
-        if (signature.length === 0) throw new Error('Empty signature')
-        SESSION_SIG_CACHE.set(walletAddress, signature)
+      // Get or create singleton Worker
+      const client = StealthWorkerClient.getInstance()
+      workerRef.current = client
+
+      // Check if Worker already initialized (by useWaveSend) — avoids duplicate popup
+      const alreadyReady = await client.isReady()
+      if (alreadyReady) {
+        setWorkerReady(true)
+        return true
       }
 
-      // Derive AES-256-GCM key from signature for localStorage encryption
-      const aesKey = await deriveStorageKey(signature)
+      // Worker not ready — need wallet signature to derive keys
+      const messageBytes = new TextEncoder().encode(STEALTH_SIGN_MESSAGE)
+      const result = await signMessage(messageBytes)
+      const signature = normalizeSignature(result)
+      if (signature.length === 0) throw new Error('Empty signature')
 
-      // Try decrypting cached keys (avoids expensive X-Wing generation)
-      const cachedKeys = await getCachedStealthKeys(walletAddress, aesKey)
-      if (cachedKeys) {
-        setStealthKeys(cachedKeys)
-        return cachedKeys
-      }
+      // Send signature to Worker (zero-copy transfer, main thread zeroed immediately)
+      await client.init(signature)
+      // signature is now zeroed by StealthWorkerClient.init()
 
-      // Cache miss - derive all keys from same signature (includes X-Wing)
-      const keys = generateViewingKeys(signature)
-      setStealthKeys(keys)
-
-      // Encrypt and cache for next session
-      await cacheStealthKeys(walletAddress, keys, aesKey)
-
-      return keys
+      setWorkerReady(true)
+      return true
     } catch (err) {
-      console.error('[WAVETEK] key generation failed:', err instanceof Error ? err.message : err)
+      console.error('[WAVETEK] worker init failed:', err instanceof Error ? err.message : err)
       keysGeneratedRef.current = false
-      return null
+      return false
     }
-  }, [signMessage, stealthKeys, publicKey])
+  }, [signMessage, workerReady, publicKey])
 
-  // Main scan with timeout
+  // Main scan with timeout — Worker handles all crypto
   const runScan = useCallback(async () => {
     if (!publicKey || !connected || isScanningRef.current) return
 
@@ -1351,10 +1233,10 @@ export function useAutoClaim(): UseAutoClaimReturn {
     setError(null)
 
     try {
-      const keys = await ensureStealthKeys()
-      if (keys) {
+      const ready = await ensureStealthKeys()
+      if (ready) {
         // Wrap scan with timeout
-        const scanPromise = scanForDeposits(keys)
+        const scanPromise = scanForDeposits()
         const timeoutPromise = new Promise<number>((_, reject) =>
           setTimeout(() => reject(new Error('Scan timeout')), SCAN_TIMEOUT_MS)
         )
@@ -1455,8 +1337,20 @@ export function useAutoClaim(): UseAutoClaimReturn {
       stopScanning()
       processedDepositsRef.current.clear()
       keysGeneratedRef.current = false
+
+      // Wipe Worker keys on disconnect (defense in depth)
+      if (workerRef.current) {
+        workerRef.current.wipe().catch(() => {})
+        setWorkerReady(false)
+      }
     }
-    return () => stopScanning()
+    return () => {
+      stopScanning()
+      // Wipe Worker keys on unmount
+      if (workerRef.current) {
+        workerRef.current.wipe().catch(() => {})
+      }
+    }
   }, [connected, publicKey, startScanning, stopScanning])
 
   // NOTE: Auto-trigger COMPLETELY DISABLED

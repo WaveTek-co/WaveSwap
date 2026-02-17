@@ -298,7 +298,12 @@ export class WaveStealthClient {
     wallet: WalletAdapter,
     keys?: StealthKeyPair,
     xwingPubkey?: Uint8Array,
-    onProgress?: (progress: RegistrationProgress) => void
+    onProgress?: (progress: RegistrationProgress) => void,
+    gaslessOptions?: {
+      payer: PublicKey;           // Kora fee payer (pays rent + TX fees)
+      blockhash: string;         // Blockhash from Kora
+      submitTransaction: (txBase64: string) => Promise<string>;  // Kora sign+send
+    }
   ): Promise<TransactionResult> {
 
 
@@ -335,7 +340,7 @@ export class WaveStealthClient {
         }
         // SIMPREG or corrupt registry — close old account, then re-create with X-Wing
         reportProgress('initializing', 0, 1, 'Upgrading registry to X-Wing format...');
-        const closeResult = await this.closeRegistry(wallet);
+        const closeResult = await this.closeRegistry(wallet, gaslessOptions);
         if (!closeResult.success) {
           return { success: false, error: `Failed to close old registry: ${closeResult.error}` };
         }
@@ -378,32 +383,57 @@ export class WaveStealthClient {
     }
 
     let signatures: string[] = [];
+    const isGasless = !!gaslessOptions;
+    const feePayer = isGasless ? gaslessOptions!.payer : wallet.publicKey;
 
     try {
       // Build ALL transactions upfront, then sign once with signAllTransactions (1 wallet popup)
       const allTxs: Transaction[] = [];
-      const { blockhash } = await this.connection.getLatestBlockhash();
+      const blockhash = isGasless
+        ? gaslessOptions!.blockhash
+        : (await this.connection.getLatestBlockhash()).blockhash;
       const startChunkIdx = existing ? 0 : 1; // Skip chunk 0 if bundled with init
 
       // Transaction 1: Initialize registry + first chunk (only if fresh registration)
       if (!existing) {
         const tx1 = new Transaction();
 
-        const initData = Buffer.alloc(9);
-        RegistryDiscriminators.INITIALIZE_REGISTRY.copy(initData, 0);
-        initData.writeUInt8(bump, 8);
+        if (isGasless) {
+          // Gasless: separate payer (Kora) from owner (user)
+          const initData = Buffer.alloc(9);
+          RegistryDiscriminators.INITIALIZE_REGISTRY_GASLESS.copy(initData, 0);
+          initData.writeUInt8(bump, 8);
 
-        tx1.add(
-          new TransactionInstruction({
-            keys: [
-              { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
-              { pubkey: registryPda, isSigner: false, isWritable: true },
-              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-            ],
-            programId: PROGRAM_IDS.REGISTRY,
-            data: initData,
-          })
-        );
+          tx1.add(
+            new TransactionInstruction({
+              keys: [
+                { pubkey: gaslessOptions!.payer, isSigner: true, isWritable: true },   // payer (Kora)
+                { pubkey: wallet.publicKey, isSigner: true, isWritable: false },        // owner (user)
+                { pubkey: registryPda, isSigner: false, isWritable: true },
+                { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+              ],
+              programId: PROGRAM_IDS.REGISTRY,
+              data: initData,
+            })
+          );
+        } else {
+          // Standard: payer = owner (same account)
+          const initData = Buffer.alloc(9);
+          RegistryDiscriminators.INITIALIZE_REGISTRY.copy(initData, 0);
+          initData.writeUInt8(bump, 8);
+
+          tx1.add(
+            new TransactionInstruction({
+              keys: [
+                { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
+                { pubkey: registryPda, isSigner: false, isWritable: true },
+                { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+              ],
+              programId: PROGRAM_IDS.REGISTRY,
+              data: initData,
+            })
+          );
+        }
 
         const firstChunk = chunks[0];
         const chunkData1 = Buffer.alloc(8 + 2 + firstChunk.data.length);
@@ -422,7 +452,7 @@ export class WaveStealthClient {
           })
         );
 
-        tx1.feePayer = wallet.publicKey;
+        tx1.feePayer = feePayer;
         tx1.recentBlockhash = blockhash;
         allTxs.push(tx1);
       }
@@ -462,7 +492,7 @@ export class WaveStealthClient {
           );
         }
 
-        tx.feePayer = wallet.publicKey;
+        tx.feePayer = feePayer;
         tx.recentBlockhash = blockhash;
         allTxs.push(tx);
       }
@@ -481,10 +511,22 @@ export class WaveStealthClient {
           totalTx,
           `Confirming transaction ${i + 1}/${totalTx}...`
         );
-        const sig = await this.connection.sendRawTransaction(signedTxs[i].serialize(), { skipPreflight: true });
-        await confirmTransactionPolling(this.connection, sig, 30, 2000);
-        signatures.push(sig);
-  
+
+        if (isGasless) {
+          // Gasless: serialize without requiring Kora's signature, send via Kora
+          const txBase64 = Buffer.from(
+            signedTxs[i].serialize({ requireAllSignatures: false })
+          ).toString('base64');
+          const sig = await gaslessOptions!.submitTransaction(txBase64);
+          // Kora sends the TX — confirm it on L1 before proceeding to next TX
+          await confirmTransactionPolling(this.connection, sig, 30, 2000);
+          signatures.push(sig);
+        } else {
+          // Standard: submit directly
+          const sig = await this.connection.sendRawTransaction(signedTxs[i].serialize(), { skipPreflight: true });
+          await confirmTransactionPolling(this.connection, sig, 30, 2000);
+          signatures.push(sig);
+        }
       }
 
       reportProgress('complete', totalTx, totalTx, 'Registration complete!');
@@ -502,7 +544,14 @@ export class WaveStealthClient {
 
   // Close registry to allow re-registration
   // This deletes the on-chain registry and returns rent to the wallet
-  async closeRegistry(wallet: WalletAdapter): Promise<TransactionResult> {
+  async closeRegistry(
+    wallet: WalletAdapter,
+    gaslessOptions?: {
+      payer: PublicKey;
+      blockhash: string;
+      submitTransaction: (txBase64: string) => Promise<string>;
+    }
+  ): Promise<TransactionResult> {
     if (!wallet.publicKey) {
       return { success: false, error: "Wallet not connected" };
     }
@@ -514,6 +563,9 @@ export class WaveStealthClient {
     if (!existing) {
       return { success: false, error: "No registry found to close" };
     }
+
+    const isGasless = !!gaslessOptions;
+    const feePayer = isGasless ? gaslessOptions!.payer : wallet.publicKey;
 
     try {
       const tx = new Transaction();
@@ -531,12 +583,23 @@ export class WaveStealthClient {
         })
       );
 
-      tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      tx.feePayer = feePayer;
+      tx.recentBlockhash = isGasless
+        ? gaslessOptions!.blockhash
+        : (await this.connection.getLatestBlockhash()).blockhash;
       const signedTx = await wallet.signTransaction(tx);
-      const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
-      await confirmTransactionPolling(this.connection, sig, 30, 2000);
-      return { success: true, signature: sig };
+
+      if (isGasless) {
+        const txBase64 = Buffer.from(
+          signedTx.serialize({ requireAllSignatures: false })
+        ).toString('base64');
+        const sig = await gaslessOptions!.submitTransaction(txBase64);
+        return { success: true, signature: sig };
+      } else {
+        const sig = await this.connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true });
+        await confirmTransactionPolling(this.connection, sig, 30, 2000);
+        return { success: true, signature: sig };
+      }
     } catch (error) {
       console.error('[WAVETEK] close failed <ENCRYPTED>');
       return {

@@ -119,6 +119,7 @@ export {
   StealthScanner,
   // WAVETEK TRUE PRIVACY Scanner (primary)
   scanForEscrowsV4,
+  scanForEscrowsV4Worker,
   isEscrowForUs,
   verifyStealthPubkey,
   // Legacy aliases for backwards compatibility
@@ -132,6 +133,11 @@ export {
   deriveStealthFromEphemeral,
 } from "./scanner";
 export type { DetectedPayment, ScannerConfig, DetectedEscrowV4, DetectedEscrowV3 } from "./scanner";
+
+// Stealth Worker — Isolated Web Worker for private key operations
+// X-Wing secret key (2432 bytes) NEVER leaves the Worker thread
+export { StealthWorkerClient } from "./stealth-worker-client";
+export type { StealthPublicKeys, EscrowMatch } from "./stealth-worker-client";
 
 // PER Privacy Integration - Full privacy flow with MagicBlock
 export { PERPrivacyClient, MAGICBLOCK_RPC_DEVNET, MAGICBLOCK_TEE_PUBKEY } from "./per-privacy";
