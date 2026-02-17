@@ -39,6 +39,7 @@ allowed_programs = [
     "AddressLookupTab1e1111111111111111111111111",
     "ComputeBudget111111111111111111111111111111",
     "4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX",
+    "DgoW9MneWt6B3mBZqDf52csXMtJpgqwaHgP46tPs1tWu",
     "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
 ]
 allowed_tokens = [
