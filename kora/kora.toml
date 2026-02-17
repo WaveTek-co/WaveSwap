@@ -1,68 +1,108 @@
-# WAVETEK Kora Configuration
-# Gasless transaction infrastructure for OceanVault privacy withdrawals
-#
-# Deploy this alongside your Kora server to enable receivers to withdraw
-# without needing SOL for transaction fees.
+[kora]
+rate_limit = 1000
+
+[kora.auth]
+
+[kora.cache]
+enabled = false
+url = "redis://localhost:6379"
+default_ttl = 300
+account_ttl = 60
+
+[kora.enabled_methods]
+liveness = true
+estimate_transaction_fee = true
+get_supported_tokens = true
+sign_transaction = true
+sign_and_send_transaction = true
+transfer_transaction = true
+get_blockhash = true
+get_config = true
+get_payer_signer = true
 
 [validation]
-# Maximum lamports Kora will pay per transaction (0.01 SOL = 10_000_000 lamports)
 max_allowed_lamports = 10000000
-
-# Maximum signatures allowed per transaction
 max_signatures = 10
-
-# Price source for token conversion ("Mock" for testing, "Jupiter" for production)
 price_source = "Mock"
-
-# Programs allowed to be called via Kora
-# IMPORTANT: Include the STEALTH_PROGRAM_ID for WAVETEK withdrawals
+allow_durable_transactions = false
 allowed_programs = [
-    # Solana System Programs
-    "11111111111111111111111111111111",           # System Program
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", # Token Program
-    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", # Associated Token Program
-    "ComputeBudget111111111111111111111111111111",  # Compute Budget Program
-    "AddressLookupTab1e1111111111111111111111111", # Address Lookup Table
-
-    # WAVETEK Stealth Program (REQUIRED for privacy withdrawals)
+    "11111111111111111111111111111111",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    "AddressLookupTab1e1111111111111111111111111",
+    "ComputeBudget111111111111111111111111111111",
     "4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX",
-
-    # WAVETEK Registry Program (REQUIRED for gasless registration)
     "DgoW9MneWt6B3mBZqDf52csXMtJpgqwaHgP46tPs1tWu",
-
-    # MagicBlock Delegation Program (for undelegation)
     "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
 ]
-
-# Tokens allowed for transfer (empty = SOL only)
-allowed_tokens = []
-
-# SPL tokens accepted as payment for fees (empty = SOL only)
+allowed_tokens = [
+    "So11111111111111111111111111111111111111112",
+]
 allowed_spl_paid_tokens = []
-
-# Accounts NOT allowed to interact with Kora (blacklist)
 disallowed_accounts = []
 
-[rpc]
-# Solana RPC endpoint (use your own for production)
-# Devnet
-solana_rpc_url = "https://api.devnet.solana.com"
-# Mainnet (uncomment for production)
-# solana_rpc_url = "https://api.mainnet-beta.solana.com"
+[validation.fee_payer_policy]
 
-# Commitment level
-commitment = "confirmed"
+[validation.fee_payer_policy.system]
+allow_transfer = true
+allow_assign = false
+allow_create_account = true
+allow_allocate = false
 
-[server]
-# Server bind address
-host = "0.0.0.0"
+[validation.fee_payer_policy.system.nonce]
+allow_initialize = false
+allow_advance = false
+allow_authorize = false
+allow_withdraw = false
+
+[validation.fee_payer_policy.spl_token]
+allow_transfer = false
+allow_burn = false
+allow_close_account = false
+allow_approve = false
+allow_revoke = false
+allow_set_authority = false
+allow_mint_to = false
+allow_initialize_mint = false
+allow_initialize_account = false
+allow_initialize_multisig = false
+allow_freeze_account = false
+allow_thaw_account = false
+
+[validation.fee_payer_policy.token_2022]
+allow_transfer = false
+allow_burn = false
+allow_close_account = false
+allow_approve = false
+allow_revoke = false
+allow_set_authority = false
+allow_mint_to = false
+allow_initialize_mint = false
+allow_initialize_account = false
+allow_initialize_multisig = false
+allow_freeze_account = false
+allow_thaw_account = false
+
+[validation.price]
+type = "free"
+margin = 0.0
+
+[validation.token2022]
+blocked_mint_extensions = []
+blocked_account_extensions = []
+
+[metrics]
+enabled = false
+endpoint = "/metrics"
 port = 8080
+scrape_interval = 60
 
-# CORS settings for Vercel frontend
-cors_origins = [
-    "https://app.waveswap.live",
-]
+[metrics.fee_payer_balance]
+enabled = false
+expiry_seconds = 30
 
-[logging]
-# Log level: trace, debug, info, warn, error
-level = "info"
+[kora.usage_limit]
+enabled = false
+cache_url = "redis://localhost:6379"
+max_transactions = 1000
+fallback_if_unavailable = true
