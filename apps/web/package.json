@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3000",
-    "build": "prisma generate && next build",
+    "build:worker": "mkdir -p public/workers && esbuild src/lib/stealth/stealth-worker.ts --bundle --format=iife --outfile=public/workers/stealth-worker.js --target=esnext --platform=browser --minify",
+    "dev": "bun run build:worker && next dev --port 3000",
+    "build": "bun run build:worker && prisma generate && next build",
     "start": "next start --port 3000",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
@@ -92,7 +93,8 @@
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "esbuild": "^0.20.0"
   },
   "prisma": {
     "seed": "bun run prisma/seed.ts"

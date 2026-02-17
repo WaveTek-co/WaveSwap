@@ -4,7 +4,12 @@
 // All crypto operations (key derivation, X-Wing decapsulation) happen in the Worker.
 // Only PUBLIC keys and per-escrow sharedSecrets cross the Worker boundary.
 //
-// FAIL-SAFE: If Worker creation fails (e.g. Vercel bundling issue, CSP, etc.),
+// WORKER LOADING: The Worker is pre-built by esbuild into public/workers/stealth-worker.js
+// during the build step (see package.json build:worker). This avoids the broken
+// Next.js 15 webpack `new Worker(new URL(..., import.meta.url))` pattern
+// (see: https://github.com/vercel/next.js/issues/39350).
+//
+// FAIL-SAFE: If Worker creation fails (e.g. CSP, missing file, etc.),
 // the client enters "broken" mode and all methods throw cleanly.
 // This prevents Worker failures from cascading and breaking wallet connection.
 //
@@ -54,9 +59,11 @@ export class StealthWorkerClient {
 
   private constructor() {
     try {
-      this.worker = new Worker(
-        new URL('./stealth-worker.ts', import.meta.url)
-      )
+      // Load pre-built Worker from public/workers/ (built by esbuild in build:worker script).
+      // DO NOT use `new Worker(new URL('./stealth-worker.ts', import.meta.url))` —
+      // Next.js 15 webpack inlines the Worker code into the main bundle, causing
+      // self.onmessage to intercept window.postMessage (breaks Phantom wallet).
+      this.worker = new Worker('/workers/stealth-worker.js')
 
       this.worker.onmessage = (event: MessageEvent) => {
         const msg = event.data
