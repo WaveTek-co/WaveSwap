@@ -996,7 +996,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
             // Wait for L1 confirmation
             await confirmTransactionPolling(connection, withdrawSig)
 
-            console.log('[WAVETEK] gasless withdrawal complete <ENCRYPTED>')
+            console.log('[WAVETEK] gasless withdrawal complete')
 
             setPendingEscrows(prev => prev.map(e =>
               e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -1039,7 +1039,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
         console.error('[WAVETEK] V4 escrows require claimViaTEE')
         return false
       }
-      console.log('[WAVETEK] processing gasless withdrawal <ENCRYPTED>')
+      console.log('[WAVETEK] processing gasless withdrawal')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawing' as const } : e
@@ -1119,7 +1119,7 @@ export function useAutoClaim(): UseAutoClaimReturn {
       while (sigNum > 0) { signature = bs58Chars[Number(sigNum % BigInt(58))] + signature; sigNum = sigNum / BigInt(58) }
 
       await confirmTransactionPolling(connection, signature)
-      console.log('[WAVETEK] gasless withdrawal confirmed <ENCRYPTED>')
+      console.log('[WAVETEK] gasless withdrawal confirmed')
 
       setPendingEscrows(prev => prev.map(e =>
         e.escrowAddress === escrow.escrowAddress ? { ...e, status: 'withdrawn' as const } : e
@@ -1187,21 +1187,29 @@ export function useAutoClaim(): UseAutoClaimReturn {
   // Private keys derived and held INSIDE Worker thread (never in React state/localStorage)
   // If useWaveSend already initialized the Worker, isReady() returns true (no popup needed)
   const ensureStealthKeys = useCallback(async (): Promise<boolean> => {
-    if (workerReady) return true
     if (!signMessage || !publicKey) return false
+
+    // Get or create singleton Worker
+    const client = workerRef.current ?? StealthWorkerClient.getInstance()
+    if (!client) {
+      console.warn('[WAVETEK] Stealth Worker unavailable — scanning disabled')
+      return false
+    }
+    workerRef.current = client
+
+    // Fast path: Worker already has keys (verified via message, not just React state)
+    if (workerReady) {
+      const stillReady = await client.isReady()
+      if (stillReady) return true
+      // Worker was wiped externally — need to re-init
+      setWorkerReady(false)
+      keysGeneratedRef.current = false
+    }
+
     if (keysGeneratedRef.current) return false
 
     try {
       keysGeneratedRef.current = true
-
-      // Get or create singleton Worker
-      const client = StealthWorkerClient.getInstance()
-      if (!client) {
-        console.warn('[WAVETEK] Stealth Worker unavailable — scanning disabled')
-        keysGeneratedRef.current = false
-        return false
-      }
-      workerRef.current = client
 
       // Check if Worker already initialized (by useWaveSend) — avoids duplicate popup
       const alreadyReady = await client.isReady()
@@ -1335,6 +1343,9 @@ export function useAutoClaim(): UseAutoClaimReturn {
   }, [pendingClaims, claimSingle])
 
   // Auto-start scanning
+  // IMPORTANT: cleanup must NOT call wipe() — this effect re-fires when
+  // workerReady changes (cascading through ensureStealthKeys → runScan → startScanning).
+  // Wiping in cleanup would destroy keys immediately after initialization!
   useEffect(() => {
     if (connected && publicKey) {
       startScanning()
@@ -1351,12 +1362,18 @@ export function useAutoClaim(): UseAutoClaimReturn {
     }
     return () => {
       stopScanning()
-      // Wipe Worker keys on unmount
+    }
+  }, [connected, publicKey, startScanning, stopScanning])
+
+  // Separate unmount-only cleanup: wipe Worker keys when component truly unmounts
+  // Empty deps = runs only on mount/unmount, NOT on dependency changes
+  useEffect(() => {
+    return () => {
       if (workerRef.current) {
         workerRef.current.wipe().catch(() => {})
       }
     }
-  }, [connected, publicKey, startScanning, stopScanning])
+  }, [])
 
   // NOTE: Auto-trigger COMPLETELY DISABLED
   // All deposit types (per, mixer, per-mixer) require manual triggering

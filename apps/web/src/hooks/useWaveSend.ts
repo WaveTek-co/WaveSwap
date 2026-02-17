@@ -154,7 +154,7 @@ export function useWaveSend(): UseWaveSendReturn {
         const registered = await client.isRecipientRegistered(publicKey)
         setIsRegistered(registered)
       } catch (err) {
-        console.error('[WAVETEK] Error checking registration: <ENCRYPTED>')
+        console.error('[WAVETEK] Error checking registration:', err instanceof Error ? err.message : err)
         setIsRegistered(false)
       }
 
@@ -163,7 +163,7 @@ export function useWaveSend(): UseWaveSendReturn {
         const poolRegistered = await client.isPoolRegistryFinalized(publicKey)
         setIsPoolRegistered(poolRegistered)
       } catch (err) {
-        console.error('[WAVETEK] Error checking pool registration: <ENCRYPTED>')
+        console.error('[WAVETEK] Error checking pool registration:', err instanceof Error ? err.message : err)
         setIsPoolRegistered(false)
       }
     }
@@ -422,7 +422,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
         return result
       } catch (err) {
-        console.error('[WAVETEK] send failed <ENCRYPTED>')
+        console.error('[WAVETEK] send failed:', err instanceof Error ? err.message : err)
         const message = err instanceof Error ? err.message : 'Send failed'
         setError(message)
         return { success: false, error: message }
@@ -466,7 +466,7 @@ export function useWaveSend(): UseWaveSendReturn {
           error: result.error,
         }
       } catch (err) {
-        console.error('[WAVETEK] claim failed <ENCRYPTED>')
+        console.error('[WAVETEK] claim failed:', err instanceof Error ? err.message : err)
         const message = err instanceof Error ? err.message : 'Claim failed'
         setError(message)
         return { success: false, error: message }
@@ -521,7 +521,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
         return result.success
       } catch (err) {
-        console.error('[WAVETEK] pool registration failed <ENCRYPTED>')
+        console.error('[WAVETEK] pool registration failed:', err instanceof Error ? err.message : err)
         setError(err instanceof Error ? err.message : 'Registration failed')
         return false
       } finally {
@@ -569,7 +569,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
         return result
       } catch (err) {
-        console.error('[WAVETEK] pool send failed <ENCRYPTED>')
+        console.error('[WAVETEK] pool send failed:', err instanceof Error ? err.message : err)
         const message = err instanceof Error ? err.message : 'Send failed'
         setError(message)
         return { success: false, error: message }
