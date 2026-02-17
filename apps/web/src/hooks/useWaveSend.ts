@@ -318,15 +318,17 @@ export function useWaveSend(): UseWaveSendReturn {
       // Use full X-Wing registration (uploads 1216-byte public key in chunks)
       // With Kora: user signs to prove ownership, Kora pays rent + fees
       // Without Kora: user pays everything (fallback)
-      const result = await client.register(
-        walletAdapter,
-        publicOnlyKeys,
-        undefined,
-        (progress) => {
-          setRegistrationProgress(progress)
-        },
-        gaslessOptions,
-      )
+      const progressCb = (progress: RegistrationProgress) => setRegistrationProgress(progress)
+
+      let result = await client.register(walletAdapter, publicOnlyKeys, undefined, progressCb, gaslessOptions)
+
+      // If Kora gasless failed (program not whitelisted, etc.), retry with user-paid
+      if (!result.success && gaslessOptions && result.error?.includes('Kora')) {
+        console.warn('[WAVETEK] Kora gasless failed, retrying with user-paid registration:', result.error)
+        setRegistrationProgress(null)
+        result = await client.register(walletAdapter, publicOnlyKeys, undefined, progressCb, undefined)
+      }
+
       if (result.success) {
         setIsRegistered(true)
         setRegistrationProgress(null)

@@ -27,6 +27,9 @@ allowed_programs = [
     # WAVETEK Stealth Program (REQUIRED for privacy withdrawals)
     "4jFg8uSh4jWkeoz6itdbsD7GadkTYLwfbyfDeNeB5nFX",
 
+    # WAVETEK Registry Program (REQUIRED for gasless registration)
+    "DgoW9MneWt6B3mBZqDf52csXMtJpgqwaHgP46tPs1tWu",
+
     # MagicBlock Delegation Program (for undelegation)
     "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
 ]
