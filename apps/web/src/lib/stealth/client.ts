@@ -533,7 +533,7 @@ export class WaveStealthClient {
       return { success: true, signature: signatures[signatures.length - 1] };
 
     } catch (error) {
-      console.error('[WAVETEK] registration failed <ENCRYPTED>');
+      console.error('[WAVETEK] registration failed:', error);
       reportProgress('error', 0, chunks.length, error instanceof Error ? error.message : 'Registration failed');
       return {
         success: false,

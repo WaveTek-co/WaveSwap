@@ -219,7 +219,7 @@ export function useWaveSend(): UseWaveSendReturn {
 
       return true
     } catch (err) {
-      console.error('[WAVETEK] worker initialization failed <ENCRYPTED>')
+      console.error('[WAVETEK] worker initialization failed:', err)
       const message = err instanceof Error ? err.message : 'Failed to initialize keys'
       setError(message)
       return false
@@ -332,13 +332,13 @@ export function useWaveSend(): UseWaveSendReturn {
         setRegistrationProgress(null)
         return true
       } else {
-        console.error('[WAVETEK] registration failed <ENCRYPTED>')
+        console.error('[WAVETEK] registration failed:', result.error)
         setError(result.error || 'Registration failed')
         setRegistrationProgress(null)
         return false
       }
     } catch (err) {
-      console.error('[WAVETEK] registration error <ENCRYPTED>')
+      console.error('[WAVETEK] registration error:', err)
       const message = err instanceof Error ? err.message : 'Registration failed'
       setError(message)
       setRegistrationProgress(null)
